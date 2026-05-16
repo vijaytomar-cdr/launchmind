@@ -1,5 +1,6 @@
 # Secrets — NEVER commit these
 .env
+.env.dev
 .env.local
 .env.production
 .env.staging

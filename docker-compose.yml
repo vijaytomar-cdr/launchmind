@@ -21,7 +21,7 @@ services:
       target: build
     ports:
       - "3001:3001"
-    env_file: .env.local
+    env_file: .env.dev
     environment:
       NODE_ENV: development
       PORT: 3001
@@ -45,7 +45,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.scraper
-    env_file: .env.local
+    env_file: .env.dev
     environment:
       NODE_ENV: development
       REDIS_URL: redis://redis:6379

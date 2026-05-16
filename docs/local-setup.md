@@ -7,10 +7,10 @@
 
 ### First time setup
 1. Clone the repo
-2. cp .env.example .env.local — fill in real values
+2. Create .env.dev and fill in real values (see .env.dev in project root)
 3. supabase start — starts local Postgres + Auth on port 54321
 4. docker compose up -d — starts API + scraper + Redis + LocalStack (KMS)
-5. Copy KMS_KEY_ARN printed by LocalStack into .env.local
+5. Copy KMS_KEY_ARN printed by LocalStack into .env.dev
 6. cd backend && npm run db:migrate
 7. cd app && npm install && npm run dev
 

@@ -12,5 +12,5 @@ KEY_ID=$(awslocal kms create-key \
 awslocal kms create-alias \
   --alias-name alias/launchmind-token-key \
   --target-key-id "$KEY_ID"
-echo "[LaunchMind] Add to .env.local:"
+echo "[LaunchMind] Add to .env.dev:"
 echo "KMS_KEY_ARN=arn:aws:kms:us-east-1:000000000000:key/$KEY_ID"
