@@ -1,0 +1,44 @@
+# Secrets — NEVER commit these
+.env
+.env.local
+.env.production
+.env.staging
+*.key
+*.pem
+*.p12
+secrets/
+*_secret*
+*_credentials*
+
+# Dependencies
+node_modules/
+.pnp
+
+# Build output
+dist/
+.next/
+out/
+build/
+
+# Testing
+coverage/
+test-results/
+playwright-report/
+.playwright/
+
+# Local dev state
+.supabase/
+localstack-data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
