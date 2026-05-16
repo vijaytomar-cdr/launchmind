@@ -1,0 +1,19 @@
+##
+## @file Dockerfile.scraper
+## @description Sandboxed Playwright scraper worker.
+##   Runs on internal Docker network only — no direct API access.
+##   Communicates only via BullMQ (Redis).
+##   Resource-limited: 1GB RAM, 1 CPU (set in docker-compose.yml).
+##   A scraper crash CANNOT affect the Fastify API container.
+##
+
+FROM mcr.microsoft.com/playwright:v1.44.0-jammy
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+RUN npx playwright install chromium --with-deps
+RUN groupadd -r scraper && useradd -r -g scraper -u 1002 scraper
+USER scraper
+CMD ["node", "dist/workers/scraperWorker.js"]

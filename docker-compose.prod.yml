@@ -1,0 +1,78 @@
+##
+## @file docker-compose.prod.yml
+## @description Production Docker Compose for Oracle Cloud VM.
+##   Differences from local docker-compose.yml:
+##   - Uses pre-built image from OCIR (not built locally)
+##   - Nginx reverse proxy in front of Fastify
+##   - Redis container (replaces Upstash for cost saving)
+##   - No LocalStack (uses real AWS KMS)
+##   - SSL terminated by Nginx + Let's Encrypt
+##
+version: "3.9"
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    image: ${OCIR_REGION}.ocir.io/${OCIR_NAMESPACE}/launchmind-api:latest
+    env_file: /opt/launchmind/.env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - "3001"
+    restart: unless-stopped
+
+  scraper:
+    image: ${OCIR_REGION}.ocir.io/${OCIR_NAMESPACE}/launchmind-scraper:latest
+    env_file: /opt/launchmind/.env.production
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: "1.0"
+    networks:
+      - internal
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - internal
+      - default
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+
+networks:
+  internal:
+    internal: true
+  default:

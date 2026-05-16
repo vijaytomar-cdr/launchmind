@@ -1,0 +1,42 @@
+{
+  "name": "launchmind-api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:migrate": "supabase db push",
+    "db:reset": "supabase db reset",
+    "lint": "eslint src --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^4.27.0",
+    "@fastify/jwt": "^8.0.0",
+    "@fastify/cors": "^9.0.0",
+    "@fastify/rate-limit": "^9.0.0",
+    "zod": "^3.22.4",
+    "@supabase/supabase-js": "^2.43.0",
+    "bullmq": "^5.7.0",
+    "ioredis": "^5.3.2",
+    "@aws-sdk/client-kms": "^3.575.0",
+    "resend": "^3.2.0",
+    "@anthropic-ai/sdk": "^0.21.0",
+    "@sentry/node": "^8.0.0",
+    "cheerio": "^1.0.0",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "tsx": "^4.11.0",
+    "vitest": "^1.6.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-security": "^3.0.0",
+    "@types/node": "^20.12.0"
+  }
+}

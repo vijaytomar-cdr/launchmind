@@ -1,0 +1,55 @@
+##
+## @file deploy.yml
+## @description Builds Docker images, pushes to Oracle Container Registry (OCIR),
+##   then SSHs into the Oracle Cloud VM and runs oracle-deploy.sh.
+##   Only runs on merge to main (not on PRs).
+##
+## @secrets required in GitHub Actions:
+##   OCIR_USERNAME       Oracle Cloud username (format: tenancy/user@email)
+##   OCIR_TOKEN          Oracle Cloud auth token (from OCI console)
+##   OCIR_REGION         e.g. ap-mumbai-1 or us-ashburn-1
+##   OCIR_NAMESPACE      OCI object storage namespace
+##   ORACLE_VM_IP        Public IP of your Oracle Cloud VM
+##   ORACLE_VM_SSH_KEY   Private SSH key for the VM (store as GitHub secret)
+##
+name: Deploy
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Oracle Container Registry
+        run: |
+          echo "${{ secrets.OCIR_TOKEN }}" | docker login \
+            ${{ secrets.OCIR_REGION }}.ocir.io \
+            -u "${{ secrets.OCIR_USERNAME }}" \
+            --password-stdin
+
+      - name: Build and push API image
+        run: |
+          docker build -t ${{ secrets.OCIR_REGION }}.ocir.io/${{ secrets.OCIR_NAMESPACE }}/launchmind-api:latest \
+            -f backend/Dockerfile backend/
+          docker push ${{ secrets.OCIR_REGION }}.ocir.io/${{ secrets.OCIR_NAMESPACE }}/launchmind-api:latest
+
+      - name: Build and push scraper image
+        run: |
+          docker build -t ${{ secrets.OCIR_REGION }}.ocir.io/${{ secrets.OCIR_NAMESPACE }}/launchmind-scraper:latest \
+            -f backend/Dockerfile.scraper backend/
+          docker push ${{ secrets.OCIR_REGION }}.ocir.io/${{ secrets.OCIR_NAMESPACE }}/launchmind-scraper:latest
+
+      - name: Deploy to Oracle Cloud VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ORACLE_VM_IP }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          script: |
+            cd /opt/launchmind
+            export OCIR_REGION=${{ secrets.OCIR_REGION }}
+            export OCIR_NAMESPACE=${{ secrets.OCIR_NAMESPACE }}
+            bash oracle-deploy.sh

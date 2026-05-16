@@ -1,0 +1,97 @@
+##
+## @file docker-compose.yml
+## @description Local development environment only.
+##   Mirrors production topology: API + scraper worker + Redis + AWS KMS (via LocalStack).
+##   Production uses: Oracle Cloud VM (API + Redis) + AWS KMS (real) + Vercel (frontend).
+##
+## Usage:
+##   docker compose up -d          Start all services
+##   docker compose logs -f api    Tail API logs
+##   docker compose down           Stop all
+##   docker compose down -v        Stop + wipe volumes
+##
+
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: build
+    ports:
+      - "3001:3001"
+    env_file: .env.local
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_KMS_ENDPOINT: http://localstack:4566
+    depends_on:
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src
+    networks:
+      - default
+    restart: unless-stopped
+
+  scraper:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.scraper
+    env_file: .env.local
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: "1.0"
+    networks:
+      - internal
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - internal
+      - default
+    restart: unless-stopped
+
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: kms
+      DEFAULT_REGION: us-east-1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh
+    restart: unless-stopped
+
+networks:
+  internal:
+    internal: true
+  default:

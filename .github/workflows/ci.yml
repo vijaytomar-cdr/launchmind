@@ -1,0 +1,63 @@
+##
+## @file ci.yml
+## @description CI pipeline. Runs on every push and PR.
+##   Blocks merge on: SAST findings, HIGH+ CVEs, failing tests.
+##
+name: CI
+on:
+  push:
+    branches: [main, staging, dev]
+  pull_request:
+    branches: [main, staging, dev]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install
+        working-directory: backend
+        run: npm ci
+      - name: Type check
+        working-directory: backend
+        run: npm run type-check
+      - name: SAST — Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: p/nodejs-security p/typescript
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+      - name: Dependency scan
+        working-directory: backend
+        run: npm audit --audit-level=high
+      - name: Tests
+        working-directory: backend
+        run: npm run test:coverage
+        env:
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install
+        working-directory: app
+        run: npm ci
+      - name: Type check
+        working-directory: app
+        run: npx tsc --noEmit
+      - name: Dependency scan
+        working-directory: app
+        run: npm audit --audit-level=high
