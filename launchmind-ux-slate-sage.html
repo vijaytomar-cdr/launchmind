@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LaunchMind — Slate & Sage UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<style>
+/* ══════════════════════════════════════════════
+   SLATE & SAGE DESIGN TOKENS
+══════════════════════════════════════════════ */
+:root {
+  /* Backgrounds */
+  --page:    #f2f3f6;
+  --surface: #ffffff;
+  --raised:  #eceef3;
+  --sidebar: #28304a;
+  --sidebar2: #323c58;
+  /* Borders */
+  --border:  rgba(0,0,0,0.07);
+  --border2: rgba(0,0,0,0.12);
+  --s-border: rgba(255,255,255,0.07);
+  --s-border2: rgba(255,255,255,0.12);
+  /* Text */
+  --ink:     #1b1f2e;
+  --ink2:    #626880;
+  --ink3:    #9ca4be;
+  --s-text:  rgba(255,255,255,0.88);
+  --s-text2: rgba(255,255,255,0.42);
+  --s-text3: rgba(255,255,255,0.22);
+  /* Sage (primary) */
+  --sage:    #059669;
+  --sage-l:  #34d399;
+  --sage-d:  rgba(5,150,105,0.12);
+  --sage-b:  rgba(5,150,105,0.28);
+  /* Indigo (accent) */
+  --indigo:  #4f46e5;
+  --indigo-d: rgba(79,70,229,0.10);
+  --indigo-b: rgba(79,70,229,0.22);
+  /* Amber (India badge) */
+  --amber:   #d97706;
+  --amber-d: rgba(217,119,6,0.10);
+  --amber-b: rgba(217,119,6,0.22);
+  /* Red (danger/kill) */
+  --red:     #dc2626;
+  --red-d:   rgba(220,38,38,0.09);
+  --red-b:   rgba(220,38,38,0.22);
+  /* Radius */
+  --r:  10px;
+  --r2:  6px;
+  --r3:  4px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--page)}
+body{font-family:'DM Sans',sans-serif;font-size:13px;color:var(--ink);line-height:1.5}
+
+/* ── SCREEN NAV ── */
+.screen-nav{
+  position:sticky;top:0;z-index:1000;
+  display:flex;gap:4px;padding:10px 14px;
+  background:#28304a;border-bottom:1px solid rgba(255,255,255,0.07);
+  overflow-x:auto;scrollbar-width:none;
+}
+.screen-nav::-webkit-scrollbar{display:none}
+.snav{
+  padding:5px 13px;border-radius:99px;font-size:11px;font-weight:500;
+  cursor:pointer;border:1px solid rgba(255,255,255,0.12);
+  background:transparent;color:rgba(255,255,255,0.45);
+  white-space:nowrap;transition:all .15s;font-family:'DM Sans',sans-serif;
+}
+.snav:hover{color:rgba(255,255,255,0.8);border-color:rgba(255,255,255,0.22)}
+.snav.on{background:rgba(52,211,153,0.15);border-color:rgba(52,211,153,0.35);color:#34d399}
+
+/* ── SCREENS ── */
+.screen{display:none}
+.screen.on{display:flex;flex-direction:column}
+
+/* ── AUTH LAYOUT ── */
+.auth-wrap{
+  min-height:calc(100vh - 44px);
+  display:flex;align-items:center;justify-content:center;
+  background:var(--page);padding:40px 20px;
+}
+.auth-card{
+  width:360px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r);padding:32px;
+}
+.auth-logo{
+  font-family:'Syne',sans-serif;font-size:22px;font-weight:700;
+  letter-spacing:-0.03em;color:var(--ink);text-align:center;margin-bottom:4px;
+}
+.auth-logo span{color:var(--sage)}
+.auth-sub{text-align:center;color:var(--ink3);font-size:12px;margin-bottom:26px}
+.form-group{margin-bottom:14px}
+.form-label{font-size:11px;font-weight:500;color:var(--ink2);margin-bottom:5px;display:block}
+.form-input{
+  width:100%;padding:9px 12px;
+  background:var(--raised);border:1px solid var(--border2);
+  border-radius:var(--r2);color:var(--ink);font-size:13px;font-family:'DM Sans',sans-serif;
+  outline:none;transition:border .15s;
+}
+.form-input:focus{border-color:var(--sage-b);box-shadow:0 0 0 3px var(--sage-d)}
+.btn-full{
+  width:100%;padding:10px;border-radius:var(--r2);
+  font-size:13px;font-weight:500;cursor:pointer;
+  background:var(--sage);color:#fff;border:none;
+  font-family:'DM Sans',sans-serif;transition:opacity .15s;margin-top:4px;
+}
+.btn-full:hover{opacity:.9}
+.btn-full.ghost{background:transparent;border:1px solid var(--border2);color:var(--ink2)}
+.btn-full.ghost:hover{background:var(--raised)}
+.divider{
+  text-align:center;font-size:11px;color:var(--ink3);
+  margin:14px 0;position:relative;
+}
+.divider::before,.divider::after{
+  content:'';position:absolute;top:50%;width:42%;height:1px;background:var(--border);
+}
+.divider::before{left:0}.divider::after{right:0}
+.auth-link{font-size:11px;text-align:center;color:var(--ink3);margin-top:16px}
+.auth-link a{color:var(--sage);cursor:pointer}
+.mfa-boxes{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:16px 0}
+.mfa-box{
+  background:var(--raised);border:1px solid var(--border2);
+  border-radius:var(--r2);height:42px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;font-weight:500;font-family:'DM Mono',monospace;
+}
+.mfa-box.filled{border-color:var(--sage-b);color:var(--sage);background:var(--sage-d)}
+.mfa-box.cursor{border-color:var(--sage);box-shadow:0 0 0 3px var(--sage-d);color:var(--sage)}
+
+/* ── APP SHELL ── */
+.app{display:flex;height:calc(100vh - 44px);overflow:hidden}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  width:196px;flex-shrink:0;
+  background:var(--sidebar);
+  display:flex;flex-direction:column;
+  overflow-y:auto;scrollbar-width:none;
+}
+.sidebar::-webkit-scrollbar{display:none}
+.sb-logo{
+  padding:18px 16px 14px;
+  border-bottom:1px solid var(--s-border);
+}
+.sb-logo-text{
+  font-family:'Syne',sans-serif;font-size:16px;font-weight:700;
+  letter-spacing:-0.02em;color:var(--s-text);
+}
+.sb-logo-text span{color:#34d399}
+.sb-plan{
+  display:inline-block;font-size:9px;font-weight:500;
+  padding:2px 7px;border-radius:99px;margin-left:5px;vertical-align:middle;
+  background:rgba(52,211,153,0.14);border:1px solid rgba(52,211,153,0.28);color:#34d399;
+}
+.sb-section{
+  padding:12px 16px 4px;
+  font-size:9px;font-weight:500;color:var(--s-text3);
+  text-transform:uppercase;letter-spacing:.07em;
+}
+.sb-item{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 10px;margin:1px 6px;
+  border-radius:var(--r2);font-size:12px;
+  color:var(--s-text2);cursor:pointer;transition:all .12s;
+  border:1px solid transparent;
+}
+.sb-item:hover{background:rgba(255,255,255,0.06);color:var(--s-text)}
+.sb-item.active{
+  background:rgba(5,150,105,0.18);
+  border-color:rgba(52,211,153,0.28);
+  color:#34d399;
+}
+.sb-item i{font-size:14px;flex-shrink:0}
+.sb-foot{margin-top:auto;padding:12px}
+.token-wrap{
+  background:rgba(255,255,255,0.05);
+  border-radius:var(--r2);padding:8px 10px;margin-bottom:8px;
+}
+.token-row{display:flex;justify-content:space-between;font-size:9px;margin-bottom:5px}
+.token-row span:first-child{color:var(--s-text3)}
+.token-row span:last-child{color:#34d399;font-family:'DM Mono',monospace}
+.token-track{height:3px;background:rgba(255,255,255,0.08);border-radius:2px}
+.token-fill{height:3px;background:var(--sage);border-radius:2px}
+.founder-row{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 8px;border-radius:var(--r2);cursor:pointer;
+}
+.founder-row:hover{background:rgba(255,255,255,0.05)}
+.avatar{
+  width:28px;height:28px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:600;
+  background:rgba(52,211,153,0.14);border:1px solid rgba(52,211,153,0.28);color:#34d399;
+}
+.founder-name{font-size:11px;font-weight:500;color:var(--s-text)}
+.founder-email{font-size:9px;color:var(--s-text3)}
+
+/* ── MAIN AREA ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--page)}
+.topbar{
+  flex-shrink:0;padding:13px 20px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.topbar-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.topbar-sub{font-size:11px;color:var(--ink3);margin-top:1px}
+.topbar-sub .hl{color:var(--sage)}
+.topbar-actions{display:flex;gap:8px;align-items:center}
+.content{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+
+/* ── COMPONENTS ── */
+.badge{
+  display:inline-flex;align-items:center;gap:3px;
+  font-size:10px;font-weight:500;padding:2px 8px;border-radius:99px;
+}
+.badge-sage{background:var(--sage-d);border:1px solid var(--sage-b);color:#046c4e}
+.badge-indigo{background:var(--indigo-d);border:1px solid var(--indigo-b);color:#3730a3}
+.badge-amber{background:var(--amber-d);border:1px solid var(--amber-b);color:#92400e}
+.badge-red{background:var(--red-d);border:1px solid var(--red-b);color:#991b1b}
+.badge-gray{background:var(--raised);border:1px solid var(--border2);color:var(--ink2)}
+.badge-new{background:rgba(52,211,153,0.14);border:1px solid rgba(52,211,153,0.3);color:#059669}
+
+.btn{
+  padding:6px 14px;border-radius:var(--r2);font-size:12px;font-weight:500;
+  cursor:pointer;border:1px solid var(--border2);background:transparent;
+  color:var(--ink2);font-family:'DM Sans',sans-serif;transition:all .12s;
+}
+.btn:hover{background:var(--raised);border-color:var(--border2)}
+.btn-sage{background:var(--sage-d);border-color:var(--sage-b);color:var(--sage)}
+.btn-sage:hover{background:rgba(5,150,105,0.18)}
+.btn-solid{background:var(--sage);color:#fff;border:none}
+.btn-solid:hover{opacity:.88}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px}
+.card-hi{border-color:var(--sage-b)}
+.card-title{font-size:12px;font-weight:500;color:var(--ink);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+
+.metric{background:var(--raised);border-radius:var(--r2);padding:11px 13px}
+.metric-label{font-size:9px;color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.metric-val{font-size:20px;font-weight:500;line-height:1;color:var(--ink)}
+.metric-delta{font-size:10px;margin-top:4px}
+.up{color:var(--sage)}.dn{color:var(--red)}.neu{color:var(--ink3)}
+
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+.data-table{width:100%;border-collapse:collapse}
+.data-table th{
+  text-align:left;padding:8px 10px;
+  font-size:9px;font-weight:500;color:var(--ink3);
+  text-transform:uppercase;letter-spacing:.05em;
+  background:var(--raised);border-bottom:1px solid var(--border);
+}
+.data-table td{padding:9px 10px;border-bottom:1px solid var(--border);font-size:12px;color:var(--ink2)}
+.data-table tr:last-child td{border-bottom:none}
+.data-table tbody tr:hover td{background:var(--raised)}
+
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
+
+.brief-strip{padding-left:9px;margin-bottom:9px;border-left-width:2px;border-left-style:solid;border-radius:0}
+.bs-label{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:2px}
+.bs-text{font-size:11px;color:var(--ink);line-height:1.55}
+
+.steps{display:flex;align-items:center;gap:0;margin-bottom:20px}
+.step{display:flex;align-items:center;gap:5px}
+.step-num{
+  width:22px;height:22px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:500;border:1px solid var(--border2);color:var(--ink3);flex-shrink:0;
+}
+.step.done .step-num{background:var(--sage-d);border-color:var(--sage-b);color:var(--sage)}
+.step.active .step-num{background:var(--sage);color:#fff;border-color:var(--sage)}
+.step-name{font-size:11px;color:var(--ink3)}
+.step.active .step-name{color:var(--ink)}
+.step-line{flex:1;height:1px;background:var(--border);margin:0 8px}
+
+.tabs{display:flex;gap:2px;background:var(--raised);padding:3px;border-radius:var(--r2);margin-bottom:14px}
+.tab{flex:1;text-align:center;padding:5px 8px;border-radius:var(--r3);font-size:11px;cursor:pointer;color:var(--ink3);transition:all .12s}
+.tab.active{background:var(--surface);color:var(--ink);font-weight:500;border:1px solid var(--border)}
+
+.prog-track{height:4px;background:var(--raised);border-radius:2px;overflow:hidden}
+.prog-fill{height:4px;border-radius:2px}
+
+.icp-row{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)}
+.icp-row:last-child{border-bottom:none}
+.icp-key{font-size:11px;color:var(--ink3);width:120px;flex-shrink:0}
+.icp-val{font-size:11px;color:var(--ink);text-align:right;flex:1}
+
+.ch-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;display:flex;align-items:center;gap:12px}
+.ch-card.connected{border-color:var(--sage-b)}
+.ch-icon{width:36px;height:36px;border-radius:var(--r2);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.ch-info{flex:1}
+.ch-name{font-size:13px;font-weight:500;color:var(--ink)}
+.ch-status{font-size:10px;color:var(--ink3);margin-top:1px}
+
+.toggle{width:34px;height:19px;border-radius:99px;cursor:pointer;position:relative;flex-shrink:0}
+.toggle-knob{position:absolute;width:15px;height:15px;background:#fff;border-radius:50%;top:2px;transition:left .15s}
+.toggle.on{background:var(--sage)}.toggle.off{background:var(--border2)}
+.toggle.on .toggle-knob{left:17px}.toggle.off .toggle-knob{left:2px}
+
+.price-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px}
+.price-card.current{border-color:var(--indigo-b);border-width:1.5px}
+.price-name{font-size:14px;font-weight:600;font-family:'Syne',sans-serif;color:var(--ink);margin-bottom:3px}
+.price-amt{font-size:24px;font-weight:500;color:var(--ink);line-height:1}
+.price-inr{font-size:11px;color:var(--ink3);margin-top:2px}
+.pf{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink2);margin-top:6px}
+.pf i{font-size:12px}
+.pf.yes i{color:var(--sage)}.pf.no{color:var(--ink3)}.pf.no i{color:var(--ink3)}
+
+.approval-bar{
+  background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.22);
+  border-radius:var(--r2);padding:9px 13px;
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;
+}
+.approval-bar span{font-size:12px;color:var(--amber)}
+
+.asset-block{
+  background:var(--raised);border-radius:var(--r2);padding:10px 12px;margin-bottom:8px;
+}
+.asset-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.asset-body{
+  font-size:11px;color:var(--ink);line-height:1.6;
+  background:var(--surface);border-radius:var(--r3);padding:9px 11px;
+  border:1px solid var(--border);
+}
+
+.insight-box{
+  background:var(--indigo-d);border:1px solid var(--indigo-b);
+  border-radius:var(--r2);padding:10px 12px;
+}
+.insight-label{font-size:9px;color:var(--indigo);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.insight-text{font-size:11px;color:var(--ink);line-height:1.7}
+
+.hook-bar{
+  background:var(--sage-d);border:1px solid var(--sage-b);
+  border-radius:var(--r2);padding:9px 13px;margin-bottom:14px;
+  display:flex;align-items:center;gap:10px;
+}
+.hook-bar i{color:var(--sage);font-size:15px;flex-shrink:0}
+.hook-bar span{font-size:11px;color:var(--ink)}
+.hook-bar strong{color:var(--sage)}
+
+.brief-hist-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--border);font-size:11px;
+}
+.brief-hist-row:last-child{border-bottom:none}
+
+.input{
+  width:100%;padding:8px 12px;
+  background:var(--raised);border:1px solid var(--border2);
+  border-radius:var(--r2);color:var(--ink);font-size:13px;
+  font-family:'DM Sans',sans-serif;outline:none;
+}
+.input:focus{border-color:var(--sage-b);box-shadow:0 0 0 3px var(--sage-d)}
+
+.timeline-col{flex:1;padding:0 5px}
+.timeline-col:first-child{padding-left:0}.timeline-col:last-child{padding-right:0}
+.timeline-head{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:7px;text-align:center}
+.timeline-card{background:var(--raised);border:1px solid var(--border);border-radius:var(--r2);padding:9px 10px;margin-bottom:5px}
+.tc-label{font-size:9px;color:var(--ink3);margin-bottom:2px}
+.tc-val{font-size:10px;color:var(--ink)}
+
+.security-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
+.security-row:last-child{border-bottom:none}
+.security-row-title{font-size:12px;color:var(--ink)}
+.security-row-sub{font-size:10px;color:var(--ink3);margin-top:1px}
+
+.danger-zone{border:1px solid var(--red-b);border-radius:var(--r);padding:14px 16px}
+</style>
+</head>
+<body>
+
+<!-- SCREEN NAV -->
+<div class="screen-nav" id="nav">
+  <button class="snav on" onclick="go('login')">Login</button>
+  <button class="snav" onclick="go('signup')">Sign up</button>
+  <button class="snav" onclick="go('mfa')">MFA</button>
+  <button class="snav" onclick="go('dashboard')">Dashboard</button>
+  <button class="snav" onclick="go('discover')">Discover</button>
+  <button class="snav" onclick="go('confirm')">Confirm ICP</button>
+  <button class="snav" onclick="go('strategy')">Strategy</button>
+  <button class="snav" onclick="go('campaigns')">Campaigns</button>
+  <button class="snav" onclick="go('briefs')">Weekly brief</button>
+  <button class="snav" onclick="go('channels')">Channels</button>
+  <button class="snav" onclick="go('billing')">Billing</button>
+  <button class="snav" onclick="go('settings')">Settings</button>
+</div>
+
+<!-- ══════════════════════════════════════════
+     1. LOGIN
+══════════════════════════════════════════ -->
+<div class="screen on" id="s-login">
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">Launch<span>Mind</span></div>
+    <div class="auth-sub">Your AI marketing operating system</div>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input class="form-input" value="vijay@clientpulse.io" type="email" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-input" value="••••••••••" type="password" />
+    </div>
+    <div style="text-align:right;margin-bottom:14px">
+      <a style="font-size:11px;color:var(--sage);cursor:pointer">Forgot password?</a>
+    </div>
+    <button class="btn-full" onclick="go('mfa')">Sign in →</button>
+    <div class="divider">or</div>
+    <button class="btn-full ghost" style="display:flex;align-items:center;justify-content:center;gap:8px">
+      <i class="ti ti-brand-google" style="font-size:14px" aria-hidden="true"></i> Continue with Google
+    </button>
+    <div class="auth-link">Don't have an account? <a onclick="go('signup')">Sign up free</a></div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     2. SIGN UP
+══════════════════════════════════════════ -->
+<div class="screen" id="s-signup">
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">Launch<span>Mind</span></div>
+    <div class="auth-sub">Start marketing your app in minutes — free</div>
+    <div class="form-group">
+      <label class="form-label">Full name</label>
+      <input class="form-input" placeholder="Vijay Kumar" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input class="form-input" placeholder="you@yourapp.com" type="email" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-input" placeholder="Min 12 characters" type="password" />
+    </div>
+    <button class="btn-full" onclick="go('mfa')">Create free account →</button>
+    <div class="divider">or</div>
+    <button class="btn-full ghost" style="display:flex;align-items:center;justify-content:center;gap:8px">
+      <i class="ti ti-brand-google" style="font-size:14px" aria-hidden="true"></i> Continue with Google
+    </button>
+    <div style="font-size:10px;color:var(--ink3);text-align:center;margin-top:12px">By signing up you agree to our Terms &amp; Privacy Policy</div>
+    <div class="auth-link">Already have an account? <a onclick="go('login')">Sign in</a></div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     3. MFA
+══════════════════════════════════════════ -->
+<div class="screen" id="s-mfa">
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="width:48px;height:48px;border-radius:50%;background:var(--sage-d);border:1px solid var(--sage-b);display:flex;align-items:center;justify-content:center;margin:0 auto 12px">
+        <i class="ti ti-shield-check" style="color:var(--sage);font-size:22px" aria-hidden="true"></i>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--ink)">Two-factor authentication</div>
+      <div style="font-size:12px;color:var(--ink3);margin-top:4px">Enter the 6-digit code from your authenticator app</div>
+    </div>
+    <div class="mfa-boxes">
+      <div class="mfa-box filled">3</div>
+      <div class="mfa-box filled">8</div>
+      <div class="mfa-box filled">4</div>
+      <div class="mfa-box cursor"></div>
+      <div class="mfa-box"></div>
+      <div class="mfa-box"></div>
+    </div>
+    <button class="btn-full" onclick="go('dashboard')">Verify →</button>
+    <div style="text-align:center;font-size:11px;color:var(--ink3);margin-top:14px">
+      Having trouble? <span style="color:var(--sage);cursor:pointer">Use a backup code</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     4. DASHBOARD
+══════════════════════════════════════════ -->
+<div class="screen" id="s-dashboard">
+<div class="app">
+  <!-- sidebar -->
+  <div class="sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div>
+    </div>
+    <div class="sb-section">Products</div>
+    <div class="sb-item active" onclick="go('dashboard')"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Dashboard</div>
+    <div class="sb-item" onclick="go('discover')"><i class="ti ti-search" aria-hidden="true"></i>Add product</div>
+    <div class="sb-section">Marketing</div>
+    <div class="sb-item" onclick="go('strategy')"><i class="ti ti-route" aria-hidden="true"></i>Strategy</div>
+    <div class="sb-item" onclick="go('campaigns')"><i class="ti ti-speakerphone" aria-hidden="true"></i>Campaigns</div>
+    <div class="sb-item" onclick="go('briefs')"><i class="ti ti-file-analytics" aria-hidden="true"></i>Weekly brief</div>
+    <div class="sb-section">Connect</div>
+    <div class="sb-item" onclick="go('channels')"><i class="ti ti-plug" aria-hidden="true"></i>Channels</div>
+    <div class="sb-section">Account</div>
+    <div class="sb-item" onclick="go('billing')"><i class="ti ti-credit-card" aria-hidden="true"></i>Billing</div>
+    <div class="sb-item" onclick="go('settings')"><i class="ti ti-settings" aria-hidden="true"></i>Settings</div>
+    <div class="sb-foot">
+      <div class="token-wrap">
+        <div class="token-row"><span>Tokens</span><span>730 / 1000</span></div>
+        <div class="token-track"><div class="token-fill" style="width:73%"></div></div>
+      </div>
+      <div class="founder-row">
+        <div class="avatar">VK</div>
+        <div><div class="founder-name">Vijay Kumar</div><div class="founder-email">vijay@clientpulse.io</div></div>
+      </div>
+    </div>
+  </div>
+  <!-- main -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Dashboard</div>
+        <div class="topbar-sub">Week of 12 May 2026 · <span class="hl">Sunday brief delivered</span></div>
+      </div>
+      <div class="topbar-actions">
+        <span class="badge badge-sage"><i class="ti ti-circle-filled" style="font-size:7px" aria-hidden="true"></i>2 active</span>
+        <button class="btn btn-sage" onclick="go('discover')">+ Add product</button>
+      </div>
+    </div>
+    <div class="content">
+      <div class="grid-4">
+        <div class="metric"><div class="metric-label">Total installs</div><div class="metric-val" style="color:var(--sage)">847</div><div class="metric-delta up">↑ 34% this week</div></div>
+        <div class="metric"><div class="metric-label">Avg CPI</div><div class="metric-val">$1.82</div><div class="metric-delta up">↓ 12% vs last week</div></div>
+        <div class="metric"><div class="metric-label">Active campaigns</div><div class="metric-val" style="color:var(--indigo)">6</div><div class="metric-delta neu">3 USA · 3 India</div></div>
+        <div class="metric"><div class="metric-label">Top channel</div><div class="metric-val" style="font-size:15px;margin-top:2px">WhatsApp</div><div class="metric-delta up">68% of installs</div></div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Products</div>
+          <div style="background:var(--raised);border-radius:var(--r2);padding:9px 10px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="go('strategy')">
+            <div style="display:flex;align-items:center;gap:9px">
+              <div style="width:30px;height:30px;border-radius:var(--r2);background:var(--sage-d);border:1px solid var(--sage-b);display:flex;align-items:center;justify-content:center;font-size:13px">📱</div>
+              <div><div style="font-size:12px;font-weight:500;color:var(--ink)">ClientPulse</div><div style="font-size:9px;color:var(--ink3)">CRM · USA + India</div></div>
+            </div>
+            <div style="text-align:right"><div style="font-size:10px;color:var(--sage);font-weight:500">+34% installs</div><span class="badge badge-sage" style="margin-top:3px;display:inline-block">Active</span></div>
+          </div>
+          <div style="background:var(--raised);border-radius:var(--r2);padding:9px 10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+            <div style="display:flex;align-items:center;gap:9px">
+              <div style="width:30px;height:30px;border-radius:var(--r2);background:var(--indigo-d);border:1px solid var(--indigo-b);display:flex;align-items:center;justify-content:center;font-size:13px">🎯</div>
+              <div><div style="font-size:12px;font-weight:500;color:var(--ink)">Allignx</div><div style="font-size:9px;color:var(--ink3)">Productivity · India</div></div>
+            </div>
+            <div style="text-align:right"><div style="font-size:10px;color:var(--indigo);font-weight:500">+18% installs</div><span class="badge badge-indigo" style="margin-top:3px;display:inline-block">Active</span></div>
+          </div>
+        </div>
+        <div class="card card-hi" style="cursor:pointer" onclick="go('briefs')">
+          <div class="card-title">Sunday brief · May 11 <span class="badge badge-new">New</span></div>
+          <div class="brief-strip" style="border-left-color:var(--sage)"><div class="bs-label">What worked</div><div class="bs-text">WhatsApp pain-first hook drove 68% of installs. "Stop chasing fees" outperformed every other message 4:1.</div></div>
+          <div class="brief-strip" style="border-left-color:var(--red)"><div class="bs-label">Kill</div><div class="bs-text">LinkedIn — 2 installs in 3 weeks at $48 CPI. Pausing immediately.</div></div>
+          <div class="brief-strip" style="border-left-color:var(--indigo)"><div class="bs-label">Next 7 days</div><div class="bs-text">Send WhatsApp broadcast Tue · Rewrite App Store subtitle · Request 5 reviews</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Channel performance · this week <span class="badge badge-gray" style="font-weight:400">ClientPulse</span></div>
+        <table class="data-table">
+          <thead><tr><th>Channel</th><th>Market</th><th>Installs</th><th>CPI</th><th>CTR</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><span class="dot" style="background:var(--sage)"></span>WhatsApp</td><td><span class="badge badge-amber">India</span></td><td style="color:var(--sage);font-weight:500">423</td><td>$0.82</td><td>4.2%</td><td><span class="badge badge-sage">Scaling</span></td></tr>
+            <tr><td><span class="dot" style="background:var(--indigo)"></span>Google UAC</td><td><span class="badge badge-amber">India</span></td><td>198</td><td>$1.44</td><td>2.8%</td><td><span class="badge badge-sage">Active</span></td></tr>
+            <tr><td><span class="dot" style="background:var(--sage)"></span>Meta Ads</td><td><span class="badge badge-sage">USA</span></td><td>156</td><td>$2.90</td><td>1.9%</td><td><span class="badge badge-sage">Active</span></td></tr>
+            <tr><td><span class="dot" style="background:var(--ink3)"></span>LinkedIn</td><td><span class="badge badge-sage">USA</span></td><td style="color:var(--red)">2</td><td>$48.00</td><td>0.3%</td><td><span class="badge badge-red">Pausing</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     5. DISCOVER
+══════════════════════════════════════════ -->
+<div class="screen" id="s-discover">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Products</div>
+    <div class="sb-item" onclick="go('dashboard')"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Dashboard</div>
+    <div class="sb-item active"><i class="ti ti-search" aria-hidden="true"></i>Add product</div>
+    <div class="sb-section">Marketing</div>
+    <div class="sb-item" onclick="go('strategy')"><i class="ti ti-route" aria-hidden="true"></i>Strategy</div>
+    <div class="sb-item" onclick="go('campaigns')"><i class="ti ti-speakerphone" aria-hidden="true"></i>Campaigns</div>
+    <div class="sb-item" onclick="go('briefs')"><i class="ti ti-file-analytics" aria-hidden="true"></i>Weekly brief</div>
+    <div class="sb-section">Connect</div>
+    <div class="sb-item" onclick="go('channels')"><i class="ti ti-plug" aria-hidden="true"></i>Channels</div>
+    <div class="sb-foot">
+      <div class="token-wrap"><div class="token-row"><span>Tokens</span><span>730 / 1000</span></div><div class="token-track"><div class="token-fill" style="width:73%"></div></div></div>
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar"><div class="topbar-title">Add a new product</div></div>
+    <div class="content" style="max-width:600px;margin:0 auto;width:100%">
+      <div class="steps">
+        <div class="step active"><div class="step-num">1</div><span class="step-name">Discover</span></div>
+        <div class="step-line"></div>
+        <div class="step"><div class="step-num">2</div><span class="step-name">Confirm ICP</span></div>
+        <div class="step-line"></div>
+        <div class="step"><div class="step-num">3</div><span class="step-name">Strategy</span></div>
+        <div class="step-line"></div>
+        <div class="step"><div class="step-num">4</div><span class="step-name">Launch</span></div>
+      </div>
+      <div class="card">
+        <div style="font-size:14px;font-weight:500;color:var(--ink);margin-bottom:3px;font-family:'Syne',sans-serif">Paste your App Store or Play Store URL</div>
+        <div style="font-size:12px;color:var(--ink2);margin-bottom:16px;line-height:1.55">LaunchMind scrapes your app, analyses reviews, identifies competitors, and builds your ICP brief — automatically.</div>
+        <div style="display:flex;gap:8px">
+          <input class="input" value="https://play.google.com/store/apps/details?id=com.clientpulse" style="flex:1" />
+          <button class="btn btn-sage" style="white-space:nowrap;padding:8px 16px" onclick="go('confirm')">Analyse <i class="ti ti-arrow-right" aria-hidden="true"></i></button>
+        </div>
+        <div style="display:flex;gap:7px;margin-top:10px">
+          <span style="font-size:10px;padding:3px 10px;border-radius:99px;background:var(--sage-d);border:1px solid var(--sage-b);color:var(--sage);display:flex;align-items:center;gap:4px"><i class="ti ti-brand-google-play" style="font-size:11px" aria-hidden="true"></i>Play Store detected</span>
+          <span style="font-size:10px;padding:3px 10px;border-radius:99px;background:var(--raised);border:1px solid var(--border);color:var(--ink3);display:flex;align-items:center;gap:4px"><i class="ti ti-brand-apple" style="font-size:11px" aria-hidden="true"></i>App Store</span>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--ink3);margin:4px 0">— or search by app name —</div>
+      <div style="display:flex;gap:8px">
+        <input class="input" placeholder="Search app name, e.g. TutorBird..." style="flex:1" />
+        <button class="btn" style="padding:8px 12px"><i class="ti ti-search" aria-hidden="true"></i></button>
+      </div>
+      <div class="card" style="background:var(--raised);border-color:transparent">
+        <div style="font-size:11px;font-weight:500;color:var(--ink2);margin-bottom:10px">What LaunchMind extracts</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>App metadata + ASO keywords</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Top 50 reviews + sentiment</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Top 5 competitor apps</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Pain points + copy signals</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>ICP brief (fully editable)</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>USA + India market fit</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     6. CONFIRM ICP
+══════════════════════════════════════════ -->
+<div class="screen" id="s-confirm">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Products</div>
+    <div class="sb-item active"><i class="ti ti-search" aria-hidden="true"></i>Add product</div>
+    <div class="sb-foot">
+      <div class="token-wrap"><div class="token-row"><span>Tokens</span><span>715 / 1000</span></div><div class="token-track"><div class="token-fill" style="width:71%"></div></div></div>
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title">Confirm your ICP brief</div>
+      <div class="topbar-actions">
+        <button class="btn">Edit fields</button>
+        <button class="btn btn-sage" onclick="go('strategy')">Confirm &amp; generate strategy →</button>
+      </div>
+    </div>
+    <div class="content" style="max-width:660px;margin:0 auto;width:100%">
+      <div class="steps">
+        <div class="step done"><div class="step-num"><i class="ti ti-check" style="font-size:10px" aria-hidden="true"></i></div><span class="step-name">Discover</span></div>
+        <div class="step-line"></div>
+        <div class="step active"><div class="step-num">2</div><span class="step-name">Confirm ICP</span></div>
+        <div class="step-line"></div>
+        <div class="step"><div class="step-num">3</div><span class="step-name">Strategy</span></div>
+        <div class="step-line"></div>
+        <div class="step"><div class="step-num">4</div><span class="step-name">Launch</span></div>
+      </div>
+      <div style="background:var(--sage-d);border:1px solid var(--sage-b);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-sparkles" style="color:var(--sage);font-size:15px;flex-shrink:0" aria-hidden="true"></i>
+        <div style="font-size:12px;color:var(--ink)">Analysed <strong>ClientPulse</strong> — scraped 847 reviews, 5 competitors, and built your ICP brief. Edit anything before confirming.</div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">ICP brief</div>
+          <div class="icp-row"><span class="icp-key">Target user</span><span class="icp-val">Independent tutors, 25–45</span></div>
+          <div class="icp-row"><span class="icp-key">Markets</span><span class="icp-val"><span class="badge badge-sage" style="margin-right:4px">USA</span><span class="badge badge-amber">India</span></span></div>
+          <div class="icp-row"><span class="icp-key">Price tier</span><span class="icp-val">$3–12 / month</span></div>
+          <div class="icp-row"><span class="icp-key">Category</span><span class="icp-val">Productivity · CRM</span></div>
+          <div class="icp-row"><span class="icp-key">Platform</span><span class="icp-val"><i class="ti ti-brand-google-play" style="font-size:12px;margin-right:3px" aria-hidden="true"></i>Play Store</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Review insights</div>
+          <div style="margin-bottom:10px">
+            <div style="font-size:10px;color:var(--ink3);margin-bottom:5px">Top pain points</div>
+            <div style="display:flex;flex-wrap:wrap;gap:5px">
+              <span class="badge badge-red">Payment tracking</span>
+              <span class="badge badge-red">Scheduling chaos</span>
+              <span class="badge badge-red">Parent comms</span>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--ink3);margin-bottom:5px">Copy signals from reviews</div>
+            <div style="font-size:11px;color:var(--ink);font-style:italic;line-height:1.7;background:var(--raised);border-radius:var(--r2);padding:8px 10px">"finally stopped chasing payments"<br>"saves me 2 hours every week"<br>"wish I found this sooner"</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Competitor gaps <span style="font-size:10px;font-weight:400;color:var(--ink3)">from their 1-star reviews</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <div style="background:var(--raised);border-radius:var(--r2);padding:10px"><div style="font-size:11px;font-weight:500;color:var(--ink);margin-bottom:3px">TutorBird</div><div style="font-size:10px;color:var(--ink3)">No WhatsApp integration</div></div>
+          <div style="background:var(--raised);border-radius:var(--r2);padding:10px"><div style="font-size:11px;font-weight:500;color:var(--ink);margin-bottom:3px">TutorKit</div><div style="font-size:10px;color:var(--ink3)">Poor onboarding, confusing UI</div></div>
+          <div style="background:var(--raised);border-radius:var(--r2);padding:10px"><div style="font-size:11px;font-weight:500;color:var(--ink);margin-bottom:3px">Teachworks</div><div style="font-size:10px;color:var(--ink3)">Expensive, no free tier</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     7. STRATEGY
+══════════════════════════════════════════ -->
+<div class="screen" id="s-strategy">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Products</div>
+    <div class="sb-item" onclick="go('dashboard')"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Dashboard</div>
+    <div class="sb-item" onclick="go('discover')"><i class="ti ti-search" aria-hidden="true"></i>Add product</div>
+    <div class="sb-section">Marketing</div>
+    <div class="sb-item active"><i class="ti ti-route" aria-hidden="true"></i>Strategy</div>
+    <div class="sb-item" onclick="go('campaigns')"><i class="ti ti-speakerphone" aria-hidden="true"></i>Campaigns</div>
+    <div class="sb-item" onclick="go('briefs')"><i class="ti ti-file-analytics" aria-hidden="true"></i>Weekly brief</div>
+    <div class="sb-section">Connect</div>
+    <div class="sb-item" onclick="go('channels')"><i class="ti ti-plug" aria-hidden="true"></i>Channels</div>
+    <div class="sb-foot">
+      <div class="token-wrap"><div class="token-row"><span>Tokens</span><span>665 / 1000</span></div><div class="token-track"><div class="token-fill" style="width:66%"></div></div></div>
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:28px;height:28px;border-radius:var(--r2);background:var(--sage-d);border:1px solid var(--sage-b);display:flex;align-items:center;justify-content:center;font-size:13px">📱</div>
+        <div>
+          <div class="topbar-title">ClientPulse — Strategy</div>
+          <div class="topbar-sub"><span class="hl">Generated</span> · 30/60/90 day plan ready</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="badge badge-sage" style="cursor:pointer">USA</span>
+        <span class="badge badge-amber" style="cursor:pointer">India</span>
+        <button class="btn btn-sage" onclick="go('campaigns')">Generate assets →</button>
+      </div>
+    </div>
+    <div class="content">
+      <div class="hook-bar">
+        <i class="ti ti-sparkles" aria-hidden="true"></i>
+        <span><strong>Primary hook:</strong> "Stop chasing unpaid tuition fees — ClientPulse handles payments, reminders, and scheduling in one tap."</span>
+        <button class="btn" style="flex-shrink:0;font-size:11px;padding:4px 10px;margin-left:auto"><i class="ti ti-copy" aria-hidden="true"></i></button>
+      </div>
+      <div class="tabs" style="max-width:240px">
+        <div class="tab active">30 days</div>
+        <div class="tab">60 days</div>
+        <div class="tab">90 days</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div class="timeline-col">
+          <div class="timeline-head">Channels</div>
+          <div class="timeline-card"><div class="tc-label">Primary · India</div><div class="tc-val"><span class="badge badge-sage" style="margin-right:5px">WhatsApp</span>3 pain-first broadcasts</div></div>
+          <div class="timeline-card"><div class="tc-label">Primary · USA</div><div class="tc-val"><span class="badge badge-indigo" style="margin-right:5px">Meta Ads</span>Phoenix tutors audience</div></div>
+          <div class="timeline-card"><div class="tc-label">Both markets</div><div class="tc-val"><span class="badge badge-gray" style="margin-right:5px">Google UAC</span>App install campaigns</div></div>
+        </div>
+        <div class="timeline-col">
+          <div class="timeline-head">Content to create</div>
+          <div class="timeline-card"><div class="tc-label">WhatsApp broadcast</div><div class="tc-val">"Still chasing payments? ClientPulse sends automatic reminders so you can focus on teaching."</div></div>
+          <div class="timeline-card"><div class="tc-label">App Store rewrite</div><div class="tc-val">New subtitle: "Payments, reminders &amp; scheduling for tutors"</div></div>
+          <div class="timeline-card"><div class="tc-label">Email sequence</div><div class="tc-val">3-part onboarding: Day 0, Day 3, Day 7</div></div>
+        </div>
+        <div class="timeline-col">
+          <div class="timeline-head">Playbook insights</div>
+          <div class="insight-box">
+            <div class="insight-label">From 47 similar apps</div>
+            <div class="insight-text">WhatsApp pain-first → avg <strong style="color:var(--sage)">+31%</strong> installs weeks 2–4<br>Google UAC beats Meta <strong style="color:var(--sage)">2.3×</strong> in India<br>ASO subtitle rewrite → <strong style="color:var(--sage)">+18%</strong> conversion wk 3</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Channel rankings</div>
+        <table class="data-table">
+          <thead><tr><th>Channel</th><th>Market</th><th>Projected CPI</th><th>Confidence</th><th>Priority</th></tr></thead>
+          <tbody>
+            <tr><td>WhatsApp</td><td><span class="badge badge-amber">India</span></td><td style="color:var(--sage)">$0.60–1.20</td><td><div class="prog-track" style="width:90px"><div class="prog-fill" style="width:88%;background:var(--sage)"></div></div></td><td><span class="badge badge-sage">High</span></td></tr>
+            <tr><td>Google UAC</td><td><span class="badge badge-amber">India</span></td><td>$0.90–1.80</td><td><div class="prog-track" style="width:90px"><div class="prog-fill" style="width:74%;background:var(--sage)"></div></div></td><td><span class="badge badge-sage">High</span></td></tr>
+            <tr><td>Meta Ads</td><td><span class="badge badge-sage">USA</span></td><td>$2.40–4.00</td><td><div class="prog-track" style="width:90px"><div class="prog-fill" style="width:58%;background:var(--amber)"></div></div></td><td><span class="badge badge-amber">Medium</span></td></tr>
+            <tr><td>LinkedIn</td><td><span class="badge badge-sage">USA</span></td><td>$8.00+</td><td><div class="prog-track" style="width:90px"><div class="prog-fill" style="width:20%;background:var(--red)"></div></div></td><td><span class="badge badge-red">Low</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     8. CAMPAIGNS
+══════════════════════════════════════════ -->
+<div class="screen" id="s-campaigns">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Products</div>
+    <div class="sb-item" onclick="go('dashboard')"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Dashboard</div>
+    <div class="sb-item" onclick="go('discover')"><i class="ti ti-search" aria-hidden="true"></i>Add product</div>
+    <div class="sb-section">Marketing</div>
+    <div class="sb-item" onclick="go('strategy')"><i class="ti ti-route" aria-hidden="true"></i>Strategy</div>
+    <div class="sb-item active"><i class="ti ti-speakerphone" aria-hidden="true"></i>Campaigns</div>
+    <div class="sb-item" onclick="go('briefs')"><i class="ti ti-file-analytics" aria-hidden="true"></i>Weekly brief</div>
+    <div class="sb-section">Connect</div>
+    <div class="sb-item" onclick="go('channels')"><i class="ti ti-plug" aria-hidden="true"></i>Channels</div>
+    <div class="sb-foot">
+      <div class="token-wrap"><div class="token-row"><span>Tokens</span><span>730 / 1000</span></div><div class="token-track"><div class="token-fill" style="width:73%"></div></div></div>
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title">Campaigns</div>
+      <div class="topbar-actions"><span class="badge badge-amber"><i class="ti ti-alert-circle" style="font-size:11px" aria-hidden="true"></i>2 pending approval</span></div>
+    </div>
+    <div class="content">
+      <div class="approval-bar">
+        <span><i class="ti ti-alert-circle" style="font-size:13px;margin-right:6px" aria-hidden="true"></i>2 campaigns need your approval before they go live</span>
+        <button class="btn" style="font-size:11px;border-color:var(--amber-b);color:var(--amber)">Review all</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table class="data-table" style="table-layout:fixed">
+          <thead>
+            <tr>
+              <th style="width:22%">Campaign</th>
+              <th style="width:13%">Channel</th>
+              <th style="width:10%">Market</th>
+              <th style="width:30%">Copy preview</th>
+              <th style="width:10%">Budget</th>
+              <th style="width:10%">Status</th>
+              <th style="width:5%"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div style="font-size:12px;font-weight:500;color:var(--ink)">ClientPulse — WA #1</div><div style="font-size:10px;color:var(--ink3)">WhatsApp broadcast</div></td>
+              <td><i class="ti ti-brand-whatsapp" style="color:var(--sage);font-size:14px;margin-right:4px" aria-hidden="true"></i><span style="font-size:11px">WhatsApp</span></td>
+              <td><span class="badge badge-amber">India</span></td>
+              <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"Stop chasing unpaid tuition fees..."</td>
+              <td style="font-size:11px">₹5,000</td>
+              <td><span class="badge badge-amber">Pending</span></td>
+              <td><button class="btn btn-sage" style="font-size:10px;padding:4px 9px">Approve</button></td>
+            </tr>
+            <tr>
+              <td><div style="font-size:12px;font-weight:500;color:var(--ink)">ClientPulse — UAC</div><div style="font-size:10px;color:var(--ink3)">5 text variants</div></td>
+              <td><i class="ti ti-brand-google" style="color:var(--indigo);font-size:14px;margin-right:4px" aria-hidden="true"></i><span style="font-size:11px">Google</span></td>
+              <td><span class="badge badge-amber">India</span></td>
+              <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"Tutor CRM with WhatsApp reminders..."</td>
+              <td style="font-size:11px">₹8,000</td>
+              <td><span class="badge badge-amber">Pending</span></td>
+              <td><button class="btn btn-sage" style="font-size:10px;padding:4px 9px">Approve</button></td>
+            </tr>
+            <tr>
+              <td><div style="font-size:12px;font-weight:500;color:var(--ink)">ClientPulse — Meta</div><div style="font-size:10px;color:var(--ink3)">Facebook + Instagram</div></td>
+              <td><i class="ti ti-brand-facebook" style="color:var(--indigo);font-size:14px;margin-right:4px" aria-hidden="true"></i><span style="font-size:11px">Meta</span></td>
+              <td><span class="badge badge-sage">USA</span></td>
+              <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"Phoenix tutors — manage your..."</td>
+              <td style="font-size:11px">$200</td>
+              <td><span class="badge badge-sage">Active</span></td>
+              <td><button class="btn" style="font-size:10px;padding:4px 9px">Pause</button></td>
+            </tr>
+            <tr>
+              <td><div style="font-size:12px;font-weight:500;color:var(--ink)">ClientPulse — LinkedIn</div><div style="font-size:10px;color:var(--ink3)">Organic post</div></td>
+              <td><i class="ti ti-brand-linkedin" style="color:var(--indigo);font-size:14px;margin-right:4px" aria-hidden="true"></i><span style="font-size:11px">LinkedIn</span></td>
+              <td><span class="badge badge-sage">USA</span></td>
+              <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"Built a CRM for tutors because..."</td>
+              <td style="font-size:11px">Free</td>
+              <td><span class="badge badge-red">Pausing</span></td>
+              <td><button class="btn" style="font-size:10px;padding:4px 9px">Review</button></td>
+            </tr>
+            <tr>
+              <td><div style="font-size:12px;font-weight:500;color:var(--ink)">Allignx — WA #1</div><div style="font-size:10px;color:var(--ink3)">WhatsApp broadcast</div></td>
+              <td><i class="ti ti-brand-whatsapp" style="color:var(--sage);font-size:14px;margin-right:4px" aria-hidden="true"></i><span style="font-size:11px">WhatsApp</span></td>
+              <td><span class="badge badge-amber">India</span></td>
+              <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"Still working in 5 different apps..."</td>
+              <td style="font-size:11px">₹3,000</td>
+              <td><span class="badge badge-sage">Active</span></td>
+              <td><button class="btn" style="font-size:10px;padding:4px 9px">Pause</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     9. WEEKLY BRIEF
+══════════════════════════════════════════ -->
+<div class="screen" id="s-briefs">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Products</div>
+    <div class="sb-item" onclick="go('dashboard')"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Dashboard</div>
+    <div class="sb-section">Marketing</div>
+    <div class="sb-item" onclick="go('strategy')"><i class="ti ti-route" aria-hidden="true"></i>Strategy</div>
+    <div class="sb-item" onclick="go('campaigns')"><i class="ti ti-speakerphone" aria-hidden="true"></i>Campaigns</div>
+    <div class="sb-item active"><i class="ti ti-file-analytics" aria-hidden="true"></i>Weekly brief</div>
+    <div class="sb-foot">
+      <div class="token-wrap"><div class="token-row"><span>Tokens</span><span>730 / 1000</span></div><div class="token-track"><div class="token-fill" style="width:73%"></div></div></div>
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Weekly brief</div>
+        <div class="topbar-sub">Sunday, 11 May 2026 · <span class="hl">ClientPulse</span></div>
+      </div>
+      <div class="topbar-actions"><span class="badge badge-new">New</span></div>
+    </div>
+    <div class="content">
+      <div class="grid-2">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="card">
+            <div class="card-title" style="font-family:'Syne',sans-serif;font-size:13px">Your week at a glance</div>
+            <div class="brief-strip" style="border-left-color:var(--sage)">
+              <div class="bs-label">What worked</div>
+              <div class="bs-text">WhatsApp pain-first hook drove 68% of all installs. "Stop chasing unpaid fees" outperformed every other message 4:1. App Store keyword "tutor payment tracker" moved from position 41 → 28.</div>
+            </div>
+            <div class="brief-strip" style="border-left-color:var(--red)">
+              <div class="bs-label">What to kill</div>
+              <div class="bs-text">LinkedIn: 2 installs in 3 weeks at $48 CPI. Pausing immediately. Onboarding email has 12% open rate — below threshold. Rewrite recommended.</div>
+            </div>
+            <div class="brief-strip" style="border-left-color:var(--indigo)">
+              <div class="bs-label">Next 7 days — 3 actions</div>
+              <div class="bs-text">① Send Tuesday WhatsApp broadcast (draft below, approve to schedule)<br>② Rewrite App Store subtitle (new version below)<br>③ Request reviews from 5 most-active users (template below)</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">This week's numbers</div>
+            <div class="grid-2" style="gap:8px">
+              <div class="metric"><div class="metric-label">Installs</div><div class="metric-val" style="color:var(--sage)">247</div><div class="metric-delta up">↑ 34%</div></div>
+              <div class="metric"><div class="metric-label">Best CPI</div><div class="metric-val">$0.82</div><div class="metric-delta neu">WhatsApp</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Brief history</div>
+            <div class="brief-hist-row"><span>May 4</span><span style="color:var(--ink3)">+189 installs · 3 actions</span><span class="badge badge-gray">Read</span></div>
+            <div class="brief-hist-row"><span>Apr 27</span><span style="color:var(--ink3)">+143 installs · 2 actions</span><span class="badge badge-gray">Read</span></div>
+            <div class="brief-hist-row"><span>Apr 20</span><span style="color:var(--ink3)">+98 installs · 4 actions</span><span class="badge badge-gray">Read</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Generated assets — approve to deploy</div>
+          <div class="asset-block">
+            <div class="asset-head">
+              <div style="display:flex;align-items:center;gap:6px"><i class="ti ti-brand-whatsapp" style="color:var(--sage);font-size:14px" aria-hidden="true"></i><span style="font-size:11px;font-weight:500">WhatsApp broadcast · Tuesday</span></div>
+              <button class="btn btn-sage" style="font-size:10px;padding:4px 9px">Approve</button>
+            </div>
+            <div class="asset-body">"Still chasing unpaid tuition fees every month?<br>ClientPulse sends automatic payment reminders so you can focus on teaching.<br>Start free → [link]"</div>
+          </div>
+          <div class="asset-block">
+            <div class="asset-head">
+              <div style="display:flex;align-items:center;gap:6px"><i class="ti ti-brand-apple" style="font-size:14px;color:var(--ink3)" aria-hidden="true"></i><span style="font-size:11px;font-weight:500">App Store subtitle rewrite</span></div>
+              <button class="btn btn-sage" style="font-size:10px;padding:4px 9px">Approve</button>
+            </div>
+            <div class="asset-body">"Payments, reminders &amp; scheduling for tutors"</div>
+          </div>
+          <div class="asset-block">
+            <div class="asset-head">
+              <div style="display:flex;align-items:center;gap:6px"><i class="ti ti-star" style="color:var(--amber);font-size:14px" aria-hidden="true"></i><span style="font-size:11px;font-weight:500">Review request template</span></div>
+              <button class="btn btn-sage" style="font-size:10px;padding:4px 9px">Approve</button>
+            </div>
+            <div class="asset-body">"Hi [name], you've been using ClientPulse for 3 weeks — would you mind leaving a quick review? It takes 30 seconds and really helps other tutors find us. [link]"</div>
+          </div>
+          <div class="asset-block">
+            <div class="asset-head">
+              <div style="display:flex;align-items:center;gap:6px"><i class="ti ti-mail" style="color:var(--indigo);font-size:14px" aria-hidden="true"></i><span style="font-size:11px;font-weight:500">Onboarding email — Day 3 rewrite</span></div>
+              <button class="btn btn-sage" style="font-size:10px;padding:4px 9px">Approve</button>
+            </div>
+            <div class="asset-body">"You've added your first client — here's how to set up automatic payment reminders in 2 taps..."</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     10. CHANNELS
+══════════════════════════════════════════ -->
+<div class="screen" id="s-channels">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Products</div>
+    <div class="sb-item" onclick="go('dashboard')"><i class="ti ti-layout-dashboard" aria-hidden="true"></i>Dashboard</div>
+    <div class="sb-section">Connect</div>
+    <div class="sb-item active"><i class="ti ti-plug" aria-hidden="true"></i>Channels</div>
+    <div class="sb-section">Account</div>
+    <div class="sb-item" onclick="go('billing')"><i class="ti ti-credit-card" aria-hidden="true"></i>Billing</div>
+    <div class="sb-item" onclick="go('settings')"><i class="ti ti-settings" aria-hidden="true"></i>Settings</div>
+    <div class="sb-foot">
+      <div class="token-wrap"><div class="token-row"><span>Tokens</span><span>730 / 1000</span></div><div class="token-track"><div class="token-fill" style="width:73%"></div></div></div>
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar"><div class="topbar-title">Connected channels</div></div>
+    <div class="content">
+      <div style="font-size:12px;color:var(--ink2);margin-bottom:4px">LaunchMind uses OAuth — we never store your passwords. Revoke access anytime from this page.</div>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        <div class="ch-card connected">
+          <div class="ch-icon" style="background:var(--sage-d);border:1px solid var(--sage-b)"><i class="ti ti-brand-whatsapp" style="color:var(--sage)" aria-hidden="true"></i></div>
+          <div class="ch-info"><div class="ch-name">WhatsApp Business</div><div class="ch-status" style="color:var(--sage)">Connected · messaging scope · 3 broadcasts sent</div></div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="badge badge-sage">Active</span><button class="btn" style="font-size:11px">Disconnect</button></div>
+        </div>
+        <div class="ch-card connected">
+          <div class="ch-icon" style="background:var(--indigo-d);border:1px solid var(--indigo-b)"><i class="ti ti-brand-facebook" style="color:var(--indigo)" aria-hidden="true"></i></div>
+          <div class="ch-info"><div class="ch-name">Meta Ads</div><div class="ch-status" style="color:var(--sage)">Connected · ads_management scope · spend cap $400/wk</div></div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="badge badge-sage">Active</span><button class="btn" style="font-size:11px">Disconnect</button></div>
+        </div>
+        <div class="ch-card connected">
+          <div class="ch-icon" style="background:var(--indigo-d);border:1px solid var(--indigo-b)"><i class="ti ti-brand-google" style="color:var(--indigo)" aria-hidden="true"></i></div>
+          <div class="ch-info"><div class="ch-name">Google Ads (UAC)</div><div class="ch-status" style="color:var(--sage)">Connected · campaign scope · spend cap ₹15,000/wk</div></div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="badge badge-sage">Active</span><button class="btn" style="font-size:11px">Disconnect</button></div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-icon" style="background:var(--raised);border:1px solid var(--border)"><i class="ti ti-brand-linkedin" style="color:var(--ink3)" aria-hidden="true"></i></div>
+          <div class="ch-info"><div class="ch-name">LinkedIn</div><div class="ch-status">Not connected</div></div>
+          <button class="btn btn-sage" style="font-size:11px">Connect</button>
+        </div>
+        <div class="ch-card">
+          <div class="ch-icon" style="background:var(--raised);border:1px solid var(--border)"><i class="ti ti-mail" style="color:var(--ink3)" aria-hidden="true"></i></div>
+          <div class="ch-info"><div class="ch-name">Email (Resend / Mailchimp)</div><div class="ch-status">Not connected</div></div>
+          <button class="btn btn-sage" style="font-size:11px">Connect</button>
+        </div>
+      </div>
+      <div class="card" style="background:var(--raised);border-color:transparent;margin-top:4px">
+        <div style="font-size:11px;font-weight:500;color:var(--ink2);margin-bottom:9px;display:flex;align-items:center;gap:6px"><i class="ti ti-lock" style="font-size:13px;color:var(--sage)" aria-hidden="true"></i>How we protect your credentials</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>OAuth only — no passwords stored ever</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>AES-256 token encryption at rest</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Campaign scope only — no billing access</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Spend cap enforced server-side</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     11. BILLING
+══════════════════════════════════════════ -->
+<div class="screen" id="s-billing">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Account</div>
+    <div class="sb-item active"><i class="ti ti-credit-card" aria-hidden="true"></i>Billing</div>
+    <div class="sb-item" onclick="go('settings')"><i class="ti ti-settings" aria-hidden="true"></i>Settings</div>
+    <div class="sb-foot">
+      <div class="token-wrap"><div class="token-row"><span>Tokens</span><span>730 / 1000</span></div><div class="token-track"><div class="token-fill" style="width:73%"></div></div></div>
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar"><div class="topbar-title">Billing &amp; plan</div></div>
+    <div class="content">
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:2px">Current plan</div>
+          <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:600;color:var(--ink)">Builder <span style="color:var(--indigo)">$49/mo</span></div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:3px">Renews June 1, 2026 · 3 products · all channels · USA + India</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sage">Upgrade to Studio</button>
+          <button class="btn">Cancel plan</button>
+        </div>
+      </div>
+      <div class="grid-4">
+        <div class="price-card">
+          <div class="price-name">Free</div>
+          <div class="price-amt">$0</div>
+          <div class="price-inr">₹0 / month</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>1 product</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Strategy preview</div>
+          <div class="pf no"><i class="ti ti-x" aria-hidden="true"></i>No posting</div>
+          <div class="pf no"><i class="ti ti-x" aria-hidden="true"></i>No weekly brief</div>
+        </div>
+        <div class="price-card">
+          <div class="price-name">Solo</div>
+          <div class="price-amt">$19</div>
+          <div class="price-inr">₹999 / month</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>1 product</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Full strategy</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>1 channel</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Weekly brief</div>
+        </div>
+        <div class="price-card current" style="position:relative">
+          <div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%)" class="badge badge-indigo">Current plan</div>
+          <div class="price-name">Builder</div>
+          <div class="price-amt" style="color:var(--indigo)">$49</div>
+          <div class="price-inr">₹2,499 / month</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>3 products</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>All channels</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Meta + Google</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>USA + India</div>
+        </div>
+        <div class="price-card">
+          <div class="price-name">Studio</div>
+          <div class="price-amt">$99</div>
+          <div class="price-inr">₹4,999 / month</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>10 products</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>Workspaces</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>White-label</div>
+          <div class="pf yes"><i class="ti ti-check" aria-hidden="true"></i>API access</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Token top-ups <span style="font-size:10px;font-weight:400;color:var(--ink3)">· one-time, no subscription</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div style="background:var(--raised);border-radius:var(--r2);padding:14px;text-align:center">
+            <div style="font-size:22px;font-weight:500;color:var(--ink)">500</div>
+            <div style="font-size:11px;color:var(--ink3)">tokens</div>
+            <div style="font-size:16px;font-weight:500;color:var(--sage);margin:8px 0">$9</div>
+            <div style="font-size:10px;color:var(--ink3);margin-bottom:8px">₹749</div>
+            <button class="btn" style="width:100%;font-size:11px">Buy</button>
+          </div>
+          <div style="background:var(--raised);border-radius:var(--r2);padding:14px;text-align:center;border:1px solid var(--sage-b)">
+            <div style="font-size:22px;font-weight:500;color:var(--ink)">1,500</div>
+            <div style="font-size:11px;color:var(--ink3)">tokens</div>
+            <div style="font-size:16px;font-weight:500;color:var(--sage);margin:8px 0">$19</div>
+            <div style="font-size:10px;color:var(--ink3);margin-bottom:8px">₹1,499</div>
+            <button class="btn btn-sage" style="width:100%;font-size:11px">Buy</button>
+          </div>
+          <div style="background:var(--raised);border-radius:var(--r2);padding:14px;text-align:center">
+            <div style="font-size:22px;font-weight:500;color:var(--ink)">5,000</div>
+            <div style="font-size:11px;color:var(--ink3)">tokens</div>
+            <div style="font-size:16px;font-weight:500;color:var(--sage);margin:8px 0">$49</div>
+            <div style="font-size:10px;color:var(--ink3);margin-bottom:8px">₹3,999</div>
+            <button class="btn" style="width:100%;font-size:11px">Buy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     12. SETTINGS
+══════════════════════════════════════════ -->
+<div class="screen" id="s-settings">
+<div class="app">
+  <div class="sidebar">
+    <div class="sb-logo"><div class="sb-logo-text">Launch<span>Mind</span><span class="sb-plan">Builder</span></div></div>
+    <div class="sb-section">Account</div>
+    <div class="sb-item" onclick="go('billing')"><i class="ti ti-credit-card" aria-hidden="true"></i>Billing</div>
+    <div class="sb-item active"><i class="ti ti-settings" aria-hidden="true"></i>Settings</div>
+    <div class="sb-foot">
+      <div class="founder-row"><div class="avatar">VK</div><div><div class="founder-name">Vijay Kumar</div><div class="founder-email">vijay@clientpulse.io</div></div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar"><div class="topbar-title">Settings</div></div>
+    <div class="content" style="max-width:540px">
+      <div class="card">
+        <div class="card-title">Profile</div>
+        <div class="form-group"><label class="form-label">Full name</label><input class="input" value="Vijay Kumar" /></div>
+        <div class="form-group"><label class="form-label">Email</label><input class="input" value="vijay@clientpulse.io" type="email" /></div>
+        <button class="btn btn-solid" style="margin-top:4px;padding:7px 18px">Save changes</button>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-shield-check" style="color:var(--sage);margin-right:6px;font-size:14px" aria-hidden="true"></i>Security</div>
+        <div class="security-row">
+          <div><div class="security-row-title">Two-factor authentication</div><div class="security-row-sub" style="color:var(--sage)">Enabled · TOTP authenticator app</div></div>
+          <button class="btn" style="font-size:11px">Manage</button>
+        </div>
+        <div class="security-row">
+          <div><div class="security-row-title">Active sessions</div><div class="security-row-sub">2 sessions · MacBook Pro (current), iPhone 14</div></div>
+          <button class="btn" style="font-size:11px">Revoke others</button>
+        </div>
+        <div class="security-row">
+          <div><div class="security-row-title">Anomaly detection</div><div class="security-row-sub">Email alert on new device or unusual location</div></div>
+          <div class="toggle on"><div class="toggle-knob"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Notifications</div>
+        <div class="security-row">
+          <div><div class="security-row-title">Sunday brief email</div><div class="security-row-sub">Weekly AI brief delivered to your inbox</div></div>
+          <div class="toggle on"><div class="toggle-knob"></div></div>
+        </div>
+        <div class="security-row">
+          <div><div class="security-row-title">Campaign approval reminders</div><div class="security-row-sub">Alert when campaigns need your approval</div></div>
+          <div class="toggle on"><div class="toggle-knob"></div></div>
+        </div>
+        <div class="security-row">
+          <div><div class="security-row-title">Low token balance</div><div class="security-row-sub">Warn when tokens drop below 20% of monthly allocation</div></div>
+          <div class="toggle on"><div class="toggle-knob"></div></div>
+        </div>
+      </div>
+      <div class="danger-zone">
+        <div style="font-size:12px;font-weight:500;color:var(--red);margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-alert-triangle" style="font-size:14px" aria-hidden="true"></i>Danger zone</div>
+        <div class="security-row">
+          <div><div class="security-row-title">Export my data</div><div class="security-row-sub">Download GDPR-compliant JSON of all your data</div></div>
+          <button class="btn" style="font-size:11px"><i class="ti ti-download" aria-hidden="true"></i> Export</button>
+        </div>
+        <div class="security-row">
+          <div><div class="security-row-title" style="color:var(--red)">Delete account</div><div class="security-row-sub">Permanently delete all data and revoke all platform access</div></div>
+          <button class="btn" style="font-size:11px;border-color:var(--red-b);color:var(--red)">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const screens=['login','signup','mfa','dashboard','discover','confirm','strategy','campaigns','briefs','channels','billing','settings'];
+function go(id){
+  screens.forEach(s=>{
+    document.getElementById('s-'+s).classList.toggle('on',s===id);
+  });
+  document.querySelectorAll('.snav').forEach((b,i)=>{
+    b.classList.toggle('on',screens[i]===id);
+  });
+}
+</script>
+</body>
+</html>

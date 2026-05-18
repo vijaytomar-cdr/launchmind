@@ -21,7 +21,7 @@ LaunchMind is an **AI marketing operating system for app founders**.
 
 **Tiers:** Free · Solo ($19/₹999) · Builder ($49/₹2,499) · Studio ($99/₹4,999)
 
-**Phase prompts:** `/phases/phase-{n}/week-{n}.md` — read the relevant one each week.
+**Phase prompts:** `/phases/phase-{n}/weeks-{nn}-{nn}.md` — read the relevant one each week.
 **Test suites:** `/tests/e2e/` — Playwright sanity + regression per phase.
 
 ---
@@ -31,7 +31,6 @@ LaunchMind is an **AI marketing operating system for app founders**.
 These apply to EVERY task, EVERY file, EVERY commit. No exceptions.
 
 ### 1.1 Backend First — Always
-Order for every feature:
 1. DB migration (additive only)
 2. Fastify route + handler
 3. Unit test for the handler
@@ -41,7 +40,6 @@ Order for every feature:
 ### 1.2 Additive Migrations Only
 - NEVER drop, rename, or retype a column
 - NEVER delete a table
-- To rename: add new column → migrate data → deprecate old with comment
 - All migrations: `YYYYMMDD_HHMMSS_description.sql`
 - All migrations are idempotent (safe to run twice)
 
@@ -57,8 +55,7 @@ Every Claude API call routes through:
 ```typescript
 await consumeTokens(founderId, action, estimatedCost);
 ```
-Phases 1–4: no-op (logs only). Phase 5: enforces balance.
-Function signature never changes.
+Phases 1–4: no-op (logs only). Phase 5: enforces balance. Function signature never changes.
 
 ### 1.5 Approve-Before-Post — Hard Server-Side Constraint
 No campaign posts to any platform unless `campaigns.approved_at` is non-null.
@@ -69,7 +66,6 @@ Before any paid campaign creation:
 1. Fetch `campaigns.spend_cap` for founder + platform
 2. Fetch current week spend from platform API
 3. If (current + proposed) > cap → reject 422
-Frontend shows the rejection — it does not perform this check itself.
 
 ---
 
@@ -109,21 +105,22 @@ Frontend shows the rejection — it does not perform this check itself.
 
 ## 3. Data Model — Canonical Reference
 
-All 9 tables. Column names are canonical — use them exactly everywhere.
+All tables. Column names are canonical — use them exactly everywhere.
 
 ### 3.1 `founders`
 ```sql
 CREATE TABLE founders (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email         TEXT NOT NULL UNIQUE,
-  name          TEXT,
-  plan          TEXT NOT NULL DEFAULT 'free'
-                CHECK (plan IN ('free','solo','builder','studio')),
-  mfa_enabled   BOOLEAN NOT NULL DEFAULT false,
-  token_balance INTEGER DEFAULT NULL,
-  deleted_at    TIMESTAMPTZ,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email           TEXT NOT NULL UNIQUE,
+  name            TEXT,
+  plan            TEXT NOT NULL DEFAULT 'free'
+                  CHECK (plan IN ('free','solo','builder','studio')),
+  mfa_enabled     BOOLEAN NOT NULL DEFAULT false,
+  token_balance   INTEGER DEFAULT NULL,
+  deleted_at      TIMESTAMPTZ,
+  onboarding_step INTEGER DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE founders ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "founders_self" ON founders USING (id = auth.uid());
@@ -146,6 +143,7 @@ CREATE TABLE products (
   brand_voice_profile JSONB,
   last_scraped_at     TIMESTAMPTZ,
   icp_embedding       VECTOR(1536),
+  workspace_id        UUID,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -180,7 +178,8 @@ CREATE TABLE campaigns (
   product_id           UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   founder_id           UUID NOT NULL REFERENCES founders(id),
   channel              TEXT NOT NULL
-                       CHECK (channel IN ('meta','google','whatsapp','linkedin','email')),
+                       CHECK (channel IN
+                         ('meta','google','whatsapp','linkedin','email','aso_rewrite')),
   market               TEXT NOT NULL CHECK (market IN ('usa','india')),
   status               TEXT NOT NULL DEFAULT 'draft'
                        CHECK (status IN
@@ -190,6 +189,7 @@ CREATE TABLE campaigns (
   audience_config      JSONB,
   spend_cap            JSONB,
   external_campaign_id TEXT,
+  action               TEXT,
   ai_tokens_consumed   INTEGER DEFAULT 0,
   approved_at          TIMESTAMPTZ,
   launched_at          TIMESTAMPTZ,
@@ -302,6 +302,19 @@ ALTER TABLE embedding_store ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "embeddings_owner" ON embedding_store USING (founder_id = auth.uid());
 ```
 
+### 3.10 `workspaces` (Phase 4, Week 17)
+```sql
+CREATE TABLE workspaces (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  founder_id  UUID NOT NULL REFERENCES founders(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  client_name TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "workspaces_owner" ON workspaces USING (founder_id = auth.uid());
+```
+
 ---
 
 ## 4. Security — Mandatory Rules
@@ -310,7 +323,7 @@ CREATE POLICY "embeddings_owner" ON embedding_store USING (founder_id = auth.uid
 - NEVER commit secrets to any file
 - `.env.local` is gitignored — never committed
 - `.env.example`: placeholder names only, never values
-- Secrets: Oracle Cloud VM env file (backend, gitignored) · Vercel env vars (frontend) · GitHub Actions secrets (CI)
+- Secrets: Oracle Cloud VM env file (backend) · Vercel env vars (frontend) · GitHub Actions secrets (CI)
 - Pre-commit check: `git grep -rE "(key|secret|password|token)\s*=\s*['\"][^'\"]{8,}"`
 
 ### 4.2 OAuth Token Vault
@@ -321,7 +334,7 @@ CREATE POLICY "embeddings_owner" ON embedding_store USING (founder_id = auth.uid
 - Token retrieval: always verify `founder_id` matches before decrypting
 
 ### 4.3 Row-Level Security
-Every founder-data table: RLS enabled with `founder_id = auth.uid()` policy. No exceptions. Verify after every migration.
+Every founder-data table: RLS enabled with `founder_id = auth.uid()`. No exceptions. Verify after every migration.
 
 ### 4.4 Authentication
 - JWT: 15-min access tokens, rotating refresh tokens
@@ -336,20 +349,16 @@ Every founder-data table: RLS enabled with `founder_id = auth.uid()` policy. No 
 - TLS 1.3 minimum, HSTS via Cloudflare
 
 ### 4.6 SAST
-`semgrep --config=p/nodejs-security .` + `eslint --plugin security .`
-Block merge on HIGH or CRITICAL.
+`semgrep --config=p/nodejs-security .` + `eslint --plugin security .` — block merge on HIGH or CRITICAL.
 
 ### 4.7 DAST
-OWASP ZAP against staging before every phase promotion.
-Block promotion on HIGH or CRITICAL.
+OWASP ZAP against staging before every phase promotion. Block promotion on HIGH or CRITICAL.
 
 ### 4.8 Dependency Scanning
-`npm audit --audit-level=high` + `npx snyk test --severity-threshold=high`
-Block deploy on HIGH+ CVE.
+`npm audit --audit-level=high` + `npx snyk test --severity-threshold=high` — block deploy on HIGH+ CVE.
 
 ### 4.9 No Standing Production Access
-Time-boxed (2h max) → logged to Axiom → auto-revoked.
-Document every session in `docs/access-requests.md`.
+Time-boxed (2h max) → logged to Axiom → auto-revoked. Document in `docs/access-requests.md`.
 
 ### 4.10 Data Privacy
 - GDPR right-to-delete: `DELETE /founders/me` — purges all personal data
@@ -386,12 +395,8 @@ Document every session in `docs/access-requests.md`.
 ### 5.3 Commit Format
 ```
 type(scope): short description (imperative mood)
-
-Why this change. What existing behaviour is preserved. What is new.
-
-Closes #issue
+Types: feat  fix  security  refactor  test  docs  chore  migration
 ```
-Types: `feat` `fix` `security` `refactor` `test` `docs` `chore` `migration`
 
 ### 5.4 Branch Strategy
 ```
@@ -405,28 +410,36 @@ security/* ← expedited, 1-reviewer merge to main
 ### 5.5 PR Requirements
 1. Passing SAST + dependency scan + all tests
 2. Test coverage for all new paths
-3. What changed and why
-4. Phase/Week reference
-5. Security impact statement
+3. What changed and why + Phase/Week reference
+4. Security impact statement
 
 ---
 
-## 6. Design System — Slate & Sage
+## 6. Design System — Slate & Sage (LOCKED)
 
 This is a **light-theme** design system. Never use dark backgrounds for app pages.
-Reference HTML: `launchmind-ux-slate-sage.html` (full interactive prototype).
+
+Reference files (must be in project root):
+- `launchmind-ux-slate-sage.html` — all 12 interactive dashboard screens
+- `launchmind-homepage.html` — complete marketing homepage
+
+Every UI component MUST match these reference files exactly.
 
 ### 6.1 Colour Tokens
 
 | Token | Value | Usage |
 |---|---|---|
 | `--page` | `#f2f3f6` | App background |
-| `--surface` | `#ffffff` | Cards, modals |
-| `--raised` | `#eceef3` | Inputs, subtle containers, metric blocks |
+| `--surface` | `#ffffff` | Cards, topbar, modals |
+| `--raised` | `#eceef3` | Inputs, metric blocks, subtle containers |
 | `--sidebar` | `#28304a` | Left nav (dark navy) |
 | `--sidebar2` | `#323c58` | Sidebar hover state |
 | `--border` | `rgba(0,0,0,0.07)` | Default border |
 | `--border2` | `rgba(0,0,0,0.12)` | Stronger border |
+| `--s-border` | `rgba(255,255,255,0.07)` | Sidebar internal borders |
+| `--s-text` | `rgba(255,255,255,0.88)` | Sidebar primary text |
+| `--s-text2` | `rgba(255,255,255,0.42)` | Sidebar secondary text |
+| `--s-text3` | `rgba(255,255,255,0.22)` | Sidebar dim text |
 | `--ink` | `#1b1f2e` | Primary text |
 | `--ink2` | `#626880` | Secondary text |
 | `--ink3` | `#9ca4be` | Muted / placeholder text |
@@ -435,45 +448,79 @@ Reference HTML: `launchmind-ux-slate-sage.html` (full interactive prototype).
 | `--sage-d` | `rgba(5,150,105,0.12)` | Sage tint background |
 | `--sage-b` | `rgba(5,150,105,0.28)` | Sage tint border |
 | `--indigo` | `#4f46e5` | Accent — current plan, indigo badges |
-| `--amber` | `#d97706` | India market badge |
+| `--indigo-d` | `rgba(79,70,229,0.10)` | Indigo tint background |
+| `--indigo-b` | `rgba(79,70,229,0.22)` | Indigo tint border |
+| `--amber` | `#d97706` | India market badge, warnings |
+| `--amber-d` | `rgba(217,119,6,0.10)` | Amber tint background |
+| `--amber-b` | `rgba(217,119,6,0.22)` | Amber tint border |
 | `--red` | `#dc2626` | Danger, kill signals |
+| `--red-d` | `rgba(220,38,38,0.09)` | Red tint background |
+| `--red-b` | `rgba(220,38,38,0.22)` | Red tint border |
+| `--r` | `10px` | Default border radius |
+| `--r2` | `6px` | Medium border radius |
+| `--r3` | `4px` | Small border radius |
 
-Tailwind class names: `bg-page`, `bg-surface`, `bg-raised`, `bg-sidebar`,
-`text-ink`, `text-ink-2`, `text-ink-3`, `text-sage`, `bg-sage-bg`, `border-sage-border`,
-`text-indigo`, `text-amber`, `text-danger`
+Tailwind: `bg-page bg-surface bg-raised bg-sidebar text-ink text-ink2 text-ink3 text-sage text-indigo text-amber text-danger`
 
 ### 6.2 Typography
 ```
 Body:    DM Sans  · base 13px · line-height 1.5
-Display: Syne     · headings, sidebar logo, card titles
-Mono:    DM Mono  · token counts, metrics, code
+Display: Syne     · headings, sidebar logo, card titles, section headers
+Mono:    DM Mono  · token counts, metrics, data values, code
 ```
+Google Fonts: `Syne:wght@400;500;600;700;800` + `DM+Sans:wght@300;400;500` + `DM+Mono:wght@400;500`
 
 ### 6.3 Component Conventions
 ```
 Card:          bg-surface border border-[--border] rounded-[10px] p-[14px_16px]
-Card featured: border-sage-border border-2
-Input:         bg-raised border border-[--border2] rounded-sm px-3 py-2 text-ink focus:ring-2 focus:ring-sage-border
-Button solid:  bg-sage text-white rounded-sm px-4 py-2 text-sm font-medium
-Button ghost:  border border-[--border2] text-ink-2 hover:bg-raised
-Sidebar item:  text-[--s-text2] hover:bg-white/6 active:bg-sage-bg active:text-sage-light active:border-sage-border
-Metric block:  bg-raised rounded-sm p-[11px_13px]
+Card featured: border-[--sage-b] border-[1.5px]
+Input:         bg-raised border border-[--border2] rounded-[6px] px-3 py-2 text-ink
+               focus:border-[--sage-b] focus:ring-2 focus:ring-[--sage-d]
+Button solid:  bg-sage text-white rounded-[6px] px-4 py-2 text-sm font-medium
+Button ghost:  border border-[--border2] text-ink2 hover:bg-raised rounded-[6px]
+Button sage:   bg-[--sage-d] border border-[--sage-b] text-sage rounded-[6px]
+Sidebar item:  text-[--s-text2] hover:bg-white/6 rounded-[6px] mx-[6px]
+               active: bg-[--sage-d] border border-[--sage-b] text-[--sage-l]
+Metric block:  bg-raised rounded-[6px] p-[11px_13px]
+Topbar:        bg-surface border-b border-[--border]
 ```
 
 ### 6.4 Badges
 ```
-USA market:     bg-sage-bg   border-sage-border   text-sage
-India market:   bg-amber-bg  border-amber-border  text-amber
-Draft:          bg-raised    border-[--border2]   text-ink-2
-Active/Success: bg-sage-bg   border-sage-border   text-sage
-Pending:        bg-amber-bg  border-amber-border  text-amber
-Pausing/Error:  bg-danger-bg border-danger-border text-danger
-Indigo/Accent:  bg-indigo-bg border-indigo-border text-indigo
+USA market:     bg-[--sage-d]   border-[--sage-b]   color:#046c4e
+India market:   bg-[--amber-d]  border-[--amber-b]  color:#92400e
+Draft:          bg-raised       border-[--border2]  text-ink2
+Active/Success: bg-[--sage-d]   border-[--sage-b]   text-sage
+Pending:        bg-[--amber-d]  border-[--amber-b]  text-amber
+Pausing/Error:  bg-[--red-d]    border-[--red-b]    text-red
+Indigo/Accent:  bg-[--indigo-d] border-[--indigo-b] text-indigo
 ```
 
-### 6.5 shadcn Usage
+### 6.5 Icons
+Use `@tabler/icons-react`. Outline only — never filled variants.
+Key: `TbLayoutDashboard TbSearch TbRoute TbSpeakerphone TbFileAnalytics TbPlug TbCreditCard
+TbSettings TbCheck TbAlertCircle TbShieldCheck TbSparkles TbArrowRight TbBrandWhatsapp
+TbBrandFacebook TbBrandGoogle TbBrandLinkedin TbMail TbLock TbDownload`
+
+### 6.6 shadcn Usage
 Use shadcn: `Button Input Textarea Select Card Dialog Toast Badge Tabs Table`
 Do NOT build custom equivalents of shadcn components.
+
+### 6.7 12 Dashboard Screens → Next.js Routes
+| Screen ID | Route | File |
+|---|---|---|
+| s-login | `/login` | `app/(auth)/login/page.tsx` |
+| s-signup | `/signup` | `app/(auth)/signup/page.tsx` |
+| s-mfa | `/mfa` | `app/(auth)/mfa/page.tsx` |
+| s-dashboard | `/dashboard` | `app/(dashboard)/page.tsx` |
+| s-discover | `/products/new` | `app/(dashboard)/products/new/page.tsx` |
+| s-confirm | `/products/new/confirm` | `app/(dashboard)/products/new/confirm/page.tsx` |
+| s-strategy | `/products/[id]/strategy` | `app/(dashboard)/products/[id]/strategy/page.tsx` |
+| s-campaigns | `/campaigns` | `app/(dashboard)/campaigns/page.tsx` |
+| s-briefs | `/briefs` | `app/(dashboard)/briefs/page.tsx` |
+| s-channels | `/channels` | `app/(dashboard)/channels/page.tsx` |
+| s-billing | `/billing` | `app/(dashboard)/billing/page.tsx` |
+| s-settings | `/settings` | `app/(dashboard)/settings/page.tsx` |
 
 ---
 
@@ -497,9 +544,11 @@ Do NOT build custom equivalents of shadcn components.
 | Content asset batch | 20 | Sonnet |
 | Review analysis | 15 | Haiku |
 | ICP structuring | 10 | Haiku |
+| Brand voice extract | 10 | Haiku |
+| Brand voice apply | 5 | Haiku |
 | Scoring / classify | 5 | Haiku |
 
-Tier balances (Phase 5): Free=50 · Solo=300 · Builder=1000 · Studio=3000
+Tier balances (Phase 5 enforcement): Free=50 · Solo=300 · Builder=1000 · Studio=3000
 
 ---
 
@@ -507,7 +556,7 @@ Tier balances (Phase 5): Free=50 · Solo=300 · Builder=1000 · Studio=3000
 
 ```bash
 # 1. Read CLAUDE.md sections relevant to today's task
-# 2. Read phases/phase-{n}/week-{n}.md for today's prompt
+# 2. Read phases/phase-{n}/weeks-{nn}-{nn}.md for today's prompt
 # 3. Read all files you will modify — completely
 npm test                          # 4. All existing tests must pass
 git grep -rE "(key|secret|password|token)\s*=\s*['\"][^'\"]{8,}"  # 5. No secrets
@@ -522,26 +571,28 @@ git branch                        # 6. Confirm correct branch
 ```
 launchmind/
 ├── CLAUDE.md                         ← permanent reference (this file)
-├── .env.example                      ← placeholder names only, never values
+├── .env.example                      ← placeholder names only
 ├── .gitignore                        ← committed first, before everything
 ├── .dockerignore
 ├── docker-compose.yml                ← local dev only
 ├── docker-compose.prod.yml           ← Oracle Cloud VM production
 ├── nginx.conf                        ← Oracle VM reverse proxy + SSL
 ├── playwright.config.ts
+├── launchmind-ux-slate-sage.html     ← UI reference: all 12 dashboard screens
+├── launchmind-homepage.html          ← UI reference: marketing homepage
 ├── phases/
-│   ├── phase-1/ weeks-01-04.md       ← includes Week 0 project setup
-│   ├── phase-2/ weeks-05-08.md
-│   ├── phase-3/ weeks-09-13.md
+│   ├── phase-1/ weeks-01-04.md       ← Weeks 0–4 (DONE)
+│   ├── phase-2/ weeks-05-08.md       ← Weeks 5–8 (DONE)
+│   ├── phase-3/ weeks-09-13.md       ← CURRENT — start here
 │   ├── phase-4/ weeks-14-17.md
 │   └── phase-5/ weeks-18-20.md
 ├── tests/e2e/
-│   ├── sanity.spec.ts                ← smoke tests after every deploy
-│   └── regression.spec.ts            ← full suite before phase promotion
+│   ├── sanity.spec.ts
+│   └── regression.spec.ts
 ├── backend/
-│   ├── Dockerfile                    ← API image → OCIR
-│   ├── Dockerfile.scraper            ← Playwright worker image → OCIR
-│   ├── oracle-deploy.sh              ← runs on Oracle VM to pull + restart
+│   ├── Dockerfile
+│   ├── Dockerfile.scraper
+│   ├── oracle-deploy.sh
 │   ├── src/
 │   │   ├── routes/
 │   │   ├── services/
@@ -551,28 +602,59 @@ launchmind/
 │   │   └── lib/
 │   │       ├── tokens.ts             ← consumeTokens()
 │   │       ├── tokenVault.ts         ← AES-256 + AWS KMS
-│   │       ├── aiClient.ts           ← Anthropic SDK wrapper
+│   │       ├── aiClient.ts
 │   │       └── scheduler.ts          ← BullMQ cron
 │   ├── migrations/
 │   └── tests/
 ├── app/                              ← Next.js 14 App Router → Vercel
 ├── components/
 │   ├── ui/                           ← shadcn (do not modify)
-│   └── launchmind/
+│   └── launchmind/                   ← custom shared components
 ├── lib/
 │   └── api.ts                        ← type-safe API client
 ├── scripts/
-│   └── localstack-init.sh            ← creates KMS key in LocalStack
-├── .github/
-│   └── workflows/
-│       ├── ci.yml                    ← PR gate (SAST + tests + dep scan)
-│       └── deploy.yml                ← deploys to Oracle VM on merge to main
+│   └── localstack-init.sh
+├── .github/workflows/
+│   ├── ci.yml
+│   └── deploy.yml
 └── docs/
-    ├── oracle-setup.md               ← Oracle Cloud VM setup guide
-    ├── local-setup.md                ← local dev setup guide
+    ├── oracle-setup.md
+    ├── local-setup.md
     ├── security/secret-rotation.md
     ├── incidents/playbook.md
     └── access-requests.md
+```
+
+---
+
+## 11. Current Build State
+
+> Update this section at the end of every phase.
+
+```
+Last updated: Starting Phase 3 (Week 9)
+
+Backend — Weeks 0–8: COMMITTED AND COMPLETE
+  Week 0: Scaffold, Docker, CI/CD, Oracle deploy, GitHub Actions
+  Week 1: Fastify, all 9 DB migrations, RLS, token vault, consumeTokens()
+  Week 2: Scraper (Cheerio + Playwright), ICP service, product routes + tests
+  Week 3: Strategy generation (Claude Sonnet), playbookService, OAuth, WhatsApp routes
+  Week 4: Stripe, Razorpay, metrics aggregation, BullMQ briefs + tests
+  Week 5: platformTokenService, WhatsApp Business API, approve-before-post
+  Week 6: BullMQ weekly cron, anonymizationService, brief pipeline, Resend
+  Week 7: Admin trigger, UTM service, email campaigns, metrics dashboard
+  Week 8: Bug fixes, performance, waitlist page
+
+Frontend — Weeks 2–8: EMPTY SCAFFOLDS
+  Build in Phase 3 from reference files in project root.
+  Reference: launchmind-ux-slate-sage.html (all 12 screens)
+  Reference: launchmind-homepage.html (marketing site)
+
+Seed data:
+  playbook_signals: EMPTY
+  FIRST TASK in Week 9: run 20250601_000011_seed_playbook_signals.sql (28 rows)
+
+Next: open phases/phase-3/weeks-09-13.md and start Week 9.
 ```
 
 ---
