@@ -205,6 +205,13 @@ export async function channelsRoutes(server: FastifyInstance): Promise<void> {
           expiresAt
         );
 
+        // Advance to step 3 (channel_connected)
+        await getSupabaseAdmin()
+          .from('founders')
+          .update({ onboarding_step: 3, updated_at: new Date().toISOString() })
+          .eq('id', founderId)
+          .lt('onboarding_step', 3);
+
         return reply.redirect(
           `${process.env.APP_BASE_URL ?? 'http://localhost:3000'}/dashboard/channels?connected=whatsapp`
         );

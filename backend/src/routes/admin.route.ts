@@ -16,6 +16,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { triggerBriefNow, scheduleWeeklyBrief } from '../lib/scheduler';
+import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 
 const TriggerBriefBodySchema = z.object({
   productId: z.string().uuid(),
@@ -123,4 +124,72 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       return reply.send({ ok: true });
     }
   );
+
+  /**
+   * GET /admin/stats
+   * Returns waitlist count, active founder count, and onboarding funnel step counts.
+   * @security X-Admin-Secret required.
+   */
+  server.get('/admin/stats', async (request, reply) => {
+    if (!verifyAdminSecret(request, reply)) return;
+    try {
+      const db = getSupabaseAdmin();
+
+      const [waitlistResult, foundersResult, onboardingResult] = await Promise.all([
+        db.from('waitlist').select('*', { count: 'exact', head: true }),
+        db.from('founders').select('*', { count: 'exact', head: true }).is('deleted_at', null),
+        db.from('founders')
+          .select('onboarding_step')
+          .is('deleted_at', null),
+      ]);
+
+      const stepCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      for (const row of onboardingResult.data ?? []) {
+        const step = row.onboarding_step as number;
+        if (step in stepCounts) stepCounts[step]++;
+      }
+
+      return reply.send({
+        waitlistCount: waitlistResult.count ?? 0,
+        founderCount: foundersResult.count ?? 0,
+        onboardingFunnel: {
+          registered: stepCounts[0] + stepCounts[1] + stepCounts[2] + stepCounts[3] + stepCounts[4] + stepCounts[5],
+          icpConfirmed: stepCounts[1] + stepCounts[2] + stepCounts[3] + stepCounts[4] + stepCounts[5],
+          strategyGenerated: stepCounts[2] + stepCounts[3] + stepCounts[4] + stepCounts[5],
+          channelConnected: stepCounts[3] + stepCounts[4] + stepCounts[5],
+          briefReceived: stepCounts[4] + stepCounts[5],
+          feedbackSubmitted: stepCounts[5],
+        },
+      });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'GET /admin/stats' } });
+      return reply.status(500).send({ error: 'Failed to fetch stats' });
+    }
+  });
+
+  /**
+   * GET /admin/feedback
+   * Returns recent founder feedback with founder email and product name.
+   * @security X-Admin-Secret required.
+   */
+  server.get('/admin/feedback', async (request, reply) => {
+    if (!verifyAdminSecret(request, reply)) return;
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from('founder_feedback')
+        .select(`
+          id, rating, body, context, created_at,
+          founders ( email ),
+          products ( name )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+      return reply.send({ feedback: data ?? [] });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'GET /admin/feedback' } });
+      return reply.status(500).send({ error: 'Failed to fetch feedback' });
+    }
+  });
 }

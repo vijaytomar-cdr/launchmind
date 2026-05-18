@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { ScrapeResult, ICPBrief, CompetitorApp } from '@/lib/api';
+import { trackOnboarding } from '@/lib/analytics';
 
 type Step = 'url-input' | 'scraping' | 'review' | 'saving';
 
@@ -102,6 +103,7 @@ export default function NewProductPage() {
         },
         token
       );
+      trackOnboarding('icp_confirmed');
       router.push(`/dashboard/products/${product.id}`);
     } catch (err) {
       setError(

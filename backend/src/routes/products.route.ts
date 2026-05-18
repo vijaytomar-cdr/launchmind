@@ -244,6 +244,13 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         metadata: { name: product.name, platform: product.platform },
       });
 
+      // Advance onboarding step to 1 (icp_confirmed) if not already further along
+      await getSupabaseAdmin()
+        .from('founders')
+        .update({ onboarding_step: 1, updated_at: new Date().toISOString() })
+        .eq('id', founderId)
+        .lt('onboarding_step', 1);
+
       return reply.status(201).send(product);
     }
   );
@@ -320,6 +327,14 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
       try {
         const strategy = await generateStrategy(id, founderId);
+
+        // Advance to step 2 (strategy_generated)
+        await getSupabaseAdmin()
+          .from('founders')
+          .update({ onboarding_step: 2, updated_at: new Date().toISOString() })
+          .eq('id', founderId)
+          .lt('onboarding_step', 2);
+
         return reply.status(201).send(strategy);
       } catch (err) {
         if (err instanceof Error && err.message.includes('not found')) {
@@ -441,4 +456,127 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  /**
+   * GET /campaigns
+   * Returns all campaigns for the authenticated founder, joined with product name.
+   * Ordered by created_at DESC.
+   */
+  server.get('/campaigns', async (request, reply) => {
+    const founderId = getFounderId(request);
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from('campaigns')
+        .select(`
+          id, product_id, channel, market, status, hook_type, copy_text,
+          spend_cap, external_campaign_id, ai_tokens_consumed,
+          approved_at, launched_at, created_at, updated_at,
+          products ( name )
+        `)
+        .eq('founder_id', founderId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const campaigns = (data ?? []).map((c) => {
+        const prod = c.products as unknown as { name: string } | { name: string }[] | null;
+        const productName = Array.isArray(prod) ? (prod[0]?.name ?? null) : (prod?.name ?? null);
+        const { products: _p, ...rest } = c;
+        void _p;
+        return { ...rest, productName };
+      });
+
+      return reply.send({ campaigns });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'GET /campaigns' } });
+      return reply.status(500).send({ error: 'Failed to fetch campaigns' });
+    }
+  });
+
+  /**
+   * GET /briefs
+   * Returns all weekly briefs for the authenticated founder, joined with product name.
+   * Ordered by week_of DESC.
+   */
+  server.get('/briefs', async (request, reply) => {
+    const founderId = getFounderId(request);
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from('weekly_briefs')
+        .select(`
+          id, product_id, week_of, what_worked, what_to_kill,
+          next_actions, ai_tokens_consumed, status, sent_at, created_at,
+          products ( name )
+        `)
+        .eq('founder_id', founderId)
+        .order('week_of', { ascending: false });
+
+      if (error) throw error;
+
+      const briefs = (data ?? []).map((b) => {
+        const prod = b.products as unknown as { name: string } | { name: string }[] | null;
+        const productName = Array.isArray(prod) ? (prod[0]?.name ?? null) : (prod?.name ?? null);
+        const { products: _p, ...rest } = b;
+        void _p;
+        return { ...rest, productName };
+      });
+
+      return reply.send({ briefs });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'GET /briefs' } });
+      return reply.status(500).send({ error: 'Failed to fetch briefs' });
+    }
+  });
+
+  /**
+   * POST /feedback
+   * Submits founder feedback with an optional 1-5 star rating and text body.
+   * Advances onboarding_step to 5 if not already.
+   */
+  server.post<{
+    Body: { rating: number; body?: string; context?: string; productId?: string };
+  }>('/feedback', async (request, reply) => {
+    const founderId = getFounderId(request);
+    const FeedbackBodySchema = z.object({
+      rating: z.number().int().min(1).max(5),
+      body: z.string().max(2000).optional(),
+      context: z.enum(['general', 'after_brief', 'after_strategy', 'after_campaign']).default('general'),
+      productId: z.string().uuid().optional(),
+    });
+
+    const parsed = FeedbackBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid feedback body' });
+    }
+
+    const { rating, body, context, productId } = parsed.data;
+
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from('founder_feedback')
+        .insert({
+          founder_id: founderId,
+          product_id: productId ?? null,
+          rating,
+          body: body ?? null,
+          context,
+        })
+        .select('id, rating, context, created_at')
+        .single();
+
+      if (error) throw error;
+
+      // Advance to step 5 (feedback_submitted)
+      await getSupabaseAdmin()
+        .from('founders')
+        .update({ onboarding_step: 5, updated_at: new Date().toISOString() })
+        .eq('id', founderId)
+        .lt('onboarding_step', 5);
+
+      return reply.status(201).send(data);
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'POST /feedback' } });
+      return reply.status(500).send({ error: 'Failed to save feedback' });
+    }
+  });
 }

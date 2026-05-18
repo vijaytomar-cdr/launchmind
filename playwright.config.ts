@@ -2,13 +2,17 @@
  * @file playwright.config.ts
  * @description Playwright E2E configuration.
  *
- * Two projects:
- *   "api"      — tests/e2e/api.spec.ts only — pure HTTP (request fixture).
- *                Runnable whenever the Fastify API is up. No browser, no Next.js needed.
- *   "browser"  — tests/e2e/sanity.spec.ts — full browser tests, requires Next.js dev server.
+ * Three projects:
+ *   "api"        — tests/e2e/api.spec.ts only — pure HTTP (request fixture).
+ *                  Runnable whenever the Fastify API is up. No browser, no Next.js needed.
+ *   "browser"    — tests/e2e/sanity.spec.ts — full browser smoke tests, requires Next.js dev server.
+ *   "regression" — tests/e2e/regression.spec.ts — full regression suite, requires Next.js + Supabase.
+ *                  Uses TEST_EMAIL / TEST_PASSWORD env vars for authenticated flows.
  *
  * Commands:
  *   npx playwright test --project=api        # API smoke (always available)
+ *   npx playwright test --project=browser    # Sanity smoke (needs Next.js)
+ *   npx playwright test --project=regression # Full regression (needs Next.js + valid Supabase session)
  *   SKIP_WEB_SERVER=1 npx playwright test    # skip Next.js auto-start
  *   npx playwright test                      # starts Next.js, runs everything
  */
@@ -41,6 +45,11 @@ export default defineConfig({
     {
       name: 'browser',
       testMatch: '**/sanity.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'regression',
+      testMatch: '**/regression.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
   ],

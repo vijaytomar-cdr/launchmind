@@ -8,9 +8,7 @@
  * @dependencies @supabase/ssr (for session token), fetch
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_APP_URL
-  ? `${process.env.NEXT_PUBLIC_APP_URL}/api`
-  : '/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export class ApiError extends Error {
   constructor(
@@ -90,6 +88,28 @@ export const api = {
       }),
     list: (campaignId: string, token: string) =>
       request<{ links: UTMLink[] }>(`/campaigns/${campaignId}/utm-links`, { token }),
+  },
+
+  campaigns: {
+    list: (token: string) =>
+      request<{ campaigns: Campaign[] }>('/campaigns', { token }),
+  },
+
+  briefs: {
+    list: (token: string) =>
+      request<{ briefs: WeeklyBrief[] }>('/briefs', { token }),
+  },
+
+  feedback: {
+    submit: (
+      data: { rating: number; body?: string; context?: string; productId?: string },
+      token: string
+    ) =>
+      request<{ id: string; rating: number }>('/feedback', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        token,
+      }),
   },
 
   billing: {
@@ -265,4 +285,36 @@ export interface CreateUTMLinkBody {
   utmCampaign: string;
   utmContent?: string;
   utmTerm?: string;
+}
+
+export interface Campaign {
+  id: string;
+  product_id: string;
+  productName: string | null;
+  channel: string;
+  market: string;
+  status: 'draft' | 'pending_approval' | 'approved' | 'launched' | 'paused' | 'completed';
+  hook_type: string | null;
+  copy_text: string | null;
+  spend_cap: Record<string, unknown> | null;
+  external_campaign_id: string | null;
+  ai_tokens_consumed: number;
+  approved_at: string | null;
+  launched_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WeeklyBrief {
+  id: string;
+  product_id: string;
+  productName: string | null;
+  week_of: string;
+  what_worked: string | null;
+  what_to_kill: string | null;
+  next_actions: Record<string, unknown> | null;
+  ai_tokens_consumed: number;
+  status: 'draft' | 'sent' | 'acknowledged';
+  sent_at: string | null;
+  created_at: string;
 }

@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { Product } from '@/lib/api';
+import { trackOnboarding } from '@/lib/analytics';
 
 type Phase = '30d' | '60d' | '90d';
 type Market = 'usa' | 'india';
@@ -133,6 +134,12 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
       if (!res.ok) throw new ApiError(res.status, data.error ?? 'Generation failed');
       setStrategy(data);
       setIsPremium(true);
+      const channelCount = [
+        ...(data.thirtyDay ?? []),
+        ...(data.sixtyDay ?? []),
+        ...(data.ninetyDay ?? []),
+      ].length;
+      trackOnboarding('strategy_generated', { channel_count: channelCount });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Strategy generation failed');
     } finally {

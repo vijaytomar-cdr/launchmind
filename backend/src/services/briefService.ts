@@ -225,6 +225,13 @@ export async function upsertWeeklyBrief(
     throw new Error(`Failed to upsert weekly_brief: ${error?.message ?? 'no data'}`);
   }
 
+  // Advance to step 4 (brief_received)
+  await getSupabaseAdmin()
+    .from('founders')
+    .update({ onboarding_step: 4, updated_at: new Date().toISOString() })
+    .eq('id', founderId)
+    .lt('onboarding_step', 4);
+
   return data.id;
 }
 

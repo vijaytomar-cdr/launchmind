@@ -4,8 +4,8 @@
  *   Sentry is initialised first (before any plugin) so all startup errors are captured.
  *   Exports `buildServer` for use in tests without binding to a port.
  * @security Sentry captures all unhandled errors. CORS restricted to NEXT_PUBLIC_APP_URL.
- *   JWT verified via SUPABASE_JWT_SECRET (HS256). Rate-limited to 100 req/min per IP.
- * @dependencies @sentry/node, @fastify/cors, @fastify/jwt, @fastify/rate-limit
+ *   JWT verified via Supabase JWKS endpoint (ES256 / ECC P-256). Rate-limited to 100 req/min per IP.
+ * @dependencies @sentry/node, @fastify/cors, jose, @fastify/rate-limit
  */
 
 import * as Sentry from '@sentry/node';
@@ -18,8 +18,8 @@ Sentry.init({
 
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
+import { jwtPlugin } from './lib/jwtPlugin';
 import { productsRoutes } from './routes/products.route';
 import { billingRoutes } from './routes/billing.route';
 import { channelsRoutes } from './routes/channels.route';
@@ -45,9 +45,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     credentials: true,
   });
 
-  await server.register(jwt, {
-    secret: process.env.SUPABASE_JWT_SECRET ?? 'test-secret-for-local-dev-only',
-  });
+  await server.register(jwtPlugin);
 
   await server.register(rateLimit, {
     max: 100,
