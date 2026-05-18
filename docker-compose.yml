@@ -11,14 +11,14 @@
 ##   docker compose down -v        Stop + wipe volumes
 ##
 
-version: "3.9"
-
 services:
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
       target: build
+    # dev command: run the compiled output (target:build stage has dist/)
+    command: ["node", "dist/server.js"]
     ports:
       - "3001:3001"
     env_file: .env.dev
@@ -35,8 +35,6 @@ services:
         condition: service_healthy
       localstack:
         condition: service_healthy
-    volumes:
-      - ./backend/src:/app/src
     networks:
       - default
     restart: unless-stopped
@@ -45,6 +43,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.scraper
+    # scraper runs inline in Phase 1 — BullMQ worker loop added in Phase 2
+    command: ["node", "-e", "console.log('[scraper] ready — BullMQ worker starts Phase 2'); setInterval(()=>{}, 60000)"]
     env_file: .env.dev
     environment:
       NODE_ENV: development

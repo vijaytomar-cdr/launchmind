@@ -1,0 +1,268 @@
+/**
+ * @file api.ts
+ * @description Type-safe API client for the LaunchMind Fastify backend.
+ *   All frontend → backend calls route through this file.
+ *   Never calls Supabase directly — that is the backend's job.
+ * @security Auth token from Supabase session is attached as Bearer header.
+ *   Never logs tokens. All errors surfaced as typed ApiError.
+ * @dependencies @supabase/ssr (for session token), fetch
+ */
+
+const API_BASE = process.env.NEXT_PUBLIC_APP_URL
+  ? `${process.env.NEXT_PUBLIC_APP_URL}/api`
+  : '/api';
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit & { token?: string } = {}
+): Promise<T> {
+  const { token, ...fetchOptions } = options;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(fetchOptions.headers as Record<string, string>),
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...fetchOptions,
+    headers,
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: response.statusText }));
+    throw new ApiError(response.status, body.error ?? response.statusText);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export const api = {
+  health: () => request<{ status: string; timestamp: string }>('/health'),
+
+  products: {
+    scrape: (url: string, token: string) =>
+      request<ScrapeResult>('/products/scrape', {
+        method: 'POST',
+        body: JSON.stringify({ url }),
+        token,
+      }),
+    confirm: (data: ConfirmProductBody, token: string) =>
+      request<Product>('/products/confirm', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        token,
+      }),
+    list: (token: string) => request<Product[]>('/products', { token }),
+    get: (id: string, token: string) =>
+      request<Product>(`/products/${id}`, { token }),
+    metrics: (id: string, token: string, weekCount = 8) =>
+      request<ProductMetrics>(`/products/${id}/metrics?weekCount=${weekCount}`, { token }),
+  },
+
+  channels: {
+    list: (token: string) =>
+      request<{ channels: ConnectedChannel[] }>('/channels', { token }),
+    oauthInit: (token: string) =>
+      request<{ url: string }>('/channels/whatsapp/oauth/init', { token }),
+    revoke: (platform: SupportedPlatform, token: string) =>
+      request<{ success: boolean; platform: string; revokedAt: string }>(
+        `/channels/${platform}`,
+        { method: 'DELETE', token }
+      ),
+  },
+
+  utm: {
+    create: (campaignId: string, body: CreateUTMLinkBody, token: string) =>
+      request<UTMLink>(`/campaigns/${campaignId}/utm-link`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        token,
+      }),
+    list: (campaignId: string, token: string) =>
+      request<{ links: UTMLink[] }>(`/campaigns/${campaignId}/utm-links`, { token }),
+  },
+
+  billing: {
+    checkout: (data: CheckoutBody, token: string) =>
+      request<CheckoutResult>('/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        token,
+      }),
+    subscription: (token: string) =>
+      request<SubscriptionStatus>('/billing/subscription', { token }),
+    cancel: (token: string) =>
+      request<{ message: string }>('/billing/cancel', {
+        method: 'POST',
+        token,
+      }),
+  },
+};
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface Product {
+  id: string;
+  founder_id: string;
+  name: string;
+  store_url: string;
+  platform: 'app_store' | 'play_store';
+  category: string | null;
+  markets: string[];
+  price_tier: string | null;
+  confirmed_icp: ICPBrief | null;
+  competitor_set: CompetitorApp[] | null;
+  scraped_meta: ScrapedMeta | null;
+  last_scraped_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScrapedMeta {
+  name: string;
+  developer: string;
+  description: string;
+  category: string;
+  rating: number;
+  ratingCount: number;
+  priceTier: string;
+  screenshots: string[];
+  reviews: Review[];
+}
+
+export interface Review {
+  rating: number;
+  text: string;
+  date: string;
+}
+
+export interface CompetitorApp {
+  name: string;
+  developer: string;
+  rating: number;
+  category: string;
+  priceTier: string;
+  platform: 'app_store' | 'play_store';
+}
+
+export interface ICPBrief {
+  targetUser: string;
+  geography: string[];
+  priceTier: string;
+  painPoints: string[];
+  competitorGaps: string[];
+  suggestedMarkets: string[];
+}
+
+export interface ScrapeResult {
+  scraped: ScrapedMeta;
+  icpBrief: ICPBrief;
+  competitors: CompetitorApp[];
+}
+
+export interface ConfirmProductBody {
+  url: string;
+  platform: 'app_store' | 'play_store';
+  scraped: ScrapedMeta;
+  icpBrief: ICPBrief;
+  competitors: CompetitorApp[];
+}
+
+export interface CheckoutBody {
+  plan: 'solo' | 'builder' | 'studio';
+  currency: 'usd' | 'inr';
+}
+
+export type CheckoutResult =
+  | { url: string }
+  | { orderId: string; amount: number; currency: string; keyId: string };
+
+export interface SubscriptionStatus {
+  plan: string;
+  tokenBalance: number | null;
+  renewalNote: string;
+}
+
+export type SupportedPlatform = 'meta' | 'google' | 'whatsapp' | 'linkedin' | 'email';
+
+export interface ConnectedChannel {
+  platform: string;
+  scopes: string[];
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface WeeklySummary {
+  weekOf: string;
+  totalImpressions: number;
+  totalClicks: number;
+  totalInstalls: number;
+  avgCpi: number | null;
+  avgRoas: number | null;
+  avgCtr: number | null;
+}
+
+export interface ChannelBreakdown {
+  channel: string;
+  market: string;
+  impressions: number;
+  clicks: number;
+  installs: number;
+  avgRoas: number | null;
+  campaignCount: number;
+}
+
+export interface TopPerformer {
+  campaignId: string;
+  channel: string;
+  market: string;
+  hookType: string | null;
+  weekOf: string;
+  installs: number;
+  roas: number | null;
+  ctr: number | null;
+}
+
+export interface ProductMetrics {
+  productId: string;
+  weeklySummaries: WeeklySummary[];
+  channelBreakdown: ChannelBreakdown[];
+  topPerformers: TopPerformer[];
+  weekCount: number;
+}
+
+export interface UTMLink {
+  id: string;
+  campaignId: string;
+  baseUrl: string;
+  utmSource: string;
+  utmMedium: string;
+  utmCampaign: string;
+  utmContent: string | null;
+  utmTerm: string | null;
+  shortCode: string;
+  clickCount: number;
+  trackedUrl: string;
+  shortUrl: string;
+  createdAt: string;
+}
+
+export interface CreateUTMLinkBody {
+  baseUrl: string;
+  utmSource: string;
+  utmMedium: string;
+  utmCampaign: string;
+  utmContent?: string;
+  utmTerm?: string;
+}

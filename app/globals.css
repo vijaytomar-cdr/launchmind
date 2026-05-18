@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Slate & Sage design tokens ───────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --page:     #f2f3f6;
+  --surface:  #ffffff;
+  --raised:   #eceef3;
+  --sidebar:  #28304a;
+  --sidebar2: #323c58;
+
+  /* Borders */
+  --border:    rgba(0,0,0,0.07);
+  --border2:   rgba(0,0,0,0.12);
+  --s-border:  rgba(255,255,255,0.07);
+  --s-border2: rgba(255,255,255,0.12);
+
+  /* Ink (text) */
+  --ink:    #1b1f2e;
+  --ink2:   #626880;
+  --ink3:   #9ca4be;
+  --s-text: rgba(255,255,255,0.88);
+  --s-text2: rgba(255,255,255,0.42);
+  --s-text3: rgba(255,255,255,0.22);
+
+  /* Sage — primary */
+  --sage:   #059669;
+  --sage-l: #34d399;
+  --sage-d: rgba(5,150,105,0.12);
+  --sage-b: rgba(5,150,105,0.28);
+
+  /* Indigo — accent */
+  --indigo:   #4f46e5;
+  --indigo-d: rgba(79,70,229,0.10);
+  --indigo-b: rgba(79,70,229,0.22);
+
+  /* Amber — India */
+  --amber:   #d97706;
+  --amber-d: rgba(217,119,6,0.10);
+  --amber-b: rgba(217,119,6,0.22);
+
+  /* Red — danger */
+  --red:   #dc2626;
+  --red-d: rgba(220,38,38,0.09);
+  --red-b: rgba(220,38,38,0.22);
+
+  /* Radius */
+  --r:  10px;
+  --r2:  6px;
+  --r3:  4px;
+
+  /* shadcn/Radix mappings */
+  --background:          220 14% 96%;   /* ~#f2f3f6 */
+  --foreground:          229 25% 14%;   /* ~#1b1f2e */
+  --card:                0 0% 100%;
+  --card-foreground:     229 25% 14%;
+  --border:              220 13% 91%;
+  --input:               220 13% 91%;
+  --primary:             161 91% 30%;   /* #059669 */
+  --primary-foreground:  0 0% 100%;
+  --secondary:           220 14% 92%;   /* #eceef3 */
+  --secondary-foreground: 229 25% 14%;
+  --muted:               220 14% 92%;
+  --muted-foreground:    228 16% 55%;   /* #626880 */
+  --accent:              220 14% 92%;
+  --accent-foreground:   229 25% 14%;
+  --destructive:         0 72% 51%;     /* #dc2626 */
+  --destructive-foreground: 0 0% 100%;
+  --ring:                161 91% 30%;
+  --radius:              0.625rem;      /* 10px */
+}
+
+/* ── Autofill override — keeps inputs gray on light backgrounds ──────── */
+.autofill-light:-webkit-autofill,
+.autofill-light:-webkit-autofill:hover,
+.autofill-light:-webkit-autofill:focus,
+.autofill-light:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0px 1000px #eceef3 inset !important;
+  -webkit-text-fill-color: #1b1f2e !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 {
+    font-family: 'Syne', sans-serif;
+  }
+}

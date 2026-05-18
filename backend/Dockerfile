@@ -9,12 +9,13 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+# legacy-peer-deps: resend v3 has optional React peer deps not needed in backend
+RUN npm ci --omit=dev --legacy-peer-deps
 
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 COPY . .
 RUN npm run build
 

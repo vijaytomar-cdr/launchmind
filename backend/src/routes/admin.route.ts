@@ -1,0 +1,126 @@
+/**
+ * @file admin.route.ts
+ * @description Admin-only routes for internal operations.
+ *   POST /admin/trigger-brief — manually triggers the weekly brief pipeline for a product.
+ *   POST /admin/schedule-brief — (re)registers the weekly BullMQ repeatable job.
+ * @security
+ *   - All admin routes require an X-Admin-Secret header matching ADMIN_SECRET env var.
+ *   - No JWT needed — these routes are called by internal cron orchestrators or ops.
+ *   - ADMIN_SECRET must be a high-entropy random string (min 32 chars).
+ *   - If ADMIN_SECRET is not set, all admin routes return 503.
+ *   - These routes should be behind Cloudflare WAF IP allowlist in production.
+ * @dependencies scheduler, supabaseAdmin, Sentry
+ */
+
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import * as Sentry from '@sentry/node';
+import { z } from 'zod';
+import { triggerBriefNow, scheduleWeeklyBrief } from '../lib/scheduler';
+
+const TriggerBriefBodySchema = z.object({
+  productId: z.string().uuid(),
+  founderId: z.string().uuid(),
+  weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+/**
+ * Verifies the X-Admin-Secret header against the ADMIN_SECRET env var.
+ * Returns false and sends 401 if the header is missing or invalid.
+ * Returns false and sends 503 if ADMIN_SECRET is not configured.
+ * @security Timing-safe comparison via Buffer.compare to prevent timing attacks.
+ */
+function verifyAdminSecret(request: FastifyRequest, reply: FastifyReply): boolean {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret || secret.length < 32) {
+    reply.status(503).send({ error: 'Admin secret not configured' });
+    return false;
+  }
+
+  const provided = request.headers['x-admin-secret'] as string | undefined;
+  if (!provided) {
+    reply.status(401).send({ error: 'Missing X-Admin-Secret header' });
+    return false;
+  }
+
+  try {
+    const expected = Buffer.from(secret, 'utf-8');
+    const actual = Buffer.from(provided, 'utf-8');
+    if (expected.length !== actual.length || !require('crypto').timingSafeEqual(expected, actual)) {
+      reply.status(401).send({ error: 'Invalid admin secret' });
+      return false;
+    }
+  } catch {
+    reply.status(401).send({ error: 'Invalid admin secret' });
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Registers all /admin routes on the Fastify instance.
+ * @param server - Fastify instance
+ */
+export async function adminRoutes(server: FastifyInstance): Promise<void> {
+  /**
+   * POST /admin/trigger-brief
+   * Enqueues an immediate one-off brief generation for a specific product.
+   * Body: { productId: uuid, founderId: uuid, weekOf?: 'YYYY-MM-DD' }
+   * Returns: { jobId: string, queued: true }
+   */
+  server.post(
+    '/admin/trigger-brief',
+    async (request, reply) => {
+      if (!verifyAdminSecret(request, reply)) return;
+
+      const parsed = TriggerBriefBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid request body', detail: parsed.error.message });
+      }
+
+      const { productId, founderId, weekOf } = parsed.data;
+
+      try {
+        const { jobId } = await triggerBriefNow(productId, founderId, weekOf);
+        return reply.send({ jobId, queued: true, productId, weekOf: weekOf ?? 'current week' });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /admin/trigger-brief' } });
+        return reply.status(500).send({ error: 'Failed to queue brief job' });
+      }
+    }
+  );
+
+  /**
+   * POST /admin/schedule-brief
+   * Re-registers the weekly repeatable BullMQ cron job.
+   * Idempotent — safe to call multiple times (removes old job first).
+   * Returns: { scheduled: true, cron: '0 17 * * 0 UTC' }
+   */
+  server.post(
+    '/admin/schedule-brief',
+    async (request, reply) => {
+      if (!verifyAdminSecret(request, reply)) return;
+
+      try {
+        await scheduleWeeklyBrief();
+        return reply.send({ scheduled: true, cron: '0 17 * * 0 UTC' });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /admin/schedule-brief' } });
+        return reply.status(500).send({ error: 'Failed to schedule brief' });
+      }
+    }
+  );
+
+  /**
+   * GET /admin/health
+   * Internal health check — verifies admin secret but no payload.
+   * Used by ops to confirm the admin secret is correctly configured.
+   */
+  server.get(
+    '/admin/health',
+    async (request, reply) => {
+      if (!verifyAdminSecret(request, reply)) return;
+      return reply.send({ ok: true });
+    }
+  );
+}

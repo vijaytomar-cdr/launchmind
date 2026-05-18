@@ -20,6 +20,13 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
+import { productsRoutes } from './routes/products.route';
+import { billingRoutes } from './routes/billing.route';
+import { channelsRoutes } from './routes/channels.route';
+import { adminRoutes } from './routes/admin.route';
+import { waitlistRoutes } from './routes/waitlist.route';
+import { startBriefWorker } from './workers/weeklyBriefWorker';
+import { scheduleWeeklyBrief } from './lib/scheduler';
 
 /**
  * Builds and configures the Fastify server instance.
@@ -52,6 +59,50 @@ export async function buildServer(): Promise<FastifyInstance> {
     timestamp: new Date().toISOString(),
   }));
 
+  /**
+   * GET /health/detailed
+   * Internal health check that probes Redis and Supabase connectivity.
+   * Returns 200 if all dependencies are healthy, 503 if any are down.
+   * @security Public — no auth required. Returns only status strings, no credentials.
+   */
+  server.get('/health/detailed', async (_request, reply) => {
+    const checks: Record<string, 'ok' | 'error'> = {};
+    let allOk = true;
+
+    // Supabase probe — simple count query
+    try {
+      const { error } = await (await import('./lib/supabaseAdmin')).getSupabaseAdmin()
+        .from('founders')
+        .select('id', { count: 'exact', head: true });
+      checks.supabase = error ? 'error' : 'ok';
+      if (error) allOk = false;
+    } catch {
+      checks.supabase = 'error';
+      allOk = false;
+    }
+
+    // Redis probe — ping via BullMQ queue connection
+    try {
+      const { getBriefQueue } = await import('./lib/scheduler');
+      const queue = getBriefQueue();
+      await queue.client;
+      checks.redis = 'ok';
+    } catch {
+      checks.redis = 'error';
+      allOk = false;
+    }
+
+    return reply
+      .status(allOk ? 200 : 503)
+      .send({ status: allOk ? 'ok' : 'degraded', checks, timestamp: new Date().toISOString() });
+  });
+
+  await server.register(productsRoutes);
+  await server.register(billingRoutes);
+  await server.register(channelsRoutes);
+  await server.register(adminRoutes);
+  await server.register(waitlistRoutes);
+
   server.setErrorHandler((error, _request, reply) => {
     Sentry.captureException(error);
     server.log.error(error);
@@ -68,6 +119,10 @@ async function start(): Promise<void> {
   const port = parseInt(process.env.PORT ?? '3001', 10);
   try {
     await server.listen({ port, host: '0.0.0.0' });
+
+    // Start BullMQ worker and register weekly cron (only in production process)
+    startBriefWorker();
+    await scheduleWeeklyBrief();
   } catch (err) {
     Sentry.captureException(err);
     server.log.error(err);

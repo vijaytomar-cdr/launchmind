@@ -411,25 +411,69 @@ security/* ← expedited, 1-reviewer merge to main
 
 ---
 
-## 6. Design System
+## 6. Design System — Slate & Sage
+
+This is a **light-theme** design system. Never use dark backgrounds for app pages.
+Reference HTML: `launchmind-ux-slate-sage.html` (full interactive prototype).
 
 ### 6.1 Colour Tokens
-```js
-brand: { teal:'#2DD4A0', purple:'#9B8FF4', coral:'#F07355', amber:'#F0B942', blue:'#5BA3F5' }
-neutral: { 900:'#0A0A0F', 800:'#111118', 700:'#1A1A24', 600:'#252530',
-           400:'#4A4860', 300:'#8A8799', 100:'#C8C6D4', 50:'#E8E6F0' }
-```
+
+| Token | Value | Usage |
+|---|---|---|
+| `--page` | `#f2f3f6` | App background |
+| `--surface` | `#ffffff` | Cards, modals |
+| `--raised` | `#eceef3` | Inputs, subtle containers, metric blocks |
+| `--sidebar` | `#28304a` | Left nav (dark navy) |
+| `--sidebar2` | `#323c58` | Sidebar hover state |
+| `--border` | `rgba(0,0,0,0.07)` | Default border |
+| `--border2` | `rgba(0,0,0,0.12)` | Stronger border |
+| `--ink` | `#1b1f2e` | Primary text |
+| `--ink2` | `#626880` | Secondary text |
+| `--ink3` | `#9ca4be` | Muted / placeholder text |
+| `--sage` | `#059669` | Primary CTA, success, active states |
+| `--sage-l` | `#34d399` | Sage light — sidebar active, highlights |
+| `--sage-d` | `rgba(5,150,105,0.12)` | Sage tint background |
+| `--sage-b` | `rgba(5,150,105,0.28)` | Sage tint border |
+| `--indigo` | `#4f46e5` | Accent — current plan, indigo badges |
+| `--amber` | `#d97706` | India market badge |
+| `--red` | `#dc2626` | Danger, kill signals |
+
+Tailwind class names: `bg-page`, `bg-surface`, `bg-raised`, `bg-sidebar`,
+`text-ink`, `text-ink-2`, `text-ink-3`, `text-sage`, `bg-sage-bg`, `border-sage-border`,
+`text-indigo`, `text-amber`, `text-danger`
 
 ### 6.2 Typography
-```js
-sans: ['DM Sans'], display: ['Syne'], mono: ['DM Mono']
+```
+Body:    DM Sans  · base 13px · line-height 1.5
+Display: Syne     · headings, sidebar logo, card titles
+Mono:    DM Mono  · token counts, metrics, code
 ```
 
-### 6.3 Conventions
-Cards: `bg-neutral-800 border border-neutral-600 rounded-xl p-5`
-Featured: `border-2 border-brand-teal`
-Badges — USA: teal · India: amber · Status: draft=neutral, approved=teal, launched=purple, paused=coral
+### 6.3 Component Conventions
+```
+Card:          bg-surface border border-[--border] rounded-[10px] p-[14px_16px]
+Card featured: border-sage-border border-2
+Input:         bg-raised border border-[--border2] rounded-sm px-3 py-2 text-ink focus:ring-2 focus:ring-sage-border
+Button solid:  bg-sage text-white rounded-sm px-4 py-2 text-sm font-medium
+Button ghost:  border border-[--border2] text-ink-2 hover:bg-raised
+Sidebar item:  text-[--s-text2] hover:bg-white/6 active:bg-sage-bg active:text-sage-light active:border-sage-border
+Metric block:  bg-raised rounded-sm p-[11px_13px]
+```
+
+### 6.4 Badges
+```
+USA market:     bg-sage-bg   border-sage-border   text-sage
+India market:   bg-amber-bg  border-amber-border  text-amber
+Draft:          bg-raised    border-[--border2]   text-ink-2
+Active/Success: bg-sage-bg   border-sage-border   text-sage
+Pending:        bg-amber-bg  border-amber-border  text-amber
+Pausing/Error:  bg-danger-bg border-danger-border text-danger
+Indigo/Accent:  bg-indigo-bg border-indigo-border text-indigo
+```
+
+### 6.5 shadcn Usage
 Use shadcn: `Button Input Textarea Select Card Dialog Toast Badge Tabs Table`
+Do NOT build custom equivalents of shadcn components.
 
 ---
 

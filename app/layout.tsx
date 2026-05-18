@@ -1,0 +1,51 @@
+/**
+ * @file layout.tsx
+ * @description Root layout for the LaunchMind Next.js app.
+ *   Loads Google Fonts (DM Sans, Syne, DM Mono), applies global CSS.
+ *   PostHog analytics fires only after cookie consent (not wired until Phase 2).
+ * @security No secrets. Font loading via next/font/google (no external network at render time).
+ * @dependencies next/font/google, globals.css
+ */
+
+import type { Metadata } from 'next';
+import { DM_Sans, Syne, DM_Mono } from 'next/font/google';
+import './globals.css';
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+});
+
+const syne = Syne({
+  subsets: ['latin'],
+  variable: '--font-syne',
+  display: 'swap',
+});
+
+const dmMono = DM_Mono({
+  subsets: ['latin'],
+  weight: ['300', '400', '500'],
+  variable: '--font-dm-mono',
+  display: 'swap',
+});
+
+export const metadata: Metadata = {
+  title: 'LaunchMind — AI Marketing OS for App Founders',
+  description: 'Discover your ICP, execute USA + India campaigns, and learn weekly.',
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html
+      lang="en"
+      className={`${dmSans.variable} ${syne.variable} ${dmMono.variable}`}
+    >
+      <body>{children}</body>
+    </html>
+  );
+}

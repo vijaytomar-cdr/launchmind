@@ -9,6 +9,12 @@
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import WS from 'ws';
+
+// Node < 22 lacks native WebSocket. Shim before Supabase realtime initialises.
+if (!('WebSocket' in globalThis)) {
+  Object.assign(globalThis, { WebSocket: WS });
+}
 
 let _client: SupabaseClient | null = null;
 
