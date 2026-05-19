@@ -23,6 +23,7 @@ import { AssetsRequestSchema } from '../types/strategy';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
 import { getProductMetrics } from '../services/metricsService';
+import { previewBrandVoice } from '../services/brandVoiceService';
 import {
   ScrapedAppDataSchema,
   ICPBriefSchema,
@@ -579,4 +580,39 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       return reply.status(500).send({ error: 'Failed to save feedback' });
     }
   });
+
+  /**
+   * POST /products/:id/brand-voice/preview
+   * Adjusts the provided copy to match this product's brand voice.
+   * Extracts brand voice from reviews if not cached (10 tokens), then applies it (5 tokens).
+   * Target: responds within 15 seconds using Claude Haiku.
+   * Body: { copy: string }
+   * Returns: { original, adjusted, tone, adjectives }
+   */
+  server.post<{ Params: { id: string }; Body: { copy: string } }>(
+    '/products/:id/brand-voice/preview',
+    async (request, reply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+
+      const copy = (request.body as { copy?: unknown })?.copy;
+      if (typeof copy !== 'string' || !copy.trim()) {
+        return reply.status(400).send({ error: 'Body must include a non-empty "copy" string' });
+      }
+      if (copy.length > 2000) {
+        return reply.status(400).send({ error: 'Copy must be 2000 characters or fewer' });
+      }
+
+      try {
+        const result = await previewBrandVoice(request.params.id, founderId, copy.trim());
+        return reply.send(result);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'Product not found') {
+          return reply.status(404).send({ error: 'Product not found' });
+        }
+        Sentry.captureException(err, { tags: { route: 'POST /products/:id/brand-voice/preview' } });
+        return reply.status(500).send({ error: 'Brand voice preview failed' });
+      }
+    }
+  );
 }

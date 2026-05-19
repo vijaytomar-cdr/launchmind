@@ -25,6 +25,8 @@ import { billingRoutes } from './routes/billing.route';
 import { channelsRoutes } from './routes/channels.route';
 import { adminRoutes } from './routes/admin.route';
 import { waitlistRoutes } from './routes/waitlist.route';
+import { workspacesRoutes } from './routes/workspaces.route';
+import { apiKeysRoutes } from './routes/apiKeys.route';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
 
@@ -50,6 +52,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await server.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',
+    // Bypass rate limiting for localhost in development — avoids false 429s from hot reloads
+    allowList: process.env.NODE_ENV !== 'production' ? ['127.0.0.1', '::1', '::ffff:127.0.0.1'] : [],
   });
 
   server.get('/health', async () => ({
@@ -100,6 +104,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await server.register(channelsRoutes);
   await server.register(adminRoutes);
   await server.register(waitlistRoutes);
+  await server.register(workspacesRoutes);
+  await server.register(apiKeysRoutes);
 
   server.setErrorHandler((error, _request, reply) => {
     Sentry.captureException(error);

@@ -252,9 +252,15 @@ export async function sendBriefEmail(
   productName: string,
   briefId: string,
   weekOf: string,
-  narrative: BriefNarrative
+  narrative: BriefNarrative,
+  clientName?: string          // White-label: pass workspace.client_name to replace "LaunchMind"
 ): Promise<void> {
   const resend = getResend();
+  const brand = clientName ?? 'LaunchMind';
+  const appUrl = process.env.APP_BASE_URL ?? 'https://app.launchmind.com';
+  const fromAddress = clientName
+    ? `${clientName} Weekly Brief <briefs@launchmind.com>`
+    : 'LaunchMind Weekly Brief <briefs@launchmind.com>';
 
   const nextActionsHtml = narrative.nextActions
     .map(
@@ -264,7 +270,7 @@ export async function sendBriefEmail(
     .join('');
 
   const { error } = await resend.emails.send({
-    from: 'LaunchMind Weekly Brief <briefs@launchmind.com>',
+    from: fromAddress,
     to: founderEmail,
     subject: `${productName} — Week of ${weekOf} Brief`,
     html: `
@@ -277,7 +283,7 @@ export async function sendBriefEmail(
       <ul>${nextActionsHtml || '<li>No recommendations this week.</li>'}</ul>
       <hr/>
       <p style="font-size:12px;color:#888">
-        View full brief in your <a href="${process.env.APP_BASE_URL ?? 'https://app.launchmind.com'}/dashboard/briefs">LaunchMind dashboard</a>.
+        View full brief in your <a href="${appUrl}/dashboard/briefs">${brand} dashboard</a>.
       </p>
     `,
   });
