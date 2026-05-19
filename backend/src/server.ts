@@ -27,6 +27,8 @@ import { adminRoutes } from './routes/admin.route';
 import { waitlistRoutes } from './routes/waitlist.route';
 import { workspacesRoutes } from './routes/workspaces.route';
 import { apiKeysRoutes } from './routes/apiKeys.route';
+import { foundersRoutes } from './routes/founders.route';
+import { checkAnomaly, extractFounderIdFromHeader } from './middleware/auth.middleware';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
 
@@ -106,6 +108,23 @@ export async function buildServer(): Promise<FastifyInstance> {
   await server.register(waitlistRoutes);
   await server.register(workspacesRoutes);
   await server.register(apiKeysRoutes);
+  await server.register(foundersRoutes);
+
+  // Anomaly detection — fires on every request with an Authorization header.
+  // Decodes JWT payload (no re-verification) to extract founderId, then fires
+  // checkAnomaly as void (non-blocking). Never delays or rejects the request.
+  server.addHook('onRequest', async (request) => {
+    const authHeader = request.headers.authorization;
+    const founderId = extractFounderIdFromHeader(authHeader);
+    if (founderId) {
+      const ip =
+        (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
+        request.socket.remoteAddress ??
+        'unknown';
+      const userAgent = (request.headers['user-agent'] as string | undefined) ?? 'unknown';
+      void checkAnomaly(founderId, ip, userAgent);
+    }
+  });
 
   server.setErrorHandler((error, _request, reply) => {
     Sentry.captureException(error);

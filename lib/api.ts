@@ -127,6 +127,64 @@ export const api = {
         token,
       }),
   },
+
+  workspaces: {
+    list: (token: string) =>
+      request<{ workspaces: Workspace[] }>('/workspaces', { token }),
+    get: (id: string, token: string) =>
+      request<{ workspace: Workspace }>(`/workspaces/${id}`, { token }),
+    create: (data: { name: string; client_name?: string }, token: string) =>
+      request<{ workspace: Workspace }>('/workspaces', {
+        method: 'POST', body: JSON.stringify(data), token,
+      }),
+    update: (id: string, data: { name?: string; client_name?: string | null }, token: string) =>
+      request<{ workspace: Workspace }>(`/workspaces/${id}`, {
+        method: 'PATCH', body: JSON.stringify(data), token,
+      }),
+    delete: (id: string, token: string) =>
+      request<{ deleted: boolean }>(`/workspaces/${id}`, { method: 'DELETE', token }),
+    products: (id: string, token: string) =>
+      request<{ products: Product[] }>(`/workspaces/${id}/products`, { token }),
+    assignProduct: (workspaceId: string, productId: string, token: string) =>
+      request<{ assigned: boolean }>(`/workspaces/${workspaceId}/products/${productId}`, {
+        method: 'POST', token,
+      }),
+  },
+
+  apiKeys: {
+    list: (token: string) =>
+      request<{ keys: ApiKey[] }>('/api-keys', { token }),
+    create: (data: { name: string; scopes: string[]; expires_at?: string }, token: string) =>
+      request<ApiKey & { key: string }>('/api-keys', {
+        method: 'POST', body: JSON.stringify(data), token,
+      }),
+    revoke: (id: string, token: string) =>
+      request<{ revoked: boolean; id: string }>(`/api-keys/${id}`, {
+        method: 'DELETE', token,
+      }),
+  },
+
+  founders: {
+    insights: (token: string) =>
+      request<FounderInsights>('/founders/me/insights', { token }),
+    export: (token: string) =>
+      request<Record<string, unknown>>('/founders/me/export', { token }),
+    deleteAccount: (token: string) =>
+      request<{ deleted: boolean }>('/founders/me', { method: 'DELETE', token }),
+    updateNotifications: (data: { briefDelivery?: boolean; campaignApproval?: boolean; lowTokenWarning?: boolean }, token: string) =>
+      request<{ updated: boolean }>('/founders/me/notifications', {
+        method: 'PATCH', body: JSON.stringify(data), token,
+      }),
+    revokeSessions: (token: string) =>
+      request<{ revoked: boolean }>('/auth/revoke-sessions', { method: 'POST', token }),
+  },
+
+  brandVoice: {
+    preview: (productId: string, copy: string, token: string) =>
+      request<BrandVoicePreview>(`/products/${productId}/brand-voice/preview`, {
+        method: 'POST', body: JSON.stringify({ copy }), token,
+      }),
+  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -317,4 +375,37 @@ export interface WeeklyBrief {
   status: 'draft' | 'sent' | 'acknowledged';
   sent_at: string | null;
   created_at: string;
+}
+
+export interface Workspace {
+  id: string;
+  founder_id: string;
+  name: string;
+  client_name: string | null;
+  created_at: string;
+}
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  scopes: string[];
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface FounderInsights {
+  topChannel: string | null;
+  avgInstallsPerWeek: number;
+  bestPerformingProduct: { id: string; name: string | null; installs: number } | null;
+  channelBreakdown: Array<{ channel: string; totalInstalls: number; avgCPI: number | null }>;
+}
+
+export interface BrandVoicePreview {
+  original: string;
+  adjusted: string;
+  tone: string;
+  adjectives: string[];
 }

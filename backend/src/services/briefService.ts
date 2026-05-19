@@ -56,6 +56,7 @@ export interface BriefInput {
   metrics: CampaignMetricRow[];
   topPerformers: CampaignMetricRow[];
   bottomPerformers: CampaignMetricRow[];
+  competitorDiff?: string;
 }
 
 export interface BriefNarrative {
@@ -90,6 +91,10 @@ export async function generateBriefNarrative(input: BriefInput): Promise<BriefNa
     .map((m) => `${m.channel}/${m.market} impressions=${m.impressions} installs=${m.installs} ctr=${m.ctr?.toFixed(3) ?? 'n/a'}`)
     .join('\n') || 'No bottom performers identified.';
 
+  const competitorContext = input.competitorDiff
+    ? `\nCompetitor changes this week:\n${input.competitorDiff}`
+    : '';
+
   const prompt = `Product: ${input.productName} (${input.category})
 Week of: ${input.weekOf}
 
@@ -97,7 +102,7 @@ Top performers:
 ${topSummary}
 
 Bottom performers / kill list:
-${bottomSummary}
+${bottomSummary}${competitorContext}
 
 Return JSON:
 {

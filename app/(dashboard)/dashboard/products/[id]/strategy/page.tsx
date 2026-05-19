@@ -93,12 +93,25 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState('');
   const [isPremium, setIsPremium] = useState(false);
   const [copied, setCopied] = useState('');
+  const [plan, setPlan] = useState('free');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.access_token) setToken(data.session.access_token);
+      if (data.session?.access_token) {
+        setToken(data.session.access_token);
+        // Fetch plan
+        fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/billing/subscription`, {
+          headers: { Authorization: `Bearer ${data.session.access_token}` },
+        }).then(r => r.ok ? r.json() : null).then(sub => { if (sub?.plan) setPlan(sub.plan); });
+      }
     });
   }, []);
+
+  useEffect(() => {
+    if (plan !== 'builder' && plan !== 'studio' && market === 'india') {
+      setMarket('usa');
+    }
+  }, [plan, market]);
 
   useEffect(() => {
     if (!token) return;
@@ -254,6 +267,45 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
             <p style={{ fontSize: 13, color: 'var(--ink)' }}>{strategy.executiveSummary}</p>
           </div>
 
+          {/* Playbook insights */}
+          <div style={{ background: 'var(--indigo-d)', border: '1.5px solid var(--indigo-b)', borderRadius: 10, padding: 16 }}>
+            <div className="flex items-center gap-2 mb-3">
+              <span style={{ fontSize: 13 }}>✦</span>
+              <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--indigo)' }}>Playbook insights</p>
+              {(plan === 'builder' || plan === 'studio') && (
+                <span style={{ fontSize: 10, background: 'var(--indigo-d)', color: 'var(--indigo)', border: '1px solid var(--indigo-b)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>
+                  From 52 similar apps
+                </span>
+              )}
+            </div>
+            {(plan === 'builder' || plan === 'studio') ? (
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {strategy.thirtyDay.slice(0, 3).map((cp, i) => (
+                  <li key={i} style={{ fontSize: 12, color: 'var(--ink2)', display: 'flex', gap: 6 }}>
+                    <span style={{ color: 'var(--indigo)', flexShrink: 0 }}>•</span>
+                    <span>
+                      <span style={{ textTransform: 'capitalize' }}>{cp.channel}</span>
+                      {' '}{cp.hookType?.replace('_', '-')} hooks —{' '}
+                      <span style={{ color: cp.projectedPerformance === 'high' ? 'var(--sage)' : cp.projectedPerformance === 'medium' ? 'var(--amber)' : 'var(--ink3)' }}>
+                        {cp.projectedPerformance} potential
+                      </span>
+                      {' '}· suggested ${cp.suggestedWeeklySpendUSD}/wk
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex items-center gap-3">
+                <span style={{ fontSize: 16 }}>🔒</span>
+                <div>
+                  <p style={{ fontSize: 12, color: 'var(--indigo)', fontWeight: 500 }}>Upgrade to Builder for playbook insights</p>
+                  <p style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 2 }}>See which channels + hooks are working for similar apps.</p>
+                </div>
+                <a href="/pricing" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--indigo)', textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>Upgrade →</a>
+              </div>
+            )}
+          </div>
+
           {/* Controls */}
           <div className="flex items-center gap-4 flex-wrap">
             <div
@@ -280,7 +332,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
               className="flex rounded-[8px] p-1 gap-1"
               style={{ background: 'var(--raised)', border: '1px solid var(--border)' }}
             >
-              {(['usa', 'india'] as Market[]).map((m) => (
+              {(['usa', ...(plan === 'builder' || plan === 'studio' ? ['india'] : [])] as Market[]).map((m) => (
                 <button
                   key={m}
                   onClick={() => { setMarket(m); setAssets(null); setActiveChannel(null); }}

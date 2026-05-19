@@ -67,7 +67,13 @@ export default function SettingsPage() {
   const [tokenOn,    setTokenOn]    = useState(true);
 
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteText, setDeleteText]       = useState('');
   const [exportBusy, setExportBusy]       = useState(false);
+
+  const [plan, setPlan]               = useState('free');
+  const [apiKeys, setApiKeys]         = useState<Array<{ id: string; name: string; key_prefix: string; scopes: string[]; last_used_at: string | null; created_at: string }>>([]);
+  const [newKeyName, setNewKeyName]   = useState('');
+  const [newKeyVisible, setNewKeyVisible] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -77,6 +83,26 @@ export default function SettingsPage() {
       setName(user.user_metadata?.full_name ?? '');
       const { data } = await supabase.auth.mfa.listFactors();
       setMfaFactors(data?.totp ?? []);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? '';
+
+      const subRes = await fetch(`${apiBase}/billing/subscription`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (subRes.ok) {
+        const sub = await subRes.json() as { plan: string };
+        setPlan(sub.plan);
+      }
+
+      const keysRes = await fetch(`${apiBase}/api-keys`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (keysRes.ok) {
+        const k = await keysRes.json() as { keys?: typeof apiKeys };
+        setApiKeys(k.keys ?? []);
+      }
     }
     load();
   }, [supabase, router]);
@@ -116,6 +142,53 @@ export default function SettingsPage() {
       URL.revokeObjectURL(url);
     } catch { /* silent */ }
     finally { setExportBusy(false); }
+  }
+
+  async function deleteAccount() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/founders/me`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+    } catch { /* continue even if request fails */ }
+    await supabase.auth.signOut();
+    window.location.href = '/';
+  }
+
+  async function createApiKey() {
+    if (!newKeyName.trim()) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? '';
+    const res = await fetch(`${apiBase}/api-keys`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newKeyName, scopes: ['read'] }),
+    });
+    if (!res.ok) return;
+    const data = await res.json() as { key: string };
+    setNewKeyVisible(data.key);
+    setNewKeyName('');
+    const keysRes = await fetch(`${apiBase}/api-keys`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (keysRes.ok) {
+      const k = await keysRes.json() as { keys?: typeof apiKeys };
+      setApiKeys(k.keys ?? []);
+    }
+  }
+
+  async function revokeApiKey(id: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? '';
+    await fetch(`${apiBase}/api-keys/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    setApiKeys(prev => prev.filter(k => k.id !== id));
   }
 
   const inputBase: React.CSSProperties = {
@@ -260,7 +333,56 @@ export default function SettingsPage() {
         <p style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 12 }}>Notification preferences saved automatically.</p>
       </div>
 
-      {/* ── 4. Danger zone ──────────────────────────────────────────────────── */}
+      {/* ── 4. API Keys (Studio only) ───────────────────────────────────────── */}
+      {plan === 'studio' && (
+        <div style={card}>
+          <div className="flex items-center gap-2 mb-5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+            </svg>
+            <h2 className="font-display font-bold" style={{ fontSize: 15, color: 'var(--ink)' }}>API Keys</h2>
+            <span style={{ fontSize: 11, background: 'var(--indigo-d)', color: 'var(--indigo)', border: '1px solid var(--indigo-b)', borderRadius: 4, padding: '1px 6px' }}>Studio</span>
+          </div>
+
+          {newKeyVisible && (
+            <div style={{ background: 'var(--sage-d)', border: '1px solid var(--sage-b)', borderRadius: 6, padding: '10px 14px', marginBottom: 16 }}>
+              <p style={{ fontSize: 11, color: 'var(--sage)', marginBottom: 4, fontWeight: 500 }}>Copy your key — it will not be shown again</p>
+              <code style={{ fontSize: 12, color: 'var(--ink)', wordBreak: 'break-all' as const }}>{newKeyVisible}</code>
+              <button onClick={() => setNewKeyVisible(null)} style={{ display: 'block', fontSize: 11, color: 'var(--ink3)', marginTop: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Dismiss</button>
+            </div>
+          )}
+
+          <div className="flex gap-2 mb-4">
+            <input type="text" value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
+              placeholder="Key name (e.g. Production)"
+              style={{ ...inputBase, flex: 1, border: '1px solid var(--border2)' }} />
+            <button onClick={createApiKey} disabled={!newKeyName.trim()}
+              style={{ background: 'var(--sage)', color: '#fff', borderRadius: 6, padding: '8px 14px', fontSize: 12, fontWeight: 500, border: 'none', cursor: !newKeyName.trim() ? 'not-allowed' : 'pointer', opacity: !newKeyName.trim() ? 0.5 : 1, whiteSpace: 'nowrap' as const }}>
+              Create key
+            </button>
+          </div>
+
+          {apiKeys.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--ink3)' }}>No API keys yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {apiKeys.map(k => (
+                <div key={k.id} className="flex items-center justify-between" style={{ background: 'var(--raised)', borderRadius: 6, padding: '8px 12px' }}>
+                  <div>
+                    <p style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{k.name}</p>
+                    <p style={{ fontSize: 11, color: 'var(--ink3)', fontFamily: 'monospace' }}>{k.key_prefix}… · {k.scopes.join(', ')}</p>
+                  </div>
+                  <button onClick={() => revokeApiKey(k.id)} style={{ fontSize: 11, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                    Revoke
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 5. Danger zone ──────────────────────────────────────────────────── */}
       <div style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', borderRadius: 10, padding: 24 }}>
         <h2 className="font-display font-bold mb-5" style={{ fontSize: 15, color: 'var(--red)' }}>Danger zone</h2>
 
@@ -290,19 +412,26 @@ export default function SettingsPage() {
               </button>
             ) : (
               <div className="flex flex-col items-end gap-2">
-                <p style={{ fontSize: 12, color: 'var(--red)', fontWeight: 500 }}>Are you sure?</p>
+                <p style={{ fontSize: 12, color: 'var(--red)', fontWeight: 500 }}>Type DELETE to confirm</p>
+                <input
+                  type="text"
+                  value={deleteText}
+                  onChange={(e) => setDeleteText(e.target.value)}
+                  placeholder="DELETE"
+                  style={{ ...inputBase, width: 160, border: '1px solid var(--red-b)', fontSize: 12 }}
+                />
                 <div className="flex gap-2">
-                  <button onClick={() => setDeleteConfirm(false)}
+                  <button onClick={() => { setDeleteConfirm(false); setDeleteText(''); }}
                     style={{ ...ghostBtn, padding: '5px 12px' }}>
                     Cancel
                   </button>
-                  <a href="mailto:support@launchmind.com?subject=Account%20deletion%20request"
-                    onClick={() => setDeleteConfirm(false)}
-                    style={{ fontSize: 12, background: 'var(--red)', color: '#fff', borderRadius: 6, padding: '5px 12px', fontWeight: 500, textDecoration: 'none', display: 'inline-block', whiteSpace: 'nowrap' }}>
-                    Contact support
-                  </a>
+                  <button
+                    onClick={deleteAccount}
+                    disabled={deleteText !== 'DELETE'}
+                    style={{ fontSize: 12, background: 'var(--red)', color: '#fff', borderRadius: 6, padding: '5px 12px', fontWeight: 500, border: 'none', cursor: deleteText !== 'DELETE' ? 'not-allowed' : 'pointer', opacity: deleteText !== 'DELETE' ? 0.5 : 1 }}>
+                    Confirm delete
+                  </button>
                 </div>
-                <p style={{ fontSize: 11, color: 'var(--ink3)' }}>Account deletion requires identity verification.</p>
               </div>
             )}
           </div>

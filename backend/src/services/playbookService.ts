@@ -87,6 +87,50 @@ export async function getSimilarSignals(
 }
 
 /**
+ * Formats an array of pre-fetched playbook signals as human-readable bullet points.
+ * Produces a richer natural-language context block than buildPlaybookContext.
+ * @param signals  - Array of PlaybookSignal rows (already fetched)
+ * @param category - App category label for the header line
+ * @param market   - 'usa' | 'india' for the header line
+ * @returns        Natural-language context block ready for Claude prompt injection
+ */
+export function formatContextForPrompt(
+  signals: PlaybookSignal[],
+  category: string,
+  market: 'usa' | 'india'
+): string {
+  if (signals.length === 0) {
+    return `No historical playbook data found for ${category} apps in ${market.toUpperCase()}.`;
+  }
+
+  const topByInstall = [...signals]
+    .filter((s) => s.installDeltaPct != null && s.installDeltaPct > 0)
+    .sort((a, b) => (b.installDeltaPct ?? 0) - (a.installDeltaPct ?? 0));
+
+  const underperformers = signals.filter(
+    (s) => s.installDeltaPct != null && s.installDeltaPct < 10
+  );
+
+  const bullets: string[] = [];
+
+  for (const s of topByInstall.slice(0, 4)) {
+    const hook = s.hookType ? ` ${s.hookType.replace('_', '-')} hooks` : '';
+    const channel = s.channel.charAt(0).toUpperCase() + s.channel.slice(1);
+    const lift = s.installDeltaPct?.toFixed(0) ?? '?';
+    const weeks = s.weekNumber ? ` (week ${s.weekNumber})` : '';
+    const retention = s.retentionD7 != null ? ` · D7 retention ${(s.retentionD7 * 100).toFixed(0)}%` : '';
+    bullets.push(`- ${channel}${hook} drove avg +${lift}% installs in ${market === 'india' ? 'India' : 'USA'}${weeks}${retention}`);
+  }
+
+  for (const s of underperformers.slice(0, 2)) {
+    const channel = s.channel.charAt(0).toUpperCase() + s.channel.slice(1);
+    bullets.push(`- ${channel} underperformed — avg ${s.conversionRate != null ? (s.conversionRate * 100).toFixed(1) + '% CTR' : 'low CTR'}, most founders paused early`);
+  }
+
+  return `Based on ${signals.length} similar apps in ${category} targeting ${market === 'india' ? 'India' : 'USA'}:\n${bullets.join('\n')}`;
+}
+
+/**
  * Formats playbook signals into a natural-language string for Claude prompt injection.
  * @param category     - App category
  * @param market       - 'usa' | 'india'

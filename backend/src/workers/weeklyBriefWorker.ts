@@ -37,6 +37,97 @@ import {
   type BriefInput,
 } from '../services/briefService';
 
+// ── Step 2.5: Competitor re-scrape ───────────────────────────────────────────
+
+interface CompetitorEntry {
+  name: string;
+  storeUrl?: string;
+  rating?: number;
+  description?: string;
+  [key: string]: unknown;
+}
+
+interface CompetitorDiff {
+  name: string;
+  changes: string[];
+}
+
+/**
+ * Re-scrapes top 5 competitor App Store pages using Cheerio (lightweight, no Playwright).
+ * Diffs new metadata against stored competitor_set.
+ * Updates products.competitor_set in the DB.
+ * @returns Plain-text diff summary for inclusion in the brief narrative
+ */
+async function rescrapeCompetitors(
+  productId: string,
+  competitorSet: CompetitorEntry[]
+): Promise<string> {
+  if (!competitorSet || competitorSet.length === 0) return '';
+
+  // Only process App Store competitors (Cheerio-compatible; Play Store needs Playwright)
+  const appStoreCompetitors = competitorSet
+    .filter((c) => c.storeUrl?.includes('apps.apple.com'))
+    .slice(0, 5);
+
+  if (appStoreCompetitors.length === 0) return '';
+
+  const diffs: CompetitorDiff[] = [];
+
+  for (const competitor of appStoreCompetitors) {
+    if (!competitor.storeUrl) continue;
+    try {
+      const { default: fetch } = await import('node-fetch');
+      const res = await fetch(competitor.storeUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LaunchMindBot/1.0)' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+
+      const html = await res.text();
+      const { load } = await import('cheerio');
+      const $ = load(html);
+
+      // Extract current rating
+      const ratingText = $('[class*="rating-count"]').first().text().trim() ||
+                         $('figcaption[class*="rating"]').first().text().trim();
+      const newRating = parseFloat(ratingText);
+
+      // Extract description snippet
+      const newDesc = $('[data-testid="truncated-description"]').first().text().trim().slice(0, 200) ||
+                      $('[class*="section__description"]').first().text().trim().slice(0, 200);
+
+      const changes: string[] = [];
+      if (!isNaN(newRating) && competitor.rating != null && Math.abs(newRating - competitor.rating) >= 0.1) {
+        const direction = newRating > competitor.rating ? 'up' : 'down';
+        changes.push(`rating ${direction} from ${competitor.rating} → ${newRating}`);
+        competitor.rating = newRating;
+      }
+      if (newDesc && competitor.description && newDesc !== competitor.description.slice(0, 200)) {
+        changes.push('description updated');
+        competitor.description = newDesc;
+      }
+
+      if (changes.length > 0) {
+        diffs.push({ name: competitor.name, changes });
+      }
+    } catch {
+      // Per-competitor errors are non-fatal
+    }
+  }
+
+  if (diffs.length === 0) return '';
+
+  // Update stored competitor_set
+  await getSupabaseAdmin()
+    .from('products')
+    .update({ competitor_set: competitorSet, updated_at: new Date().toISOString() })
+    .eq('id', productId);
+
+  return diffs
+    .map((d) => `${d.name}: ${d.changes.join(', ')}`)
+    .join('; ');
+}
+
 // ── Steps 1–5: Data gathering ─────────────────────────────────────────────────
 
 interface ProductBriefTarget {
@@ -45,12 +136,13 @@ interface ProductBriefTarget {
   founderEmail: string;
   productName: string;
   category: string;
+  competitorSet: CompetitorEntry[];
 }
 
 async function fetchAllActiveProducts(): Promise<ProductBriefTarget[]> {
   const { data, error } = await getSupabaseAdmin()
     .from('products')
-    .select('id, founder_id, name, category, founders(email)')
+    .select('id, founder_id, name, category, competitor_set, founders(email)')
     .not('confirmed_icp', 'is', null);
 
   if (error || !data) {
@@ -63,13 +155,14 @@ async function fetchAllActiveProducts(): Promise<ProductBriefTarget[]> {
     founderEmail: (row.founders as { email?: string } | null)?.email ?? '',
     productName: row.name,
     category: row.category ?? 'Productivity',
+    competitorSet: (row.competitor_set as CompetitorEntry[] | null) ?? [],
   }));
 }
 
 async function fetchProductTarget(productId: string, founderId: string): Promise<ProductBriefTarget> {
   const { data, error } = await getSupabaseAdmin()
     .from('products')
-    .select('id, founder_id, name, category, founders(email)')
+    .select('id, founder_id, name, category, competitor_set, founders(email)')
     .eq('id', productId)
     .eq('founder_id', founderId)
     .single();
@@ -82,6 +175,7 @@ async function fetchProductTarget(productId: string, founderId: string): Promise
     founderEmail: (data.founders as { email?: string } | null)?.email ?? '',
     productName: data.name,
     category: data.category ?? 'Productivity',
+    competitorSet: (data.competitor_set as CompetitorEntry[] | null) ?? [],
   };
 }
 
@@ -156,6 +250,19 @@ async function runBriefPipeline(
 
   console.log(`[weeklyBriefWorker] Starting brief productId=${productId.substring(0, 8)}… week=${weekOf}`);
 
+  // Step 2.5: Competitor re-scrape (additive, non-fatal)
+  let competitorDiff = '';
+  try {
+    if (target.competitorSet.length > 0) {
+      competitorDiff = await rescrapeCompetitors(productId, target.competitorSet);
+      if (competitorDiff) {
+        console.log(`[weeklyBriefWorker] Competitor changes: ${competitorDiff}`);
+      }
+    }
+  } catch (err) {
+    Sentry.captureException(err, { tags: { step: 'rescrapeCompetitors' } });
+  }
+
   // Steps 1–3 already done (target fetched + weekOf set)
   const metrics = await fetchWeekMetrics(productId, weekOf);
 
@@ -172,6 +279,7 @@ async function runBriefPipeline(
     metrics,
     topPerformers,
     bottomPerformers,
+    competitorDiff: competitorDiff || undefined,
   };
 
   // Step 6: AI narrative

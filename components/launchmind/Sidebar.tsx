@@ -1,7 +1,7 @@
 /**
  * @file Sidebar.tsx
  * @description Dashboard sidebar navigation — Slate & Sage dark sidebar panel.
- *   Nav items: Products, Campaigns, Briefs, Channels, Settings.
+ *   Nav items: Products, Campaigns, Briefs, Insights, Workspaces, Channels, Billing, Settings.
  *   Bottom: founder email + logout.
  * @security Logout calls supabase.auth.signOut() client-side; cookie cleared by Supabase.
  * @dependencies @supabase/ssr (browser client), lucide-react, next/link
@@ -21,12 +21,16 @@ import {
   LogOut,
   ShieldCheck,
   CreditCard,
+  TrendingUp,
+  Layers,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard/products', label: 'Products', icon: LayoutGrid },
   { href: '/dashboard/campaigns', label: 'Campaigns', icon: Megaphone },
   { href: '/dashboard/briefs', label: 'Briefs', icon: FileText },
+  { href: '/dashboard/insights', label: 'Insights', icon: TrendingUp },
+  { href: '/dashboard/workspaces', label: 'Workspaces', icon: Layers },
   { href: '/dashboard/channels', label: 'Channels', icon: Radio },
   { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },

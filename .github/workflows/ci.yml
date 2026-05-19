@@ -35,6 +35,11 @@ jobs:
       - name: Dependency scan
         working-directory: backend
         run: npm audit --audit-level=high
+      - name: Snyk security scan
+        working-directory: backend
+        run: npx snyk test --severity-threshold=high
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       - name: Tests
         working-directory: backend
         run: npm run test:coverage
