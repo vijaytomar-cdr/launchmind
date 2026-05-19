@@ -632,29 +632,41 @@ launchmind/
 > Update this section at the end of every phase.
 
 ```
-Last updated: Starting Phase 3 (Week 9)
+Last updated: Phase 4 complete (Week 17)
 
-Backend — Weeks 0–8: COMMITTED AND COMPLETE
-  Week 0: Scaffold, Docker, CI/CD, Oracle deploy, GitHub Actions
-  Week 1: Fastify, all 9 DB migrations, RLS, token vault, consumeTokens()
-  Week 2: Scraper (Cheerio + Playwright), ICP service, product routes + tests
-  Week 3: Strategy generation (Claude Sonnet), playbookService, OAuth, WhatsApp routes
-  Week 4: Stripe, Razorpay, metrics aggregation, BullMQ briefs + tests
-  Week 5: platformTokenService, WhatsApp Business API, approve-before-post
-  Week 6: BullMQ weekly cron, anonymizationService, brief pipeline, Resend
-  Week 7: Admin trigger, UTM service, email campaigns, metrics dashboard
-  Week 8: Bug fixes, performance, waitlist page
+Backend — Weeks 0–17: COMMITTED AND COMPLETE
+  Week 0:  Scaffold, Docker, CI/CD, Oracle deploy, GitHub Actions
+  Week 1:  Fastify, all 9 DB migrations, RLS, token vault, consumeTokens()
+  Week 2:  Scraper (Cheerio + Playwright), ICP service, product routes + tests
+  Week 3:  Strategy generation (Claude Sonnet), playbookService, OAuth, WhatsApp routes
+  Week 4:  Stripe, Razorpay, metrics aggregation, BullMQ briefs + tests
+  Week 5:  platformTokenService, WhatsApp Business API, approve-before-post
+  Week 6:  BullMQ weekly cron, anonymizationService, brief pipeline, Resend
+  Week 7:  Admin trigger, UTM service, email campaigns, metrics dashboard
+  Week 8:  Bug fixes, performance, waitlist page
+  Week 9:  playbook_signals seeded (28 rows); Phase 3 frontend scaffolds
+  Week 14: Playbook enrichment migration (+24 rows = 52 total); formatContextForPrompt()
+  Week 15: Anomaly detection middleware (Redis, Resend alert); founders.route.ts
+           (GDPR delete/export, sessions, notifications, cross-product insights); Snyk CI
+  Week 16: Competitor re-scrape in weeklyBriefWorker (App Store, Cheerio, diff → brief)
+  Week 17: Workspaces backend live; foundersRoutes + anomaly hook wired in server.ts
 
-Frontend — Weeks 2–8: EMPTY SCAFFOLDS
-  Build in Phase 3 from reference files in project root.
-  Reference: launchmind-ux-slate-sage.html (all 12 screens)
-  Reference: launchmind-homepage.html (marketing site)
+Frontend — Weeks 9–17: COMPLETE
+  All 12 dashboard screens implemented from launchmind-ux-slate-sage.html reference.
+  Week 14: Strategy page — playbook insights box (Builder/Studio data, Solo locked)
+  Week 15: Settings page — delete account (type DELETE), Studio-only API keys card
+  Week 16: Strategy page — India tab hidden for Solo/Free; playbook insights
+  Week 17: /dashboard/insights — cross-product KPIs + channel bar chart
+           /dashboard/workspaces — Studio-gated list/create/delete + brand voice preview
+           Sidebar — Insights + Workspaces nav items; lib/api.ts complete
 
 Seed data:
-  playbook_signals: EMPTY
-  FIRST TASK in Week 9: run 20250601_000011_seed_playbook_signals.sql (28 rows)
+  playbook_signals: 52 rows (migration 11 + migration 18 applied to hosted Supabase)
 
-Next: open phases/phase-3/weeks-09-13.md and start Week 9.
+Pending (gate 4):
+  Studio billing plan-change flow requires live STRIPE_SECRET_KEY in VM env.
+
+Next: open phases/phase-5/weeks-18-20.md and start Week 18.
 ```
 
 ---
