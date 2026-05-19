@@ -94,6 +94,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
   const [isPremium, setIsPremium] = useState(false);
   const [copied, setCopied] = useState('');
   const [plan, setPlan] = useState('free');
+  const [showTopUpDialog, setShowTopUpDialog] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -144,6 +145,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      if (res.status === 402) { setShowTopUpDialog(true); return; }
       if (!res.ok) throw new ApiError(res.status, data.error ?? 'Generation failed');
       setStrategy(data);
       setIsPremium(true);
@@ -171,6 +173,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
         body: JSON.stringify({ channel, market }),
       });
       const data = await res.json();
+      if (res.status === 402) { setShowTopUpDialog(true); return; }
       if (!res.ok) throw new Error(data.error ?? 'Failed');
       setAssets(data);
     } catch {
@@ -197,6 +200,44 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="p-8 max-w-4xl">
+      {/* Insufficient tokens dialog */}
+      {showTopUpDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+        }} onClick={() => setShowTopUpDialog(false)}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
+            padding: '28px 32px', maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+          }} onClick={(e) => e.stopPropagation()}>
+            <div className="font-display font-bold" style={{ fontSize: 17, color: 'var(--ink)', marginBottom: 8 }}>
+              Out of tokens
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--ink2)', marginBottom: 20, lineHeight: 1.6 }}>
+              Strategy generation requires tokens. Your balance is too low to proceed.
+              Buy a token pack to continue — top-ups are one-time and never expire.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <a href="/dashboard/billing"
+                style={{
+                  flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 500,
+                  padding: '9px 16px', borderRadius: 6, textDecoration: 'none',
+                  background: 'var(--sage)', color: '#fff',
+                }}>
+                Buy tokens →
+              </a>
+              <button onClick={() => setShowTopUpDialog(false)}
+                style={{
+                  fontSize: 13, padding: '9px 16px', borderRadius: 6, cursor: 'pointer',
+                  border: '1px solid var(--border2)', background: 'var(--surface)', color: 'var(--ink2)',
+                }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-6" style={{ fontSize: 13, color: 'var(--ink3)' }}>
         <Link href="/dashboard/products" className="transition-opacity hover:opacity-70" style={{ color: 'var(--ink2)' }}>Products</Link>

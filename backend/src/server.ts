@@ -28,6 +28,7 @@ import { waitlistRoutes } from './routes/waitlist.route';
 import { workspacesRoutes } from './routes/workspaces.route';
 import { apiKeysRoutes } from './routes/apiKeys.route';
 import { foundersRoutes } from './routes/founders.route';
+import { InsufficientTokensError } from './types/errors';
 import { checkAnomaly, extractFounderIdFromHeader } from './middleware/auth.middleware';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
@@ -127,6 +128,14 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   server.setErrorHandler((error, _request, reply) => {
+    if (error instanceof InsufficientTokensError) {
+      return reply.status(402).send({
+        error: 'Insufficient tokens',
+        code: 'INSUFFICIENT_TOKENS',
+        balance: error.balance,
+        required: error.required,
+      });
+    }
     Sentry.captureException(error);
     server.log.error(error);
     reply.status(error.statusCode ?? 500).send({

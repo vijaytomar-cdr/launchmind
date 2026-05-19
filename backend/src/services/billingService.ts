@@ -191,6 +191,15 @@ export async function handleStripeWebhook(
     const founderId = session.metadata?.founderId;
     const plan = session.metadata?.plan;
 
+    // Token top-up (one-time payment, not subscription)
+    if (session.metadata?.type === 'token_topup') {
+      const packSize = parseInt(session.metadata.packSize ?? '0', 10);
+      if (founderId && packSize > 0) {
+        await handleTokenTopupWebhook(founderId, packSize);
+      }
+      return;
+    }
+
     if (!founderId || !plan) {
       Sentry.captureMessage('Stripe webhook missing metadata', { tags: { eventType: event.type } });
       return;
@@ -258,6 +267,99 @@ export async function handleRazorpayWebhook(
 
     await activatePlan(founderId, plan, 'razorpay');
   }
+}
+
+// ── Token top-up ──────────────────────────────────────────────────────────────
+
+const TOPUP_PRICES: Record<number, { usd: number; inr: number }> = {
+  500:  { usd: 900,  inr: 74900  },
+  1500: { usd: 1900, inr: 149900 },
+  5000: { usd: 4900, inr: 399900 },
+};
+
+/**
+ * Creates a one-time Stripe or Razorpay checkout for a token top-up pack.
+ * @param founderId - UUID of the founder
+ * @param packSize  - 500 | 1500 | 5000 tokens
+ * @param currency  - 'usd' (Stripe) | 'inr' (Razorpay)
+ * @returns         { url } for Stripe, or { orderId, amount, keyId } for Razorpay
+ * @throws          {Error} If pack size unknown or payment keys not set
+ * @security        founderId in metadata; verified on webhook. Secret keys never returned.
+ */
+export async function createTokenTopupCheckout(
+  founderId: string,
+  packSize: 500 | 1500 | 5000,
+  currency: 'usd' | 'inr'
+): Promise<{ url?: string; orderId?: string; amount?: number; keyId?: string }> {
+  const pricing = TOPUP_PRICES[packSize];
+  if (!pricing) throw new Error(`Unknown pack size: ${packSize}`);
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+
+  if (currency === 'usd') {
+    const stripe = getStripe();
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            unit_amount: pricing.usd,
+            product_data: { name: `LaunchMind ${packSize.toLocaleString()} Token Pack` },
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: { founderId, packSize: String(packSize), type: 'token_topup' },
+      success_url: `${appUrl}/dashboard/billing?topup=success`,
+      cancel_url: `${appUrl}/dashboard/billing`,
+    });
+    if (!session.url) throw new Error('Stripe did not return a session URL');
+    return { url: session.url };
+  } else {
+    const razorpay = getRazorpay();
+    const order = await razorpay.orders.create({
+      amount: pricing.inr,
+      currency: 'INR',
+      notes: { founderId, packSize: String(packSize), type: 'token_topup' },
+    });
+    return { orderId: order.id, amount: pricing.inr, keyId: process.env.RAZORPAY_KEY_ID! };
+  }
+}
+
+/**
+ * Adds tokens to a founder's balance after a successful top-up payment.
+ * Called from handleStripeWebhook when checkout.session metadata.type === 'token_topup'.
+ * @param founderId - UUID of the founder
+ * @param packSize  - Number of tokens purchased
+ * @throws          {Error} If add_tokens RPC fails
+ * @security        Writes to audit_logs (immutable). Never touches auth or plan fields.
+ */
+export async function handleTokenTopupWebhook(
+  founderId: string,
+  packSize: number
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  const { error } = await supabase.rpc('add_tokens', {
+    p_founder_id: founderId,
+    p_amount: packSize,
+  });
+
+  if (error) {
+    Sentry.captureException(new Error(`Token topup RPC failed: ${error.message}`), {
+      extra: { founderId, packSize },
+    });
+    throw new Error(`Failed to add tokens: ${error.message}`);
+  }
+
+  await supabase.from('audit_logs').insert({
+    founder_id: founderId,
+    action: 'tokens_purchased',
+    resource_type: 'ai_token',
+    metadata: { packSize, source: 'stripe' },
+  });
 }
 
 // ── Subscription management ───────────────────────────────────────────────────

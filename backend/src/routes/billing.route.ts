@@ -22,11 +22,17 @@ import {
   handleRazorpayWebhook,
   cancelSubscription,
   getSubscriptionStatus,
+  createTokenTopupCheckout,
 } from '../services/billingService';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 
 const CheckoutBodySchema = z.object({
   plan: z.enum(['solo', 'builder', 'studio']),
+  currency: z.enum(['usd', 'inr']),
+});
+
+const TopupBodySchema = z.object({
+  packSize: z.union([z.literal(500), z.literal(1500), z.literal(5000)]),
   currency: z.enum(['usd', 'inr']),
 });
 
@@ -195,6 +201,79 @@ export async function billingRoutes(server: FastifyInstance): Promise<void> {
       } catch (err) {
         Sentry.captureException(err, { tags: { route: 'POST /billing/cancel' } });
         return reply.status(500).send({ error: 'Cancellation failed' });
+      }
+    }
+  );
+
+  /**
+   * POST /billing/topup
+   * Creates a one-time Stripe or Razorpay checkout for a token top-up pack.
+   * Body: { packSize: 500|1500|5000, currency: 'usd'|'inr' }
+   * Returns: { url } for Stripe, or { orderId, amount, keyId } for Razorpay.
+   */
+  server.post(
+    '/billing/topup',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const parsed = TopupBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', detail: parsed.error.message });
+      }
+      const { packSize, currency } = parsed.data;
+      try {
+        const result = await createTokenTopupCheckout(founderId, packSize, currency);
+        return reply.send(result);
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /billing/topup' } });
+        return reply.status(500).send({ error: err instanceof Error ? err.message : 'Topup creation failed' });
+      }
+    }
+  );
+
+  /**
+   * GET /founders/me/token-usage
+   * Returns tokens_consumed audit_log entries for past 30 days, grouped by action type.
+   * Sorted by total cost descending.
+   */
+  server.get(
+    '/founders/me/token-usage',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      try {
+        const { data, error } = await getSupabaseAdmin()
+          .from('audit_logs')
+          .select('action, metadata, created_at')
+          .eq('founder_id', founderId)
+          .eq('action', 'tokens_consumed')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(200);
+
+        if (error) throw error;
+
+        const grouped: Record<string, { count: number; totalCost: number; lastUsed: string }> = {};
+        for (const entry of data ?? []) {
+          const meta = entry.metadata as { action?: string; cost?: number } | null;
+          const key = meta?.action ?? 'unknown';
+          if (!grouped[key]) grouped[key] = { count: 0, totalCost: 0, lastUsed: entry.created_at };
+          grouped[key].count += 1;
+          grouped[key].totalCost += meta?.cost ?? 0;
+          if (entry.created_at > grouped[key].lastUsed) grouped[key].lastUsed = entry.created_at;
+        }
+
+        const breakdown = Object.entries(grouped)
+          .map(([action, stats]) => ({ action, ...stats }))
+          .sort((a, b) => b.totalCost - a.totalCost);
+
+        return reply.send({
+          since,
+          breakdown,
+          totalConsumed: breakdown.reduce((s, r) => s + r.totalCost, 0),
+        });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'GET /founders/me/token-usage' } });
+        return reply.status(500).send({ error: 'Failed to fetch token usage' });
       }
     }
   );

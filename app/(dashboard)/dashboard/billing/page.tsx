@@ -11,7 +11,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
-import type { SubscriptionStatus } from '@/lib/api';
+import type { SubscriptionStatus, TokenTopupBody } from '@/lib/api';
 
 type Plan = 'free' | 'solo' | 'builder' | 'studio';
 type Currency = 'usd' | 'inr';
@@ -131,16 +131,13 @@ export default function BillingPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      // Top-ups reuse the checkout endpoint with an appropriate plan tier
-      // as a billing signal — the backend interprets this as a token pack
-      const tierMap: Record<string, 'solo' | 'builder' | 'studio'> = {
-        '500': 'solo', '1,500': 'builder', '5,000': 'studio',
-      };
-      const result = await api.billing.checkout(
-        { plan: tierMap[tokens] ?? 'solo', currency },
-        session.access_token
-      );
-      if ('url' in result) window.location.href = result.url;
+      const packSize = TOKEN_AMOUNTS[tokens] as TokenTopupBody['packSize'];
+      const result = await api.billing.topup({ packSize, currency }, session.access_token);
+      if ('url' in result) {
+        window.location.href = result.url;
+      } else {
+        window.open(`https://checkout.razorpay.com/v1/checkout.js?order_id=${result.orderId}`, '_blank');
+      }
     } catch {
       setError('Could not start top-up. Please try again.');
     } finally {

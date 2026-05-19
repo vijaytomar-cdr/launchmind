@@ -126,6 +126,12 @@ export const api = {
         method: 'POST',
         token,
       }),
+    topup: (data: TokenTopupBody, token: string) =>
+      request<TokenTopupResult>('/billing/topup', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        token,
+      }),
   },
 
   workspaces: {
@@ -177,6 +183,8 @@ export const api = {
       }),
     revokeSessions: (token: string) =>
       request<{ revoked: boolean }>('/auth/revoke-sessions', { method: 'POST', token }),
+    tokenUsage: (token: string) =>
+      request<TokenUsage>('/founders/me/token-usage', { token }),
   },
 
   brandVoice: {
@@ -408,4 +416,25 @@ export interface BrandVoicePreview {
   adjusted: string;
   tone: string;
   adjectives: string[];
+}
+
+export interface TokenTopupBody {
+  packSize: 500 | 1500 | 5000;
+  currency: 'usd' | 'inr';
+}
+
+export type TokenTopupResult =
+  | { url: string }
+  | { orderId: string; amount: number; currency: string; keyId: string };
+
+export interface TokenUsageBreakdown {
+  action: string;
+  count: number;
+  totalTokens: number;
+}
+
+export interface TokenUsage {
+  since: string;
+  breakdown: TokenUsageBreakdown[];
+  totalConsumed: number;
 }

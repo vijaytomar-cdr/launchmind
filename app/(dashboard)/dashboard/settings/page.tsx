@@ -8,6 +8,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
@@ -382,7 +383,22 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ── 5. Danger zone ──────────────────────────────────────────────────── */}
+      {/* ── 5. Token usage ──────────────────────────────────────────────────── */}
+      <div style={card}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-display font-bold" style={{ fontSize: 15, color: 'var(--ink)' }}>Token usage</h2>
+            <p style={{ fontSize: 12, color: 'var(--ink2)', marginTop: 3 }}>
+              View a breakdown of AI tokens consumed over the past 30 days.
+            </p>
+          </div>
+          <Link href="/dashboard/settings/usage" style={{ ...ghostBtn, textDecoration: 'none' }}>
+            View usage →
+          </Link>
+        </div>
+      </div>
+
+      {/* ── 6. Danger zone ──────────────────────────────────────────────────── */}
       <div style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', borderRadius: 10, padding: 24 }}>
         <h2 className="font-display font-bold mb-5" style={{ fontSize: 15, color: 'var(--red)' }}>Danger zone</h2>
 

@@ -303,6 +303,46 @@ async function runBriefPipeline(
   // Step 10: Audit log
   await writeBriefAuditLog(founderId, productId, briefId, narrative.tokensConsumed, triggeredBy);
 
+  // Step 11: Low token balance warning (non-fatal)
+  try {
+    const TIER_ALLOCATION: Record<string, number> = { free: 50, solo: 300, builder: 1000, studio: 3000 };
+    const { data: founderData } = await getSupabaseAdmin()
+      .from('founders')
+      .select('token_balance, plan, email')
+      .eq('id', founderId)
+      .single();
+
+    if (founderData && founderData.token_balance !== null) {
+      const allocation = TIER_ALLOCATION[founderData.plan ?? 'free'] ?? 50;
+      const threshold = Math.floor(allocation * 0.20);
+      if (founderData.token_balance < threshold) {
+        const { Resend } = await import('resend');
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const appUrl = process.env.APP_BASE_URL ?? 'https://app.launchmind.com';
+        await resend.emails.send({
+          from: 'LaunchMind <notifications@launchmind.com>',
+          to: founderData.email,
+          subject: 'Your LaunchMind token balance is running low',
+          html: `
+            <h2>Token balance running low</h2>
+            <p>Your balance is <strong>${founderData.token_balance} tokens</strong> — below 20% of your ${founderData.plan} plan allocation.</p>
+            <p>Top up now to keep strategies, content, and briefs running without interruption.</p>
+            <p><a href="${appUrl}/dashboard/billing">Top up tokens →</a></p>
+            <p style="font-size:12px;color:#888">LaunchMind · <a href="${appUrl}/dashboard/settings">Manage notifications</a></p>
+          `,
+        });
+        await getSupabaseAdmin().from('audit_logs').insert({
+          founder_id: founderId,
+          action: 'low_balance_warning_sent',
+          resource_type: 'founder',
+          metadata: { balance: founderData.token_balance, threshold, plan: founderData.plan },
+        });
+      }
+    }
+  } catch (warningErr) {
+    Sentry.captureException(warningErr, { tags: { step: 'lowBalanceWarning', productId } });
+  }
+
   console.log(`[weeklyBriefWorker] Brief complete productId=${productId.substring(0, 8)}… briefId=${briefId.substring(0, 8)}…`);
 }
 

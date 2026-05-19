@@ -2,7 +2,7 @@
  * @file Sidebar.tsx
  * @description Dashboard sidebar navigation — Slate & Sage dark sidebar panel.
  *   Nav items: Products, Campaigns, Briefs, Insights, Workspaces, Channels, Billing, Settings.
- *   Bottom: founder email + logout.
+ *   Bottom: token balance meter + founder email + logout.
  * @security Logout calls supabase.auth.signOut() client-side; cookie cleared by Supabase.
  * @dependencies @supabase/ssr (browser client), lucide-react, next/link
  */
@@ -36,16 +36,22 @@ const NAV_ITEMS = [
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ] as const;
 
+const TIER_MAX: Record<string, number> = {
+  free: 50, solo: 300, builder: 1000, studio: 3000,
+};
+
 interface SidebarProps {
   userEmail: string;
   isAdmin?: boolean;
+  tokenBalance?: number | null;
+  plan?: string;
 }
 
 /**
  * Dashboard sidebar with nav items and logout.
  * @param userEmail - Founder's email shown at the bottom of the sidebar.
  */
-export function Sidebar({ userEmail, isAdmin = false }: SidebarProps) {
+export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free' }: SidebarProps) {
   const pathname = usePathname();
   const supabase = createClient();
   const adminActive = pathname.startsWith('/dashboard/admin');
@@ -127,6 +133,40 @@ export function Sidebar({ userEmail, isAdmin = false }: SidebarProps) {
             />
             Admin
           </Link>
+        </div>
+      )}
+
+      {/* Token balance meter */}
+      {plan !== 'free' && (
+        <div style={{ padding: '10px 16px', borderTop: '1px solid var(--s-border)' }}>
+          {(() => {
+            const isUnlimited = tokenBalance === null || tokenBalance === undefined;
+            const balance = tokenBalance ?? 0;
+            const max = TIER_MAX[plan] ?? 300;
+            const pct = Math.min(100, Math.round((balance / max) * 100));
+            const isLow = !isUnlimited && pct <= 20;
+            const barColor = isUnlimited ? 'var(--sage-l)' : isLow ? '#dc2626' : '#d97706';
+            return (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 10, color: 'var(--s-text2)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Tokens</span>
+                  <span className="font-mono" style={{ fontSize: 10, color: isLow ? '#dc2626' : isUnlimited ? 'var(--sage-l)' : 'var(--s-text2)' }}>
+                    {isUnlimited ? 'Unlimited' : balance.toLocaleString()}
+                  </span>
+                </div>
+                {!isUnlimited && (
+                  <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: barColor, transition: 'width 0.4s ease' }} />
+                  </div>
+                )}
+                {isLow && (
+                  <a href="/dashboard/billing" style={{ display: 'block', marginTop: 5, fontSize: 10, color: '#dc2626', textDecoration: 'none' }}>
+                    Low — buy tokens →
+                  </a>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
