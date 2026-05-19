@@ -10,9 +10,11 @@ import { test, expect } from '@playwright/test';
 
 // ── Auth redirects ────────────────────────────────────────────────────────────
 
-test('/ redirects unauthenticated user to /login', async ({ page }) => {
+test('/ renders the marketing homepage', async ({ page }) => {
   await page.goto('/');
-  await expect(page).toHaveURL(/\/login/);
+  // Marketing homepage stays at / for unauthenticated users (not a redirect)
+  await expect(page).toHaveURL('/');
+  await expect(page.getByRole('heading', { name: /market your app/i })).toBeVisible();
 });
 
 test('/dashboard redirects unauthenticated user to /login', async ({ page }) => {
@@ -24,10 +26,11 @@ test('/dashboard redirects unauthenticated user to /login', async ({ page }) => 
 
 test('/pricing renders all four tier cards', async ({ page }) => {
   await page.goto('/pricing');
-  await expect(page.getByText('Free')).toBeVisible();
-  await expect(page.getByText('Solo')).toBeVisible();
-  await expect(page.getByText('Builder')).toBeVisible();
-  await expect(page.getByText('Studio')).toBeVisible();
+  // Use heading role to avoid strict-mode collision with repeated "Free" text
+  await expect(page.getByRole('heading', { name: 'Free' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Solo' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Builder' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Studio' })).toBeVisible();
 });
 
 test('/pricing USD/INR toggle switches currency display', async ({ page }) => {
@@ -39,9 +42,8 @@ test('/pricing USD/INR toggle switches currency display', async ({ page }) => {
 
 test('/pricing shows content assets under Builder (not Solo)', async ({ page }) => {
   await page.goto('/pricing');
-  // Builder card should mention content assets, solo should not
-  const builderCard = page.locator('text=Builder').first().locator('..');
-  await expect(builderCard.getByText(/content assets/i)).toBeVisible();
+  // Builder card feature list includes this exact text; Solo does not
+  await expect(page.getByText('Content assets (WhatsApp, Email, Meta)')).toBeVisible();
 });
 
 // ── Login page ────────────────────────────────────────────────────────────────

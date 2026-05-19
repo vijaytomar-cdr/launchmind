@@ -111,10 +111,11 @@ export default function LoginPage() {
             <>
               <div className="space-y-4">
                 <div>
-                  <label className="block mb-1.5 font-medium" style={{ fontSize: 11, color: 'var(--ink2)' }}>
+                  <label htmlFor="login-email" className="block mb-1.5 font-medium" style={{ fontSize: 11, color: 'var(--ink2)' }}>
                     Email
                   </label>
                   <input
+                    id="login-email"
                     ref={emailRef}
                     type="email"
                     autoComplete="email"
@@ -125,7 +126,7 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="font-medium" style={{ fontSize: 11, color: 'var(--ink2)' }}>
+                    <label htmlFor="login-password" className="font-medium" style={{ fontSize: 11, color: 'var(--ink2)' }}>
                       Password
                     </label>
                     <Link href="/forgot-password" style={{ fontSize: 11, color: 'var(--sage)' }}>
@@ -133,6 +134,7 @@ export default function LoginPage() {
                     </Link>
                   </div>
                   <input
+                    id="login-password"
                     ref={passwordRef}
                     type="password"
                     autoComplete="current-password"
