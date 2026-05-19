@@ -70,7 +70,7 @@ export async function foundersRoutes(server: FastifyInstance): Promise<void> {
       // 1. Revoke OAuth tokens — best effort (don't block on platform API failures)
       const { data: tokens } = await db
         .from('platform_tokens')
-        .select('id, platform, encrypted_token')
+        .select('id, platform')
         .eq('founder_id', founderId)
         .is('revoked_at', null);
 
