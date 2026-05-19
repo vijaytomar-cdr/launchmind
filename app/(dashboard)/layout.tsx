@@ -27,10 +27,12 @@ export default async function DashboardLayout({
 
   if (!user) redirect('/login');
 
+  const isAdmin = user.id === process.env.ADMIN_FOUNDER_ID;
+
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--page)' }}>
       <PostHogIdentify founderId={user.id} />
-      <Sidebar userEmail={user.email ?? ''} />
+      <Sidebar userEmail={user.email ?? ''} isAdmin={isAdmin} />
       <main className="flex-1 overflow-auto">{children}</main>
       <FeedbackWidget />
     </div>

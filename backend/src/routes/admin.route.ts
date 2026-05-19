@@ -185,8 +185,12 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         .order('created_at', { ascending: false })
         .limit(50);
 
-      if (error) throw error;
-      return reply.send({ feedback: data ?? [] });
+      // Table may not exist yet on hosted Supabase — return empty list gracefully
+      if (error) {
+        server.log.warn({ err: error }, 'founder_feedback query failed — table may not exist yet');
+        return reply.send({ feedback: [], total: 0 });
+      }
+      return reply.send({ feedback: data ?? [], total: data?.length ?? 0 });
     } catch (err) {
       Sentry.captureException(err, { tags: { route: 'GET /admin/feedback' } });
       return reply.status(500).send({ error: 'Failed to fetch feedback' });

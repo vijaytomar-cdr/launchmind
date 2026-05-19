@@ -44,5 +44,22 @@ export async function GET() {
     return NextResponse.json({ error: 'Backend error' }, { status: res.status });
   }
 
-  return NextResponse.json(await res.json());
+  const raw = await res.json();
+
+  // Transform backend's onboardingFunnel object into the funnel array the admin page expects
+  const funnelMap: Record<string, string> = {
+    registered:        'signup_complete',
+    icpConfirmed:      'icp_confirmed',
+    strategyGenerated: 'strategy_generated',
+    channelConnected:  'channel_connected',
+    briefReceived:     'brief_received',
+    feedbackSubmitted: 'feedback_submitted',
+  };
+  const funnel = Object.entries(raw.onboardingFunnel ?? {}).map(([key, count]) => ({
+    step:  funnelMap[key] ?? key,
+    label: key,
+    count: count as number,
+  }));
+
+  return NextResponse.json({ ...raw, funnel });
 }

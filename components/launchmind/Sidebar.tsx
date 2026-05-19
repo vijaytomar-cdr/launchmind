@@ -19,6 +19,8 @@ import {
   Radio,
   Settings,
   LogOut,
+  ShieldCheck,
+  CreditCard,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -26,20 +28,23 @@ const NAV_ITEMS = [
   { href: '/dashboard/campaigns', label: 'Campaigns', icon: Megaphone },
   { href: '/dashboard/briefs', label: 'Briefs', icon: FileText },
   { href: '/dashboard/channels', label: 'Channels', icon: Radio },
+  { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ] as const;
 
 interface SidebarProps {
   userEmail: string;
+  isAdmin?: boolean;
 }
 
 /**
  * Dashboard sidebar with nav items and logout.
  * @param userEmail - Founder's email shown at the bottom of the sidebar.
  */
-export function Sidebar({ userEmail }: SidebarProps) {
+export function Sidebar({ userEmail, isAdmin = false }: SidebarProps) {
   const pathname = usePathname();
   const supabase = createClient();
+  const adminActive = pathname.startsWith('/dashboard/admin');
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -92,6 +97,34 @@ export function Sidebar({ userEmail }: SidebarProps) {
           );
         })}
       </div>
+
+      {/* Admin link — only visible to admin user */}
+      {isAdmin && (
+        <div style={{ borderTop: '1px solid var(--s-border)', paddingTop: 4, marginTop: 4 }}>
+          <Link
+            href="/dashboard/admin"
+            className="flex items-center gap-3 px-5 py-2.5 transition-colors"
+            style={{
+              fontSize: 13,
+              color: adminActive ? '#fff' : 'var(--s-text)',
+              background: adminActive ? 'rgba(5,150,105,0.18)' : 'transparent',
+              borderRight: adminActive ? '2px solid var(--sage-l)' : '2px solid transparent',
+            }}
+            onMouseEnter={e => {
+              if (!adminActive) (e.currentTarget as HTMLElement).style.background = 'var(--sidebar2)';
+            }}
+            onMouseLeave={e => {
+              if (!adminActive) (e.currentTarget as HTMLElement).style.background = 'transparent';
+            }}
+          >
+            <ShieldCheck
+              className="flex-shrink-0"
+              style={{ width: 15, height: 15, color: adminActive ? 'var(--sage-l)' : 'var(--s-text2)' }}
+            />
+            Admin
+          </Link>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="px-5 py-4" style={{ borderTop: '1px solid var(--s-border)' }}>

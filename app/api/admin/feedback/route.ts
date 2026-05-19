@@ -34,7 +34,7 @@ export async function GET() {
   try {
     res = await fetch(`${apiUrl}/admin/feedback`, {
       headers: { 'X-Admin-Secret': process.env.ADMIN_SECRET ?? '' },
-      next: { revalidate: 60 },
+      cache: 'no-store',
     });
   } catch {
     return NextResponse.json({ error: 'Backend unreachable' }, { status: 502 });
@@ -44,5 +44,17 @@ export async function GET() {
     return NextResponse.json({ error: 'Backend error' }, { status: res.status });
   }
 
-  return NextResponse.json(await res.json());
+  const raw = await res.json();
+
+  // Normalise snake_case DB fields → camelCase for the admin page
+  const feedback = (raw.feedback ?? []).map((item: Record<string, unknown>) => ({
+    id:        item.id,
+    rating:    item.rating,
+    body:      item.body ?? null,
+    context:   item.context ?? null,
+    productId: (item.products as Record<string, unknown> | null)?.name ?? null,
+    createdAt: item.created_at,
+  }));
+
+  return NextResponse.json({ feedback, total: raw.total ?? feedback.length });
 }
