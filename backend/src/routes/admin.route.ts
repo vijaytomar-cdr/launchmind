@@ -17,6 +17,7 @@ import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { triggerBriefNow, scheduleWeeklyBrief } from '../lib/scheduler';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
+import { PLAN_PRICES } from '../services/billingService';
 
 const TriggerBriefBodySchema = z.object({
   productId: z.string().uuid(),
@@ -194,6 +195,98 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     } catch (err) {
       Sentry.captureException(err, { tags: { route: 'GET /admin/feedback' } });
       return reply.status(500).send({ error: 'Failed to fetch feedback' });
+    }
+  });
+
+  /**
+   * GET /admin/mrr
+   * Returns MRR aggregation derived from active founder plan distribution.
+   * - totalMrrUSD: estimated total MRR in USD (USD subscribers + INR converted at ₹83/$)
+   * - mrrByTier: MRR broken down by plan
+   * - mrrByMarket: split between USD (Stripe) and INR (Razorpay) based on subscription_activated audit logs
+   * - foundersByTier: count of paying founders per plan
+   * @security X-Admin-Secret required.
+   */
+  server.get('/admin/mrr', async (request, reply) => {
+    if (!verifyAdminSecret(request, reply)) return;
+    try {
+      const db = getSupabaseAdmin();
+
+      // Count paying founders by plan
+      const { data: founders } = await db
+        .from('founders')
+        .select('plan')
+        .neq('plan', 'free')
+        .is('deleted_at', null);
+
+      const tierCounts: Record<string, number> = { solo: 0, builder: 0, studio: 0 };
+      for (const f of founders ?? []) {
+        if (f.plan in tierCounts) tierCounts[f.plan]++;
+      }
+
+      // Query audit_logs for source (stripe vs razorpay) distribution per plan
+      const { data: activations } = await db
+        .from('audit_logs')
+        .select('metadata')
+        .eq('action', 'subscription_activated');
+
+      const sourceByPlan: Record<string, { stripe: number; razorpay: number }> = {
+        solo: { stripe: 0, razorpay: 0 },
+        builder: { stripe: 0, razorpay: 0 },
+        studio: { stripe: 0, razorpay: 0 },
+      };
+      for (const log of activations ?? []) {
+        const meta = log.metadata as { plan?: string; source?: string } | null;
+        const plan = meta?.plan ?? '';
+        const source = meta?.source ?? 'stripe';
+        if (plan in sourceByPlan) {
+          if (source === 'razorpay') sourceByPlan[plan].razorpay++;
+          else sourceByPlan[plan].stripe++;
+        }
+      }
+
+      const INR_TO_USD = 1 / 83; // approximate conversion rate
+      const mrrByTier: Record<string, { usdMrr: number; inrMrr: number; founders: number }> = {};
+      let totalMrrUSD = 0;
+      let totalMrrStripeUSD = 0;
+      let totalMrrRazorpayUSD = 0;
+
+      for (const [plan, count] of Object.entries(tierCounts)) {
+        if (count === 0) continue;
+        const pricing = PLAN_PRICES[plan];
+        if (!pricing) continue;
+
+        const total = sourceByPlan[plan].stripe + sourceByPlan[plan].razorpay;
+        const razorpayRatio = total > 0 ? sourceByPlan[plan].razorpay / total : 0;
+        const stripeCount = Math.round(count * (1 - razorpayRatio));
+        const razorpayCount = count - stripeCount;
+
+        const usdFromStripe = stripeCount * (pricing.usd / 100);
+        const usdFromRazorpay = razorpayCount * (pricing.inr / 100) * INR_TO_USD;
+        const tierUSD = usdFromStripe + usdFromRazorpay;
+
+        mrrByTier[plan] = {
+          usdMrr: Math.round(tierUSD * 100) / 100,
+          inrMrr: razorpayCount * (pricing.inr / 100),
+          founders: count,
+        };
+        totalMrrUSD += tierUSD;
+        totalMrrStripeUSD += usdFromStripe;
+        totalMrrRazorpayUSD += usdFromRazorpay;
+      }
+
+      return reply.send({
+        totalMrrUSD: Math.round(totalMrrUSD * 100) / 100,
+        totalPayingFounders: Object.values(tierCounts).reduce((a, b) => a + b, 0),
+        mrrByTier,
+        mrrByMarket: {
+          usd: Math.round(totalMrrStripeUSD * 100) / 100,
+          inr: Math.round(totalMrrRazorpayUSD * 100) / 100,
+        },
+      });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'GET /admin/mrr' } });
+      return reply.status(500).send({ error: 'Failed to fetch MRR data' });
     }
   });
 }

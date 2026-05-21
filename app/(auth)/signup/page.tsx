@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { createClient } from '@/lib/supabase/client';
+import { trackOnboarding } from '@/lib/analytics';
 
 type Step = 'credentials' | 'mfa-setup' | 'mfa-verify';
 
@@ -81,6 +82,7 @@ export default function SignupPage() {
       });
       if (verifyError) throw verifyError;
 
+      trackOnboarding('signup_complete');
       router.push('/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'MFA verification failed');

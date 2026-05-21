@@ -11,7 +11,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
-import type { Product, Campaign, WeeklyBrief } from '@/lib/api';
+import type { Product, Campaign, WeeklyBrief, ConnectedChannel } from '@/lib/api';
 
 const STATUS_STYLE: Record<Campaign['status'], React.CSSProperties> = {
   draft:            { background: 'var(--raised)',   color: 'var(--ink2)',  border: '1px solid var(--border2)' },
@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [briefs, setBriefs] = useState<WeeklyBrief[]>([]);
+  const [channels, setChannels] = useState<ConnectedChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,14 +51,16 @@ export default function DashboardPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       const token = session.access_token;
-      const [prods, { campaigns: camps }, { briefs: bfs }] = await Promise.all([
+      const [prods, { campaigns: camps }, { briefs: bfs }, { channels: chans }] = await Promise.all([
         api.products.list(token),
         api.campaigns.list(token),
         api.briefs.list(token),
+        api.channels.list(token),
       ]);
       setProducts(prods);
       setCampaigns(camps);
       setBriefs(bfs);
+      setChannels(chans.filter(c => !c.revokedAt));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load dashboard');
     } finally {
@@ -177,6 +180,33 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+
+            {/* Channel connect nudge — shown when user has products but no channel connected */}
+            {products.length > 0 && channels.length === 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '14px 20px', borderRadius: 10, marginBottom: 24,
+                background: 'var(--indigo-d)', border: '1px solid var(--indigo-b)',
+              }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--indigo)', marginBottom: 2 }}>
+                    Next step: connect a channel
+                  </p>
+                  <p style={{ fontSize: 12, color: 'var(--ink2)' }}>
+                    Connect WhatsApp, Meta, or Google to start posting campaigns.
+                  </p>
+                </div>
+                <Link
+                  href="/dashboard/channels"
+                  style={{
+                    fontSize: 12, fontWeight: 600, padding: '7px 16px', borderRadius: 6, flexShrink: 0,
+                    background: 'var(--indigo)', color: '#fff', textDecoration: 'none',
+                  }}
+                >
+                  Connect now →
+                </Link>
+              </div>
+            )}
 
             {/* Two-column: products + brief */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>

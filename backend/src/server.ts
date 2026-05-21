@@ -128,12 +128,15 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   server.setErrorHandler((error, _request, reply) => {
-    if (error instanceof InsufficientTokensError) {
+    // instanceof check can fail under tsx hot-reload due to class identity mismatch;
+    // fall back to name check so 402s are never swallowed as 500s.
+    if (error instanceof InsufficientTokensError || error.name === 'InsufficientTokensError') {
+      const tokenErr = error as unknown as InsufficientTokensError;
       return reply.status(402).send({
         error: 'Insufficient tokens',
         code: 'INSUFFICIENT_TOKENS',
-        balance: error.balance,
-        required: error.required,
+        balance: tokenErr.balance ?? 0,
+        required: tokenErr.required ?? 0,
       });
     }
     Sentry.captureException(error);

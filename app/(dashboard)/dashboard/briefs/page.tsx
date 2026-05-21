@@ -12,6 +12,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { WeeklyBrief } from '@/lib/api';
+import { trackOnboarding } from '@/lib/analytics';
 
 const STATUS_STYLE: Record<WeeklyBrief['status'], React.CSSProperties> = {
   draft: { background: 'var(--raised)', color: 'var(--ink2)', border: '1px solid var(--border2)' },
@@ -40,6 +41,9 @@ export default function BriefsPage() {
       if (!session) return;
       const { briefs: data } = await api.briefs.list(session.access_token);
       setBriefs(data);
+      if (data.some(b => b.status === 'sent' || b.status === 'acknowledged')) {
+        trackOnboarding('brief_received', { count: data.length });
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load briefs');
     } finally {

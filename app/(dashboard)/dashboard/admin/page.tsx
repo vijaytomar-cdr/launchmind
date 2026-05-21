@@ -11,6 +11,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -300,13 +301,25 @@ export default function AdminPage() {
   return (
     <div className="p-8 max-w-4xl space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="font-display font-bold" style={{ fontSize: 22, color: 'var(--ink)' }}>
-          Admin panel
-        </h1>
-        <p style={{ fontSize: 13, color: 'var(--ink2)', marginTop: 4 }}>
-          Waitlist, founder growth, onboarding funnel, and recent feedback.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="font-display font-bold" style={{ fontSize: 22, color: 'var(--ink)' }}>
+            Admin panel
+          </h1>
+          <p style={{ fontSize: 13, color: 'var(--ink2)', marginTop: 4 }}>
+            Waitlist, founder growth, onboarding funnel, and recent feedback.
+          </p>
+        </div>
+        <Link
+          href="/dashboard/admin/mrr"
+          style={{
+            fontSize: 12, fontWeight: 500, padding: '7px 14px', borderRadius: 6,
+            background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)',
+            textDecoration: 'none', whiteSpace: 'nowrap' as const,
+          }}
+        >
+          MRR tracker →
+        </Link>
       </div>
 
       {/* Top metrics */}

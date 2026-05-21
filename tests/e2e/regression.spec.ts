@@ -259,7 +259,51 @@ test.describe('Navigation and page load', () => {
   });
 });
 
-// ── Group 5: Public pages regression (no auth) ───────────────────────────────
+// ── Group 5: Week 18 — Token model UI ────────────────────────────────────────
+
+test.describe('Week 18 token model UI', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
+  });
+
+  test('settings/usage page renders balance section', async ({ page }) => {
+    await page.goto('/dashboard/settings/usage');
+    // Balance card has a "Tokens" or "Unlimited" heading
+    await expect(page.getByText(/current balance/i)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('settings/usage page has "Buy more tokens" link to billing', async ({ page }) => {
+    await page.goto('/dashboard/settings/usage');
+    const link = page.getByRole('link', { name: /buy more tokens/i });
+    await expect(link).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('settings/usage page renders usage breakdown section', async ({ page }) => {
+    await page.goto('/dashboard/settings/usage');
+    await expect(page.getByText(/usage breakdown/i)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('billing page shows token top-up section', async ({ page }) => {
+    await page.goto('/dashboard/billing');
+    await expect(page.getByText(/loading/i)).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/token top-ups/i)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('billing page shows all three top-up pack sizes', async ({ page }) => {
+    await page.goto('/dashboard/billing');
+    await expect(page.getByText(/loading/i)).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('500')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('1,500')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('5,000')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('settings page has token usage card linking to /settings/usage', async ({ page }) => {
+    await page.goto('/dashboard/settings');
+    await expect(page.getByRole('link', { name: /view usage/i })).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+// ── Group 6: Public pages (no auth required) ─────────────────────────────────
 
 test.describe('Public pages regression', () => {
   test('/login shows forgot password link', async ({ page }) => {

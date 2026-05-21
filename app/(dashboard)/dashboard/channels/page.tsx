@@ -18,6 +18,7 @@ import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { ConnectedChannel, SupportedPlatform } from '@/lib/api';
+import { trackOnboarding } from '@/lib/analytics';
 
 const PLATFORM_META: Record<
   string,
@@ -91,6 +92,7 @@ export default function ChannelsPage() {
     const oauthError = searchParams.get('error');
     if (connected) {
       setSuccessMsg(`${PLATFORM_META[connected]?.label ?? connected} connected successfully.`);
+      trackOnboarding('channel_connected', { platform: connected });
       loadChannels();
     }
     if (oauthError === 'oauth_denied') setError('OAuth authorisation was denied.');

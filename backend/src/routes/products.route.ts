@@ -24,6 +24,7 @@ import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
 import { getProductMetrics } from '../services/metricsService';
 import { previewBrandVoice } from '../services/brandVoiceService';
+import { InsufficientTokensError } from '../types/errors';
 import {
   ScrapedAppDataSchema,
   ICPBriefSchema,
@@ -338,6 +339,10 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
         return reply.status(201).send(strategy);
       } catch (err) {
+        if (err instanceof InsufficientTokensError || (err as Error).name === 'InsufficientTokensError') {
+          const te = err as unknown as { balance?: number; required?: number };
+          return reply.status(402).send({ error: 'Insufficient tokens', code: 'INSUFFICIENT_TOKENS', balance: te.balance ?? 0, required: te.required ?? 0 });
+        }
         if (err instanceof Error && err.message.includes('not found')) {
           return reply.status(404).send({ error: err.message });
         }
@@ -375,6 +380,10 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         const assets = await generateContentAssets(id, parsed.data.channel, parsed.data.market, founderId);
         return reply.status(201).send(assets);
       } catch (err) {
+        if (err instanceof InsufficientTokensError || (err as Error).name === 'InsufficientTokensError') {
+          const te = err as unknown as { balance?: number; required?: number };
+          return reply.status(402).send({ error: 'Insufficient tokens', code: 'INSUFFICIENT_TOKENS', balance: te.balance ?? 0, required: te.required ?? 0 });
+        }
         if (err instanceof Error && err.message.includes('not found')) {
           return reply.status(404).send({ error: err.message });
         }
