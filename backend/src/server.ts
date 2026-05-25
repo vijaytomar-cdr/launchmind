@@ -8,6 +8,24 @@
  * @dependencies @sentry/node, @fastify/cors, jose, @fastify/rate-limit
  */
 
+// Load .env.dev from project root before anything else (local dev only — no-op in prod).
+import { existsSync, readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+const __dirname_compat = dirname(fileURLToPath(import.meta.url));
+const envPath = resolve(__dirname_compat, '..', '..', '.env.dev');
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+}
+
 import * as Sentry from '@sentry/node';
 
 Sentry.init({

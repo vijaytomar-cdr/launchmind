@@ -77,7 +77,7 @@ async function requireMinPlan(
   return true;
 }
 
-const SCRAPE_TIMEOUT_MS = 30_000;
+const SCRAPE_TIMEOUT_MS = 60_000; // Play Store needs two Playwright passes; 60s covers both
 
 /**
  * Extracts the verified founder UUID from the JWT attached to the request.
@@ -149,7 +149,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
         const [reviewAnalysis, competitors] = await Promise.all([
           analyseReviews(scraped.reviews, founderId),
-          scrapeCompetitors(scraped.category, platform),
+          scrapeCompetitors(scraped.category, platform).catch(() => []), // non-fatal
         ]);
 
         const icpBrief = buildICPBrief(scraped, reviewAnalysis);
@@ -515,7 +515,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         .from('weekly_briefs')
         .select(`
           id, product_id, week_of, what_worked, what_to_kill,
-          next_actions, ai_tokens_consumed, status, sent_at, created_at,
+          next_actions, generated_assets, ai_tokens_consumed, status, sent_at, created_at,
           products ( name )
         `)
         .eq('founder_id', founderId)
@@ -537,6 +537,66 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       return reply.status(500).send({ error: 'Failed to fetch briefs' });
     }
   });
+
+  /**
+   * PATCH /campaigns/:id/approve
+   * Approves a campaign draft — sets approved_at and advances status to 'approved'.
+   * Enforce-before-post gate: approved_at checked in channels.route before any send.
+   * @security founderId verified against campaign.founder_id. Only draft/pending_approval can be approved.
+   */
+  server.patch<{ Params: { id: string } }>(
+    '/campaigns/:id/approve',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { id } = request.params;
+
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid campaign ID' });
+      }
+
+      const { data: campaign, error: fetchError } = await getSupabaseAdmin()
+        .from('campaigns')
+        .select('id, founder_id, status')
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (fetchError || !campaign) {
+        return reply.status(404).send({ error: 'Campaign not found' });
+      }
+
+      if (!['draft', 'pending_approval'].includes(campaign.status)) {
+        return reply.status(409).send({ error: `Campaign already ${campaign.status} — cannot approve again` });
+      }
+
+      const { data: updated, error: updateError } = await getSupabaseAdmin()
+        .from('campaigns')
+        .update({
+          status: 'approved',
+          approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .select()
+        .single();
+
+      if (updateError || !updated) {
+        Sentry.captureException(updateError, { tags: { route: 'PATCH /campaigns/:id/approve' } });
+        return reply.status(500).send({ error: 'Failed to approve campaign' });
+      }
+
+      await getSupabaseAdmin().from('audit_logs').insert({
+        founder_id: founderId,
+        action: 'campaign_approved',
+        resource_type: 'campaign',
+        resource_id: id,
+        metadata: { status: 'approved' },
+      });
+
+      return reply.send(updated);
+    }
+  );
 
   /**
    * POST /feedback

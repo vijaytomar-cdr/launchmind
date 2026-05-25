@@ -142,7 +142,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
     try {
       const res = await fetch(`/api/products/${params.id}/strategy`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.status === 402) { setShowTopUpDialog(true); return; }

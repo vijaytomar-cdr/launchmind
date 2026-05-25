@@ -1,8 +1,9 @@
 /**
  * @file app/(dashboard)/dashboard/channels/page.tsx
  * @description Platform channel management — connect WhatsApp, Meta, Google, LinkedIn, and Email.
- *   Lists connected channels with status badges and connect/disconnect CTAs.
- *   OAuth connect initiates via backend (/channels/whatsapp/oauth/init) — no tokens in frontend.
+ *   WhatsApp: connectable for all paid plans via OAuth.
+ *   Meta/Google/LinkedIn/Email: Builder/Studio see active Connect button; Solo/Free see plan gate.
+ *   Security trust callout at bottom.
  * @security
  *   - All channel mutations proxy through the Fastify backend.
  *   - OAuth initiation returns a URL; frontend redirects — no tokens handled here.
@@ -22,37 +23,43 @@ import { trackOnboarding } from '@/lib/analytics';
 
 const PLATFORM_META: Record<
   string,
-  { label: string; icon: string; description: string }
+  { label: string; icon: string; description: string; minPlan: 'solo' | 'builder' }
 > = {
   whatsapp: {
     label: 'WhatsApp Business',
     icon: '💬',
     description: 'Send broadcast messages and receive read receipts via Meta Cloud API.',
+    minPlan: 'solo',
   },
   meta: {
     label: 'Meta Ads',
     icon: '📘',
     description: 'Run Facebook and Instagram ad campaigns.',
+    minPlan: 'builder',
   },
   google: {
     label: 'Google Ads',
     icon: '🔍',
     description: 'Run Google Search and App Install campaigns.',
+    minPlan: 'builder',
   },
   linkedin: {
     label: 'LinkedIn Ads',
     icon: '💼',
     description: 'Reach B2B audiences with LinkedIn campaigns.',
+    minPlan: 'builder',
   },
   email: {
     label: 'Email (Resend)',
     icon: '✉️',
     description: 'Send transactional and campaign emails via Resend.',
+    minPlan: 'solo',
   },
 };
 
+const PLAN_RANK: Record<string, number> = { free: 0, solo: 1, builder: 2, studio: 3 };
+
 const ALL_PLATFORMS: SupportedPlatform[] = ['whatsapp', 'meta', 'google', 'linkedin', 'email'];
-const CONNECTABLE: SupportedPlatform[] = ['whatsapp']; // Phase 5: WhatsApp only; others in Phase 3
 
 export default function ChannelsPage() {
   const searchParams = useSearchParams();
@@ -60,11 +67,13 @@ export default function ChannelsPage() {
 
   const [channels, setChannels] = useState<ConnectedChannel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [plan, setPlan] = useState('free');
   const [connecting, setConnecting] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [disconnectConfirm, setDisconnectConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [comingSoonPlatform, setComingSoonPlatform] = useState<string | null>(null);
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -76,6 +85,15 @@ export default function ChannelsPage() {
       const token = await getToken();
       const { channels: data } = await api.channels.list(token);
       setChannels(data);
+      // Fetch plan
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/billing/subscription`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const sub = await res.json();
+        if (sub?.plan) setPlan(sub.plan);
+      }
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
     } finally {
@@ -100,14 +118,16 @@ export default function ChannelsPage() {
   }, [searchParams, loadChannels]);
 
   async function handleConnect(platform: SupportedPlatform) {
+    if (platform !== 'whatsapp') {
+      setComingSoonPlatform(platform);
+      return;
+    }
     setConnecting(platform);
     setError(null);
     try {
       const token = await getToken();
-      if (platform === 'whatsapp') {
-        const { url } = await api.channels.oauthInit(token);
-        window.location.href = url;
-      }
+      const { url } = await api.channels.oauthInit(token);
+      window.location.href = url;
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
       setConnecting(null);
@@ -138,8 +158,51 @@ export default function ChannelsPage() {
     return channels.find((c) => c.platform === platform && !c.revokedAt);
   }
 
+  function canConnect(platform: SupportedPlatform): boolean {
+    const meta = PLATFORM_META[platform];
+    const required = PLAN_RANK[meta.minPlan] ?? 1;
+    return PLAN_RANK[plan] >= required;
+  }
+
   return (
     <div className="p-6 max-w-3xl">
+      {/* Coming soon modal */}
+      {comingSoonPlatform && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}
+          onClick={() => setComingSoonPlatform(null)}
+        >
+          <div
+            style={{
+              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
+              padding: '28px 32px', maxWidth: 380, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-2xl mb-3">{PLATFORM_META[comingSoonPlatform]?.icon}</div>
+            <h3 className="font-display font-bold" style={{ fontSize: 16, color: 'var(--ink)', marginBottom: 8 }}>
+              {PLATFORM_META[comingSoonPlatform]?.label} — coming soon
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--ink2)', lineHeight: 1.6, marginBottom: 20 }}>
+              Full OAuth integration for {PLATFORM_META[comingSoonPlatform]?.label} is launching in Phase 6.
+              You&apos;re on the early access list.
+            </p>
+            <button
+              onClick={() => setComingSoonPlatform(null)}
+              style={{
+                width: '100%', fontSize: 13, fontWeight: 500, padding: '9px 16px', borderRadius: 6,
+                cursor: 'pointer', background: 'var(--sage)', color: '#fff', border: 'none',
+              }}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       <h1 className="font-display font-bold mb-1" style={{ fontSize: 22, color: 'var(--ink)' }}>
         Channels
       </h1>
@@ -175,10 +238,11 @@ export default function ChannelsPage() {
           {ALL_PLATFORMS.map((platform) => {
             const meta = PLATFORM_META[platform];
             const connected = getChannelStatus(platform);
-            const isConnectable = CONNECTABLE.includes(platform);
+            const allowed = canConnect(platform);
             const isConnecting = connecting === platform;
             const isDisconnecting = disconnecting === platform;
             const awaitingConfirm = disconnectConfirm === platform;
+            const requiredPlan = meta.minPlan === 'builder' ? 'Builder' : 'Solo';
 
             return (
               <div
@@ -196,9 +260,16 @@ export default function ChannelsPage() {
                       {connected ? (
                         <span
                           className="rounded-full px-2 py-0.5 font-medium"
-                          style={{ fontSize: 11, background: 'var(--sage-d)', color: 'var(--sage)' }}
+                          style={{ fontSize: 11, background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' }}
                         >
                           Connected
+                        </span>
+                      ) : !allowed ? (
+                        <span
+                          className="rounded-full px-2 py-0.5 font-medium"
+                          style={{ fontSize: 11, background: 'var(--indigo-d)', color: 'var(--indigo)', border: '1px solid var(--indigo-b)' }}
+                        >
+                          {requiredPlan}+ required
                         </span>
                       ) : (
                         <span
@@ -250,7 +321,7 @@ export default function ChannelsPage() {
                         Disconnect
                       </button>
                     )
-                  ) : isConnectable ? (
+                  ) : allowed ? (
                     <button
                       onClick={() => handleConnect(platform)}
                       disabled={isConnecting}
@@ -260,9 +331,19 @@ export default function ChannelsPage() {
                       {isConnecting ? 'Redirecting…' : 'Connect'}
                     </button>
                   ) : (
-                    <span style={{ fontSize: 12, color: 'var(--ink3)', fontStyle: 'italic' }}>
-                      Coming soon
-                    </span>
+                    <a
+                      href="/dashboard/billing"
+                      className="rounded-[6px] px-3 py-1.5 font-medium transition-opacity hover:opacity-90"
+                      style={{
+                        fontSize: 12,
+                        background: 'var(--indigo-d)',
+                        border: '1px solid var(--indigo-b)',
+                        color: 'var(--indigo)',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Upgrade to {requiredPlan}
+                    </a>
                   )}
                 </div>
               </div>
@@ -271,7 +352,26 @@ export default function ChannelsPage() {
         </div>
       )}
 
-      <p className="mt-6" style={{ fontSize: 11, color: 'var(--ink3)' }}>
+      {/* Security trust callout */}
+      <div
+        className="mt-6 rounded-[10px] p-5 flex items-start gap-3"
+        style={{ background: 'var(--sage-d)', border: '1px solid var(--sage-b)' }}
+      >
+        <svg style={{ width: 18, height: 18, color: 'var(--sage)', flexShrink: 0, marginTop: 1 }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+        <div>
+          <p className="font-semibold" style={{ fontSize: 12, color: 'var(--sage)', marginBottom: 3 }}>
+            Your tokens are encrypted at rest
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--ink2)', lineHeight: 1.6 }}>
+            All OAuth tokens are AES-256 encrypted using AWS KMS. LaunchMind never stores plaintext credentials.
+            Disconnect at any time — your token is immediately revoked and removed.
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-4" style={{ fontSize: 11, color: 'var(--ink3)' }}>
         Disconnect removes your token from LaunchMind. You may also need to revoke access in the
         platform&apos;s own app settings.
       </p>

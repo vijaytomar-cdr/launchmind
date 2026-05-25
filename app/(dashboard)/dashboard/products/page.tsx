@@ -7,7 +7,8 @@
 
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
@@ -116,28 +117,38 @@ function ProductCard({ product }: { product: Product }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ProductsPage() {
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const supabase = createClient();
     try {
-      const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
+      if (!mountedRef.current) return;
       if (!session?.access_token) {
-        setError('Not authenticated. Please sign in again.');
+        router.replace('/login');
         return;
       }
       const data = await api.products.list(session.access_token);
+      if (!mountedRef.current) return;
       setProducts(data);
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err instanceof ApiError ? err.message : 'Failed to load products.');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     fetchProducts();

@@ -18,6 +18,23 @@
  */
 
 import { defineConfig, devices } from '@playwright/test';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// Load .env.local so TEST_EMAIL / TEST_PASSWORD / TEST_TOTP_SECRET are available
+// to test files at runtime — Playwright does not auto-load .env.local.
+const envLocalPath = resolve(__dirname, '.env.local');
+if (existsSync(envLocalPath)) {
+  for (const line of readFileSync(envLocalPath, 'utf-8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+}
 
 const skipWebServer = !!process.env.SKIP_WEB_SERVER;
 

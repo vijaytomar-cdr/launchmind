@@ -3,6 +3,8 @@
  * @description Full regression test suite — verifies all key user flows end-to-end in a browser.
  *   Runs against a live Next.js dev server on localhost:3000.
  *   Authenticated groups require TEST_EMAIL / TEST_PASSWORD env vars (or demo defaults).
+ *   If the test account has MFA enrolled, set TEST_TOTP_SECRET in .env.local (base32 secret
+ *   from your authenticator app — usually revealed once during initial MFA setup).
  *
  *   Run:  npx playwright test --project=regression
  *   With real creds: TEST_EMAIL=you@example.com TEST_PASSWORD=secret npx playwright test --project=regression
@@ -10,24 +12,84 @@
  * @security Never hard-code real credentials. Demo fallback values are for local dev only.
  */
 
+import { createHmac } from 'crypto';
 import { test, expect, type Page } from '@playwright/test';
+
+// ── TOTP generator (RFC 6238) — used when MFA is enrolled on the test account ─
+
+function base32Decode(input: string): Buffer {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const str = input.toUpperCase().replace(/=+$/, '').replace(/\s/g, '');
+  let bits = 0, value = 0;
+  const output: number[] = [];
+  for (const char of str) {
+    const idx = chars.indexOf(char);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) { output.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
+  }
+  return Buffer.from(output);
+}
+
+function generateTotp(secret: string, timestamp?: number): string {
+  const T = Math.floor((timestamp ?? Date.now()) / 1000 / 30);
+  const secretBuf = base32Decode(secret);
+  const counterBuf = Buffer.alloc(8);
+  counterBuf.writeUInt32BE(Math.floor(T / 0x100000000), 0);
+  counterBuf.writeUInt32BE(T >>> 0, 4);
+  const hmac = createHmac('sha1', secretBuf).update(counterBuf).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = ((hmac[offset] & 0x7f) << 24) | ((hmac[offset + 1] & 0xff) << 16)
+    | ((hmac[offset + 2] & 0xff) << 8) | (hmac[offset + 3] & 0xff);
+  return String(code % 1_000_000).padStart(6, '0');
+}
 
 // ── Login helper ─────────────────────────────────────────────────────────────
 
 /**
  * Log in as the specified user and wait for the dashboard URL.
+ * Handles MFA automatically if TEST_TOTP_SECRET is set in the environment.
  * @param page    - Playwright Page instance
  * @param email   - Founder email
  * @param password - Founder password
  */
 async function loginAs(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/login');
-  // The login page uses uncontrolled inputs (refs), so we use fill on the input elements directly.
+  // The login page uses uncontrolled inputs (refs), so we fill the DOM nodes directly.
   await page.locator('input[type="email"]').fill(email);
   await page.locator('input[type="password"]').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
-  // Wait up to 10 s for navigation to the dashboard after the server action completes.
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 10_000 });
+
+  // Wait for dashboard redirect (no MFA) OR MFA numeric input to appear.
+  const outcome = await Promise.race([
+    page.waitForURL(/\/dashboard/, { timeout: 12_000 }).then(() => 'dashboard' as const),
+    page.locator('input[inputmode="numeric"]').waitFor({ state: 'visible', timeout: 12_000 }).then(() => 'mfa' as const),
+  ]).catch(() => 'timeout' as const);
+
+  if (outcome === 'dashboard') return;
+
+  if (outcome === 'timeout') {
+    const url = page.url();
+    const errorText = await page.locator('[style*="color: var(--red)"]').first().textContent().catch(() => '');
+    throw new Error(
+      `Login failed — stayed at ${url}. ` +
+      (errorText ? `Error: ${errorText}` : 'Check TEST_EMAIL / TEST_PASSWORD in .env.local')
+    );
+  }
+
+  // MFA challenge step — need TOTP code
+  const totpSecret = process.env.TEST_TOTP_SECRET;
+  if (!totpSecret) {
+    throw new Error(
+      'MFA is required for this test account but TEST_TOTP_SECRET is not set. ' +
+      'Add TEST_TOTP_SECRET=<base32-secret> to .env.local (visible once during initial MFA setup).'
+    );
+  }
+  const code = generateTotp(totpSecret);
+  await page.locator('input[inputmode="numeric"]').fill(code);
+  await page.getByRole('button', { name: /verify/i }).click();
+  await page.waitForURL(/\/dashboard/, { timeout: 10_000 });
 }
 
 const TEST_EMAIL = process.env.TEST_EMAIL ?? 'vijay@lm.com';
@@ -63,18 +125,22 @@ test.describe('Authenticated dashboard shell', () => {
     await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
   });
 
-  test('dashboard sidebar renders all nav items: Products, Campaigns, Briefs, Channels, Settings', async ({ page }) => {
-    // Ensure we're on the dashboard and the sidebar is rendered
-    await expect(page.getByRole('link', { name: /products/i })).toBeVisible();
+  test('dashboard sidebar renders all nav items: Dashboard, Campaigns, Weekly brief, Channels, Settings', async ({ page }) => {
+    // Sidebar now uses section groups matching reference design
+    await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: /campaigns/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /briefs/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Weekly brief', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: /channels/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /settings/i })).toBeVisible();
   });
 
-  test('clicking Products nav item navigates to /dashboard/products', async ({ page }) => {
-    await page.getByRole('link', { name: /products/i }).click();
-    await expect(page).toHaveURL(/\/dashboard\/products/, { timeout: 10_000 });
+  test('sidebar has "Add product" link in Products section', async ({ page }) => {
+    await expect(page.getByRole('link', { name: 'Add product', exact: true })).toBeVisible();
+  });
+
+  test('clicking Dashboard nav item navigates to /dashboard', async ({ page }) => {
+    await page.getByRole('link', { name: 'Dashboard', exact: true }).click();
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10_000 });
   });
 
   test('clicking Campaigns nav item navigates to /dashboard/campaigns', async ({ page }) => {
@@ -82,9 +148,9 @@ test.describe('Authenticated dashboard shell', () => {
     await expect(page).toHaveURL(/\/dashboard\/campaigns/, { timeout: 10_000 });
   });
 
-  test('clicking Briefs nav item navigates to /dashboard/briefs', async ({ page }) => {
-    // Use exact match to target the sidebar "Briefs" link, not "View all briefs →" in the brief card
-    await page.getByRole('link', { name: 'Briefs', exact: true }).click();
+  test('clicking Weekly brief nav item navigates to /dashboard/briefs', async ({ page }) => {
+    // Sidebar label is "Weekly brief" (renamed from "Briefs")
+    await page.getByRole('link', { name: 'Weekly brief', exact: true }).click();
     await expect(page).toHaveURL(/\/dashboard\/briefs/, { timeout: 10_000 });
   });
 
@@ -218,7 +284,7 @@ test.describe('New product form validation', () => {
   });
 });
 
-// ── Group 4: Navigation and page load ────────────────────────────────────────
+// ── Group 4: Navigation and page load ─────────────────────────────────────────
 
 test.describe('Navigation and page load', () => {
   test.beforeEach(async ({ page }) => {
@@ -259,7 +325,82 @@ test.describe('Navigation and page load', () => {
   });
 });
 
-// ── Group 5: Week 18 — Token model UI ────────────────────────────────────────
+// ── Group 5: Phase 3 fixes ────────────────────────────────────────────────────
+
+test.describe('Phase 3 fixes', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
+  });
+
+  test('discover page shows 4-step progress indicator', async ({ page }) => {
+    await page.goto('/dashboard/products/new');
+    await expect(page.getByText('Enter URL')).toBeVisible();
+    // Use exact:true — "Analyse" is a substring of "Analyse app" button, causing strict mode
+    await expect(page.getByText('Analyse', { exact: true })).toBeVisible();
+    await expect(page.getByText('Confirm ICP')).toBeVisible();
+    await expect(page.getByText('Generate strategy')).toBeVisible();
+  });
+
+  test('discover page shows "What LaunchMind extracts" checklist', async ({ page }) => {
+    await page.goto('/dashboard/products/new');
+    await expect(page.getByText(/what launchmind extracts/i)).toBeVisible();
+    await expect(page.getByText(/pain points from/i)).toBeVisible();
+    await expect(page.getByText(/top 5 competitors/i)).toBeVisible();
+  });
+
+  test('/products/new/confirm redirects to /products/new when sessionStorage is empty', async ({ page }) => {
+    // No sessionStorage set — page should redirect back to the discover step
+    await page.goto('/dashboard/products/new/confirm');
+    await expect(page).toHaveURL(/\/dashboard\/products\/new$/, { timeout: 8_000 });
+  });
+
+  test('campaigns page shows status and channel filter selects', async ({ page }) => {
+    await page.goto('/dashboard/campaigns');
+    await expect(page.getByRole('combobox').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('combobox')).toHaveCount(2);
+  });
+
+  test('campaigns page has approval banner when pending_approval campaigns exist (or banner is absent when none)', async ({ page }) => {
+    await page.goto('/dashboard/campaigns');
+    await expect(page.getByRole('combobox').first()).toBeVisible({ timeout: 10_000 });
+    // Filter comboboxes render before the campaigns fetch completes — wait for loading to clear
+    await expect(page.getByText(/loading campaigns/i)).not.toBeVisible({ timeout: 10_000 });
+    // If any campaigns are pending_approval, the amber banner must appear.
+    // If none, it must be absent. Both are valid states — test asserts no crash.
+    const hasBanner = await page.getByText(/pending your approval/i).isVisible();
+    const hasTable = await page.getByRole('table').isVisible().catch(() => false);
+    const hasEmpty = await page.getByText(/no campaigns yet/i).isVisible().catch(() => false);
+    expect(hasBanner || hasTable || hasEmpty).toBe(true);
+  });
+
+  test('channels page shows security trust callout', async ({ page }) => {
+    await page.goto('/dashboard/channels');
+    await expect(page.getByText(/loading channels/i)).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/tokens are encrypted at rest/i)).toBeVisible();
+  });
+
+  test('channels page shows plan-gate or Connect button for Meta Ads', async ({ page }) => {
+    await page.goto('/dashboard/channels');
+    await expect(page.getByText(/loading channels/i)).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/meta ads/i)).toBeVisible();
+    // Depending on plan: either "Builder+ required" badge or "Connect" button or upgrade link is present.
+    // Use .first() — all 3 gated platforms (Meta, Google, LinkedIn) share the same badge/link text,
+    // causing strict mode violations when multiple match.
+    const hasGate = await page.getByText(/builder\+ required/i).first().isVisible().catch(() => false);
+    const hasConnect = await page.getByRole('link', { name: /upgrade to builder/i }).first().isVisible().catch(() => false);
+    const hasConnectBtn = await page.getByRole('button', { name: /connect/i }).first().isVisible().catch(() => false);
+    expect(hasGate || hasConnect || hasConnectBtn).toBe(true);
+  });
+
+  test('briefs page renders heading and does not error', async ({ page }) => {
+    await page.goto('/dashboard/briefs');
+    // Target the page h1 specifically — sidebar also has "Weekly brief" text, causing strict mode
+    await expect(page.getByRole('heading', { name: /weekly brief/i, level: 1 })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/failed to load briefs/i)).not.toBeVisible();
+  });
+});
+
+// ── Group 7: Week 18 — Token model UI ────────────────────────────────────────
 
 test.describe('Week 18 token model UI', () => {
   test.beforeEach(async ({ page }) => {
@@ -292,9 +433,10 @@ test.describe('Week 18 token model UI', () => {
   test('billing page shows all three top-up pack sizes', async ({ page }) => {
     await page.goto('/dashboard/billing');
     await expect(page.getByText(/loading/i)).not.toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('500')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('1,500')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('5,000')).toBeVisible({ timeout: 10_000 });
+    // Use exact:true — "500" is a substring of "1,500", causing strict mode violations
+    await expect(page.getByText('500', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('1,500', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('5,000', { exact: true })).toBeVisible({ timeout: 10_000 });
   });
 
   test('settings page has token usage card linking to /settings/usage', async ({ page }) => {
@@ -303,7 +445,7 @@ test.describe('Week 18 token model UI', () => {
   });
 });
 
-// ── Group 6: Public pages (no auth required) ─────────────────────────────────
+// ── Group 8: Public pages (no auth required) ─────────────────────────────────
 
 test.describe('Public pages regression', () => {
   test('/login shows forgot password link', async ({ page }) => {

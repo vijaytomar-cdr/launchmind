@@ -141,8 +141,9 @@ export async function scrapePlayStore(url: string): Promise<ScrapedAppData> {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 });
 
+    // h1 is the app name in current Play Store HTML (2026)
     const name = await page
-      .locator('h1[itemprop="name"], h1.q78ml')
+      .locator('h1')
       .first()
       .textContent({ timeout: 5_000 })
       .catch(() => '');
@@ -153,34 +154,39 @@ export async function scrapePlayStore(url: string): Promise<ScrapedAppData> {
       .textContent({ timeout: 5_000 })
       .catch(() => '');
 
+    // itemprop="description" (last occurrence is the full description block)
     const description = await page
-      .locator('div[data-g-id="description"]')
-      .first()
+      .locator('[itemprop="description"]')
+      .last()
       .textContent({ timeout: 5_000 })
       .catch(() => '');
 
+    // itemprop="genre" is a DIV in current Play Store HTML
     const category = await page
-      .locator('a[itemprop="genre"]')
+      .locator('[itemprop="genre"]')
       .first()
       .textContent({ timeout: 5_000 })
       .catch(() => 'Productivity');
 
-    const ratingText = await page
-      .locator('div[itemprop="starRating"] div')
-      .first()
-      .textContent({ timeout: 5_000 })
-      .catch(() => '0');
-
-    const rating = parseFloat(ratingText ?? '0') || 0;
-
-    const ratingCountText = await page
-      .locator('div[aria-label*="ratings"]')
+    // aria-label="Rated X.X stars out of five stars"
+    const ratingAriaLabel = await page
+      .locator('[aria-label*="stars out of five"]')
       .first()
       .getAttribute('aria-label', { timeout: 5_000 })
-      .catch(() => '0 ratings');
+      .catch(() => '');
+    const rating = parseFloat(ratingAriaLabel?.match(/[\d.]+/)?.[0] ?? '0') || 0;
 
-    const ratingCount =
-      parseInt((ratingCountText ?? '').replace(/[^0-9]/g, ''), 10) || 0;
+    // Rating count embedded in the rating block text: "4.3star35.6M reviews..."
+    const ratingBlockText = await page
+      .locator('[itemprop="starRating"]')
+      .locator('../../..')
+      .first()
+      .textContent({ timeout: 5_000 })
+      .catch(() => '');
+    const countMatch = ratingBlockText?.match(/([\d,.]+[KkMmBb]?)\s*reviews?/i);
+    const ratingCount = countMatch
+      ? parseMillified(countMatch[1])
+      : 0;
 
     const screenshots: string[] = await page
       .locator('img[src*="play-lh.googleusercontent.com"]')
@@ -191,15 +197,25 @@ export async function scrapePlayStore(url: string): Promise<ScrapedAppData> {
           .slice(0, 10)
       );
 
+    // Reviews: try both old jsname selectors and new aria-based ones
     const reviews: ScrapedAppData['reviews'] = [];
-    const reviewEls = await page.locator('div[jsname="fk8dgd"]').all();
+    const reviewEls = await page
+      .locator('div[jsname="fk8dgd"], [data-reviewid]')
+      .all()
+      .catch(() => []);
     for (const el of reviewEls.slice(0, 10)) {
-      const text = await el.locator('span[jsname="bN97Pc"]').textContent().catch(() => null);
-      const ratingEl = await el.locator('div[role="img"]').getAttribute('aria-label').catch(() => '3 stars');
-      const rating = parseInt((ratingEl ?? '3').replace(/[^0-9]/g, '')[0] ?? '3', 10);
+      const text = await el
+        .locator('span[jsname="bN97Pc"], [class*="review-body"]')
+        .textContent()
+        .catch(() => null);
+      const ratingEl = await el
+        .locator('div[role="img"]')
+        .getAttribute('aria-label')
+        .catch(() => '3 stars');
+      const r = parseInt((ratingEl ?? '3').replace(/[^0-9]/g, '')[0] ?? '3', 10);
       if (text) {
         reviews.push({
-          rating: Math.min(5, Math.max(1, rating)),
+          rating: Math.min(5, Math.max(1, r)),
           text,
           date: new Date().toISOString(),
         });
@@ -224,6 +240,17 @@ export async function scrapePlayStore(url: string): Promise<ScrapedAppData> {
   } finally {
     await browser.close();
   }
+}
+
+/** Converts "35.6M" → 35600000, "1.2K" → 1200, plain numbers pass through. */
+function parseMillified(s: string): number {
+  const n = parseFloat(s.replace(/,/g, ''));
+  if (isNaN(n)) return 0;
+  const suffix = s.trim().slice(-1).toUpperCase();
+  if (suffix === 'B') return Math.round(n * 1_000_000_000);
+  if (suffix === 'M') return Math.round(n * 1_000_000);
+  if (suffix === 'K') return Math.round(n * 1_000);
+  return Math.round(n);
 }
 
 /**

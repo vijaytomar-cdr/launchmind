@@ -379,6 +379,7 @@ export interface WeeklyBrief {
   what_worked: string | null;
   what_to_kill: string | null;
   next_actions: Record<string, unknown> | null;
+  generated_assets: Record<string, unknown> | null;
   ai_tokens_consumed: number;
   status: 'draft' | 'sent' | 'acknowledged';
   sent_at: string | null;
