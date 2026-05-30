@@ -48,12 +48,85 @@ export const api = {
   health: () => request<{ status: string; timestamp: string }>('/health'),
 
   products: {
+    // Legacy single-URL sync scrape (backward compat)
     scrape: (url: string, token: string) =>
       request<ScrapeResult>('/products/scrape', {
         method: 'POST',
         body: JSON.stringify({ url }),
         token,
       }),
+    // v2 multi-URL async scrape — returns { productId, jobId, status: 'queued' }
+    scrapeMulti: (
+      urls: { playStoreUrl?: string; appStoreUrl?: string; websiteUrl?: string; storeUrl?: string },
+      token: string
+    ) => {
+      const { storeUrl, ...rest } = urls;
+      return request<AsyncScrapeResult>('/products/scrape', {
+        method: 'POST',
+        body: JSON.stringify(storeUrl ? { ...rest, url: storeUrl } : rest),
+        token,
+      });
+    },
+    // Poll job status — returns ScrapeJobStatus
+    pollScrapeJob: (jobId: string, token: string) =>
+      request<import('./types/intake').ScrapeJobStatus>(`/products/scrape/${jobId}`, { token }),
+    // Scrape metadata from a competitor website URL (non-store competitor — Gap 2 fix)
+    scrapeCompetitorWebsite: (url: string, token: string) =>
+      request<ScrapeResult>('/products/competitor/website', {
+        method: 'POST',
+        body: JSON.stringify({ url }),
+        token,
+      }),
+    // Save founder context answers
+    saveContext: (productId: string, context: import('./types/intake').FounderContext, token: string) =>
+      request<{ id: string; intake_step: number }>('/products/intake/context', {
+        method: 'POST',
+        body: JSON.stringify({ productId, founderContext: context }),
+        token,
+      }),
+    // Analyse screenshots — converts Files to base64 before sending
+    uploadScreenshots: async (productId: string, files: File[], token: string) => {
+      const screenshots = await Promise.all(
+        files.map(
+          (f) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(f);
+            })
+        )
+      );
+      return request<{ id: string; intake_step: number; screenshot_analysis: unknown }>(
+        '/products/intake/screenshots',
+        { method: 'POST', body: JSON.stringify({ productId, screenshots }), token }
+      );
+    },
+    // v2 confirm — UPDATE existing product (productId required) or legacy INSERT
+    confirmEnriched: (
+      data: {
+        productId: string;
+        icpBrief: ICPBrief;
+        competitorSet?: CompetitorApp[];
+        selectedMarkets?: string[];
+        primaryChannel?: string;
+        excludedChannels?: string[];
+      },
+      token: string
+    ) =>
+      request<Product>('/products/confirm', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: data.productId,
+          icpBrief: data.icpBrief,
+          competitors: data.competitorSet ?? [],
+          selectedMarkets: data.selectedMarkets,
+          primaryChannel: data.primaryChannel,
+          excludedChannels: data.excludedChannels,
+        }),
+        token,
+      }),
+    // Legacy confirm
     confirm: (data: ConfirmProductBody, token: string) =>
       request<Product>('/products/confirm', {
         method: 'POST',
@@ -65,6 +138,8 @@ export const api = {
       request<Product>(`/products/${id}`, { token }),
     metrics: (id: string, token: string, weekCount = 8) =>
       request<ProductMetrics>(`/products/${id}/metrics?weekCount=${weekCount}`, { token }),
+    generateStrategy: (id: string, token: string) =>
+      request<Record<string, unknown>>(`/products/${id}/strategy`, { method: 'POST', token }),
   },
 
   channels: {
@@ -224,6 +299,8 @@ export interface ScrapedMeta {
   priceTier: string;
   screenshots: string[];
   reviews: Review[];
+  platform?: 'app_store' | 'play_store';
+  storeUrl?: string;
 }
 
 export interface Review {
@@ -238,7 +315,7 @@ export interface CompetitorApp {
   rating: number;
   category: string;
   priceTier: string;
-  platform: 'app_store' | 'play_store';
+  platform: 'app_store' | 'play_store' | 'website';
 }
 
 export interface ICPBrief {
@@ -254,6 +331,12 @@ export interface ScrapeResult {
   scraped: ScrapedMeta;
   icpBrief: ICPBrief;
   competitors: CompetitorApp[];
+}
+
+export interface AsyncScrapeResult {
+  productId: string;
+  jobId: string;
+  status: 'queued';
 }
 
 export interface ConfirmProductBody {

@@ -632,9 +632,9 @@ launchmind/
 > Update this section at the end of every phase.
 
 ```
-Last updated: Phase 4 complete (Week 17)
+Last updated: Phase 5 Week 18 complete (2026-05-25)
 
-Backend — Weeks 0–17: COMMITTED AND COMPLETE
+Backend — Weeks 0–18: COMMITTED AND COMPLETE
   Week 0:  Scaffold, Docker, CI/CD, Oracle deploy, GitHub Actions
   Week 1:  Fastify, all 9 DB migrations, RLS, token vault, consumeTokens()
   Week 2:  Scraper (Cheerio + Playwright), ICP service, product routes + tests
@@ -650,8 +650,13 @@ Backend — Weeks 0–17: COMMITTED AND COMPLETE
            (GDPR delete/export, sessions, notifications, cross-product insights); Snyk CI
   Week 16: Competitor re-scrape in weeklyBriefWorker (App Store, Cheerio, diff → brief)
   Week 17: Workspaces backend live; foundersRoutes + anomaly hook wired in server.ts
+  Week 18: Intake v2 backend — migration 023 (11 new products columns), ConfirmProductBodySchema
+           v2 UPDATE path (productId optional), POST /products/intake/context (JSONB merge),
+           POST /products/intake/screenshots, storeUrl backward compat, 120 tests passing.
+           Migration 024: ClientPulse seed product. Migration 025: aligned seed data with spec
+           (primary_channel=whatsapp, moat/quote copy, 3 campaigns + metrics + brief).
 
-Frontend — Weeks 9–17: COMPLETE
+Frontend — Weeks 9–18: COMPLETE
   All 12 dashboard screens implemented from launchmind-ux-slate-sage.html reference.
   Week 14: Strategy page — playbook insights box (Builder/Studio data, Solo locked)
   Week 15: Settings page — delete account (type DELETE), Studio-only API keys card
@@ -659,14 +664,32 @@ Frontend — Weeks 9–17: COMPLETE
   Week 17: /dashboard/insights — cross-product KPIs + channel bar chart
            /dashboard/workspaces — Studio-gated list/create/delete + brand voice preview
            Sidebar — Insights + Workspaces nav items; lib/api.ts complete
+  Week 18: 7-step intake wizard (intake v2):
+           Step 1: /products/new — multi-URL entry (Play Store, App Store, Website)
+           Step 2: /products/new/context — 5 conversations, ChipGroup, screenshot upload
+           Step 3: /products/new/analysis — live BullMQ job polling, 6 progress items
+           Step 4: /products/new/icp — inline editable fields, pain point chips
+           Step 5: /products/new/competitors — confirm/reject/add competitors
+           Step 6: /products/new/markets — 4-market grid, CPI estimates, amber/sage alerts
+           Step 7: /products/new/confirm — 3-column summary, MOAT box, strategy preview
+           IntakeSteps 7-step progress bar, lib/types/intake.ts, lib/api.ts intake methods
+           api.products.generateStrategy() added. tsc --noEmit: 0 errors.
+           12 new E2E tests in sanity.spec.ts.
 
-Seed data:
-  playbook_signals: 52 rows (migration 11 + migration 18 applied to hosted Supabase)
+Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
+  playbook_signals: 52 rows (migration 11 + migration 18)
+  vijay@lm.com: solo plan, 300 tokens, onboarding_step=6
+  ClientPulse product: intake_step=6, whatsapp/india primary, full founder_context
+  3 launched campaigns (whatsapp/india, meta/usa, google/india) + metrics + brief
 
 Pending (gate 4):
   Studio billing plan-change flow requires live STRIPE_SECRET_KEY in VM env.
 
-Next: open phases/phase-5/weeks-18-20.md and start Week 18.
+Pending (gate 5 — sections 3 & 4 of intake validation):
+  Manual browser testing of all 7 intake wizard steps (requires Next.js dev server + Vijay login).
+  Strategy quality check: MOAT/quote/language in generated output (requires Claude API key on VM).
+
+Next: open phases/phase-5/weeks-19-20.md and continue Week 19.
 ```
 
 ---

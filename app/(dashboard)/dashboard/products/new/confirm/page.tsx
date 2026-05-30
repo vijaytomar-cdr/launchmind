@@ -1,358 +1,438 @@
-/**
- * @file app/(dashboard)/dashboard/products/new/confirm/page.tsx
- * @description Confirm ICP step: founder reviews and edits the scraped ICP brief before saving.
- *   Reads scrape data from sessionStorage (set by /products/new after successful scrape).
- *   Redirects to /products/new if no sessionStorage data found.
- *   On confirm → POST /products/confirm → redirect to /dashboard/products/:id/strategy.
- * @security Auth token fetched from Supabase session. Confirm runs server-side via Fastify API.
- * @dependencies lib/api, lib/supabase/client, next/navigation
- */
-
 'use client';
+/**
+ * @file confirm/page.tsx — Step 7: Intake confirmation summary
+ * @description Shows a 3-column summary grid of all founder decisions.
+ *   MOAT box in indigo. Strategy preview card with 30/60/90 day hints.
+ *   "Generate strategy — 50 tokens →" calls confirmEnriched + POST strategy.
+ *   On success: navigates to /dashboard/products/:id/strategy.
+ * @security productId from sessionStorage — ownership verified server-side.
+ * @dependencies lib/api, lib/supabase/client, lib/types/intake, next/navigation
+ */
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
-import type { ICPBrief, CompetitorApp, ScrapedMeta } from '@/lib/api';
-import { trackOnboarding } from '@/lib/analytics';
+import { IntakeSteps } from '@/components/launchmind/IntakeSteps';
+import { INTAKE_STORAGE, type FounderContext } from '@/lib/types/intake';
 
-const STEPS = ['Enter URL', 'Analyse', 'Confirm ICP', 'Generate strategy'];
-
-interface SessionScrapeData {
-  url: string;
-  platform: 'app_store' | 'play_store';
-  scraped: ScrapedMeta;
-  icpBrief: ICPBrief;
-  competitors: CompetitorApp[];
+interface IcpBrief {
+  targetUser: string;
+  geography: string[];
+  priceTier: string;
+  painPoints: string[];
+  competitorGaps: string[];
+  suggestedMarkets: string[];
 }
 
-export default function ConfirmIcpPage() {
+interface CompetitorEntry {
+  name: string;
+  developer?: string;
+  rating?: number;
+  priceTier?: string;
+  platform?: string;
+  gap?: string;
+  topComplaint?: string;
+  confirmed: boolean;
+}
+
+interface ScrapedMeta {
+  name: string;
+  developer?: string;
+  category?: string;
+  rating?: number;
+  ratingCount?: number;
+  priceTier?: string;
+  platform?: string;
+}
+
+interface MarketData {
+  selectedMarkets: string[];
+  primaryChannel: string;
+  excludedChannels: string[];
+}
+
+const CHANNEL_LABELS: Record<string, string> = {
+  meta:        'Meta (Facebook / Instagram)',
+  google:      'Google UAC',
+  aso_rewrite: 'ASO Rewrite',
+  whatsapp:    'WhatsApp Broadcast',
+  email:       'Email Sequences',
+  linkedin:    'LinkedIn Ads',
+};
+
+const MARKET_FLAGS: Record<string, string> = {
+  usa:     '🇺🇸 USA',
+  india:   '🇮🇳 India',
+  se_asia: '🇸🇬 SE Asia',
+  uk:      '🇬🇧 UK',
+};
+
+export default function ConfirmPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [token, setToken] = useState('');
-  const [data, setData] = useState<SessionScrapeData | null>(null);
-  const [icp, setIcp] = useState<ICPBrief | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [token, setToken]         = useState('');
+  const [productId, setProductId] = useState('');
+  const [scraped, setScraped]     = useState<ScrapedMeta | null>(null);
+  const [icp, setIcp]             = useState<IcpBrief | null>(null);
+  const [context, setContext]     = useState<FounderContext | null>(null);
+  const [competitors, setCompetitors] = useState<CompetitorEntry[]>([]);
+  const [markets, setMarkets]     = useState<MarketData | null>(null);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: session }) => {
-      if (session.session?.access_token) setToken(session.session.access_token);
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.access_token) setToken(data.session.access_token);
     });
-  }, []);
 
-  useEffect(() => {
-    const raw = sessionStorage.getItem('lm_scrape');
-    if (!raw) {
-      router.replace('/dashboard/products/new');
-      return;
+    const pid = sessionStorage.getItem(INTAKE_STORAGE.productId);
+    if (!pid) { router.replace('/dashboard/products/new'); return; }
+    setProductId(pid);
+
+    const srRaw = sessionStorage.getItem(INTAKE_STORAGE.scrapeResult);
+    if (srRaw) {
+      try { setScraped(JSON.parse(srRaw)?.scraped ?? null); } catch { /* ignore */ }
     }
-    try {
-      const parsed: SessionScrapeData = JSON.parse(raw);
-      setData(parsed);
-      setIcp(parsed.icpBrief);
-    } catch {
-      router.replace('/dashboard/products/new');
+
+    const icpRaw = sessionStorage.getItem(INTAKE_STORAGE.editedIcp);
+    if (icpRaw) {
+      try { setIcp(JSON.parse(icpRaw)); } catch { /* ignore */ }
+    }
+
+    const ctxRaw = sessionStorage.getItem(INTAKE_STORAGE.context);
+    if (ctxRaw) {
+      try { setContext(JSON.parse(ctxRaw)); } catch { /* ignore */ }
+    }
+
+    const compRaw = sessionStorage.getItem(INTAKE_STORAGE.competitors);
+    if (compRaw) {
+      try { setCompetitors(JSON.parse(compRaw)); } catch { /* ignore */ }
+    }
+
+    const mktRaw = sessionStorage.getItem(INTAKE_STORAGE.markets);
+    if (mktRaw) {
+      try { setMarkets(JSON.parse(mktRaw)); } catch { /* ignore */ }
     }
   }, [router]);
 
-  async function handleConfirm() {
-    if (!data || !icp || !token) return;
-    setError('');
+  async function handleGenerate() {
+    if (!productId || !icp || !token) return;
     setSaving(true);
+    setError('');
 
     try {
-      const product = await api.products.confirm(
+      const confirmedComps = competitors.filter((c) => c.confirmed);
+
+      // Step 1: Confirm / update the product record
+      const product = await api.products.confirmEnriched(
         {
-          url: data.url,
-          platform: data.platform,
-          scraped: data.scraped,
-          icpBrief: icp,
-          competitors: data.competitors,
+          productId,
+          icpBrief: icp as Parameters<typeof api.products.confirmEnriched>[0]['icpBrief'],
+          competitorSet: (confirmedComps as unknown) as Parameters<typeof api.products.confirmEnriched>[0]['competitorSet'],
+          selectedMarkets: markets?.selectedMarkets,
+          primaryChannel:  markets?.primaryChannel,
+          excludedChannels: markets?.excludedChannels,
         },
         token
       );
-      sessionStorage.removeItem('lm_scrape');
-      trackOnboarding('icp_confirmed');
+
+      // Step 2: Trigger strategy generation
+      await api.products.generateStrategy(product.id, token);
+
+      // Clear intake state
+      Object.values(INTAKE_STORAGE).forEach((k) => sessionStorage.removeItem(k));
+
       router.push(`/dashboard/products/${product.id}/strategy`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save product — try again');
+      setError(err instanceof ApiError ? err.message : 'Failed to generate strategy — try again');
       setSaving(false);
     }
   }
 
-  if (!data || !icp) {
+  if (!icp) {
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className="flex items-center justify-center py-20">
         <div
-          className="w-10 h-10 rounded-full border-2 border-t-transparent animate-spin"
-          style={{ borderColor: 'var(--sage)', borderTopColor: 'transparent' }}
+          className="rounded-full border-2 border-t-transparent animate-spin"
+          style={{ width: 32, height: 32, borderColor: 'var(--sage)', borderTopColor: 'transparent' }}
         />
       </div>
     );
   }
 
+  const confirmedComps = competitors.filter((c) => c.confirmed);
+
   return (
-    <div className="p-8 max-w-3xl">
-      {/* Step indicator */}
-      <div className="flex items-center gap-0 mb-8">
-        {STEPS.map((label, i) => (
-          <div key={label} className="flex items-center">
-            <div className="flex items-center gap-2">
-              <div
-                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
-                style={{
-                  background: i < 2 ? 'var(--sage)' : i === 2 ? 'var(--sage)' : 'var(--raised)',
-                  color: i <= 2 ? '#fff' : 'var(--ink3)',
-                  border: i <= 2 ? 'none' : '1px solid var(--border2)',
-                }}
-              >
-                {i < 2 ? (
-                  <svg width="10" height="10" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                ) : (i + 1)}
-              </div>
-              <span
-                style={{
-                  fontSize: 12,
-                  color: i === 2 ? 'var(--ink)' : 'var(--ink3)',
-                  fontWeight: i === 2 ? 500 : 400,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </span>
-            </div>
-            {i < STEPS.length - 1 && (
-              <div
-                className="mx-3"
-                style={{
-                  width: 24,
-                  height: 1,
-                  background: i < 2 ? 'var(--sage)' : 'var(--border2)',
-                  flexShrink: 0,
-                }}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+    <div>
+      <IntakeSteps currentStep="confirm" />
 
       <div className="mb-6">
         <h1 className="font-display font-bold mb-1" style={{ fontSize: 22, color: 'var(--ink)' }}>
-          Confirm ICP brief
+          Ready to launch
         </h1>
         <p style={{ fontSize: 13, color: 'var(--ink2)' }}>
-          Review and edit the ICP brief before we generate your strategy.
+          Everything looks good. Review the summary and generate your 30/60/90 day strategy.
         </p>
       </div>
 
-      <div className="space-y-6">
-        {/* App header */}
-        <div
-          className="rounded-[10px] p-6"
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
-        >
-          <div className="flex items-start gap-4 mb-6">
+      {/* 3-column summary grid */}
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        {/* ICP */}
+        <SummaryCard title="ICP Brief" accent="sage">
+          <SummaryRow label="Target user" value={icp.targetUser || '—'} />
+          <SummaryRow label="Price tier"  value={icp.priceTier || '—'} />
+          {icp.painPoints.length > 0 && (
             <div>
-              <h2 className="font-display font-semibold" style={{ fontSize: 18, color: 'var(--ink)' }}>
-                {data.scraped.name}
-              </h2>
-              <p style={{ fontSize: 12, color: 'var(--ink2)', marginTop: 2 }}>
-                {data.scraped.developer} ·{' '}
-                <span style={{ color: 'var(--sage)' }}>{data.scraped.category}</span>
-              </p>
-              <div className="flex items-center gap-4 mt-2" style={{ fontSize: 12, color: 'var(--ink3)' }}>
-                <span>★ {data.scraped.rating.toFixed(1)}</span>
-                <span>{data.scraped.ratingCount.toLocaleString()} ratings</span>
-                <span
-                  className="rounded-full px-2 py-0.5 font-medium"
-                  style={{
-                    fontSize: 11,
-                    background: data.platform === 'app_store' ? 'var(--indigo-d)' : 'var(--sage-d)',
-                    color: data.platform === 'app_store' ? 'var(--indigo)' : 'var(--sage)',
-                  }}
-                >
-                  {data.platform === 'app_store' ? 'App Store' : 'Play Store'}
-                </span>
-              </div>
+              <p style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 4 }}>PAIN POINTS</p>
+              {icp.painPoints.slice(0, 3).map((pp, i) => (
+                <p key={i} style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 2 }}>· {pp}</p>
+              ))}
+              {icp.painPoints.length > 3 && (
+                <p style={{ fontSize: 11, color: 'var(--ink3)' }}>+{icp.painPoints.length - 3} more</p>
+              )}
             </div>
-          </div>
+          )}
+        </SummaryCard>
 
-          <h3 className="font-semibold mb-4" style={{ fontSize: 12, color: 'var(--ink2)' }}>
-            ICP Brief <span style={{ fontWeight: 400, color: 'var(--ink3)' }}>(edit as needed)</span>
-          </h3>
+        {/* Markets & channels */}
+        <SummaryCard title="Markets & Channel" accent="indigo">
+          {markets ? (
+            <>
+              <div>
+                <p style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 4 }}>MARKETS</p>
+                {markets.selectedMarkets.map((m) => (
+                  <p key={m} style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 2 }}>
+                    {MARKET_FLAGS[m] ?? m}
+                  </p>
+                ))}
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <p style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 4 }}>WEEK 1 CHANNEL</p>
+                <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--indigo)' }}>
+                  {CHANNEL_LABELS[markets.primaryChannel] ?? markets.primaryChannel}
+                </p>
+              </div>
+            </>
+          ) : (
+            <p style={{ fontSize: 12, color: 'var(--ink3)' }}>Not set</p>
+          )}
+        </SummaryCard>
 
-          <div className="space-y-4">
-            <Field label="Target user" value={icp.targetUser} onChange={(v) => setIcp({ ...icp, targetUser: v })} />
-            <Field label="Price tier" value={icp.priceTier} onChange={(v) => setIcp({ ...icp, priceTier: v })} />
-            <TagList
-              label="Suggested markets"
-              items={icp.suggestedMarkets}
-              getStyle={(m) => ({
-                background: m === 'india' ? 'var(--amber-d)' : 'var(--sage-d)',
-                color: m === 'india' ? 'var(--amber)' : 'var(--sage)',
-              })}
-            />
-            <EditableList
-              label="Pain points"
-              items={icp.painPoints}
-              onChange={(items) => setIcp({ ...icp, painPoints: items })}
-            />
-            <EditableList
-              label="Competitor gaps"
-              items={icp.competitorGaps}
-              onChange={(items) => setIcp({ ...icp, competitorGaps: items })}
-            />
+        {/* Competitors */}
+        <SummaryCard title={`Competitors (${confirmedComps.length})`} accent="amber">
+          {confirmedComps.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--ink3)' }}>None confirmed</p>
+          ) : (
+            confirmedComps.slice(0, 4).map((c, i) => (
+              <div key={i} style={{ marginBottom: 6 }}>
+                <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{c.name}</p>
+                {c.priceTier && (
+                  <p style={{ fontSize: 11, color: 'var(--ink3)' }}>{c.priceTier}</p>
+                )}
+              </div>
+            ))
+          )}
+          {confirmedComps.length > 4 && (
+            <p style={{ fontSize: 11, color: 'var(--ink3)' }}>+{confirmedComps.length - 4} more</p>
+          )}
+        </SummaryCard>
+      </div>
+
+      {/* MOAT box */}
+      {context?.moat && (
+        <div
+          className="rounded-[10px] p-4 mb-4 flex items-start gap-3"
+          style={{ background: 'var(--indigo-d)', border: '1px solid var(--indigo-b)' }}
+        >
+          <span style={{ fontSize: 16, color: 'var(--indigo)', flexShrink: 0 }}>✦</span>
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--indigo)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+              Your MOAT
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--indigo)' }}>{context.moat}</p>
           </div>
         </div>
+      )}
 
-        {data.competitors.length > 0 && (
-          <CompetitorSection competitors={data.competitors} />
-        )}
-
-        {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}
-
-        <div className="flex gap-3">
-          <button
-            onClick={() => router.push('/dashboard/products/new')}
-            className="rounded-[6px] px-4 py-2.5 transition-opacity hover:opacity-80"
-            style={{ fontSize: 13, color: 'var(--ink2)', border: '1px solid var(--border2)' }}
-          >
-            Start over
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={saving || !token}
-            className="flex-1 rounded-[6px] px-4 py-2.5 font-medium transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: 'var(--sage)', color: '#fff', fontSize: 13 }}
-          >
-            {saving ? 'Saving…' : 'Confirm & generate strategy →'}
-          </button>
+      {/* Strategy preview card */}
+      <div
+        className="rounded-[10px] p-5 mb-6"
+        style={{ background: 'var(--surface)', border: '1.5px solid var(--sage-b)' }}
+      >
+        <div className="flex items-center gap-2 mb-4">
+          <span style={{ fontSize: 14, color: 'var(--sage)' }}>✦</span>
+          <p className="font-semibold" style={{ fontSize: 13, color: 'var(--ink)' }}>
+            Strategy preview — what you're about to get
+          </p>
+        </div>
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <StrategyPeriod
+            period="Week 1–4"
+            label="30-day sprint"
+            color="var(--sage)"
+            items={[
+              `Launch ${CHANNEL_LABELS[markets?.primaryChannel ?? ''] || 'primary channel'}`,
+              'A/B test 3 hooks from pain points',
+              'Set up tracking + UTM links',
+            ]}
+          />
+          <StrategyPeriod
+            period="Week 5–8"
+            label="60-day scale"
+            color="var(--indigo)"
+            items={[
+              'Double down on winning hook',
+              'Expand to second market',
+              'Weekly brief + retargeting loop',
+            ]}
+          />
+          <StrategyPeriod
+            period="Week 9–13"
+            label="90-day growth"
+            color="var(--amber)"
+            items={[
+              'Open second channel',
+              'ASO rewrite from learnings',
+              'Build seasonal campaign',
+            ]}
+          />
         </div>
       </div>
-    </div>
-  );
-}
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <label className="block mb-1 font-medium" style={{ fontSize: 11, color: 'var(--ink2)' }}>
-        {label}
-      </label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-[6px] px-3 py-2 outline-none"
-        style={{ background: 'var(--raised)', border: '1px solid var(--border2)', color: 'var(--ink)', fontSize: 13 }}
-      />
-    </div>
-  );
-}
-
-function TagList({ label, items, getStyle }: { label: string; items: string[]; getStyle: (item: string) => React.CSSProperties }) {
-  return (
-    <div>
-      <p className="mb-1 font-medium" style={{ fontSize: 11, color: 'var(--ink2)' }}>{label}</p>
-      <div className="flex flex-wrap gap-2">
-        {items.map((item) => (
-          <span
-            key={item}
-            className="rounded-full px-2.5 py-1 font-medium"
-            style={{ fontSize: 11, ...getStyle(item) }}
+      {/* App name banner */}
+      {scraped?.name && (
+        <div
+          className="rounded-[10px] p-4 mb-4 flex items-center gap-3"
+          style={{ background: 'var(--raised)', border: '1px solid var(--border)' }}
+        >
+          <div
+            className="flex items-center justify-center rounded-[6px] font-semibold flex-shrink-0"
+            style={{ width: 36, height: 36, background: 'var(--sage-d)', color: 'var(--sage)', fontSize: 13 }}
           >
-            {item === 'usa' ? '🇺🇸 USA' : '🇮🇳 India'}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EditableList({ label, items, onChange }: { label: string; items: string[]; onChange: (items: string[]) => void }) {
-  return (
-    <div>
-      <p className="mb-2 font-medium" style={{ fontSize: 11, color: 'var(--ink2)' }}>{label}</p>
-      <div className="space-y-2">
-        {items.map((item, i) => (
-          <div key={i} className="flex gap-2">
-            <input
-              type="text"
-              value={item}
-              onChange={(e) => {
-                const next = [...items];
-                next[i] = e.target.value;
-                onChange(next);
-              }}
-              className="flex-1 rounded-[6px] px-3 py-1.5 outline-none"
-              style={{ background: 'var(--raised)', border: '1px solid var(--border2)', color: 'var(--ink)', fontSize: 13 }}
-            />
-            <button
-              type="button"
-              onClick={() => onChange(items.filter((_, j) => j !== i))}
-              className="px-1 transition-opacity hover:opacity-70"
-              style={{ color: 'var(--ink3)', fontSize: 13 }}
+            {scraped.name.slice(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <p className="font-semibold" style={{ fontSize: 13, color: 'var(--ink)' }}>{scraped.name}</p>
+            <p style={{ fontSize: 12, color: 'var(--ink3)' }}>
+              {[scraped.developer, scraped.category, scraped.rating ? `★ ${scraped.rating.toFixed(1)}` : ''].filter(Boolean).join(' · ')}
+            </p>
+          </div>
+          <div style={{ marginLeft: 'auto' }}>
+            <span
+              className="rounded-full px-2.5 py-1 font-medium"
+              style={{ fontSize: 11, background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' }}
             >
-              ✕
-            </button>
+              Ready to generate
+            </span>
           </div>
-        ))}
+        </div>
+      )}
+
+      {error && (
+        <p style={{ fontSize: 13, color: 'var(--red)', marginBottom: 12 }}>{error}</p>
+      )}
+
+      <div className="flex justify-between items-center">
         <button
           type="button"
-          onClick={() => onChange([...items, ''])}
-          className="hover:underline"
-          style={{ fontSize: 12, color: 'var(--sage)' }}
+          onClick={() => router.back()}
+          style={{ fontSize: 13, color: 'var(--ink3)' }}
+          className="hover:opacity-70 transition-opacity"
         >
-          + Add
+          ← Back
+        </button>
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={saving || !token}
+          className="rounded-[6px] px-6 py-2.5 font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+          style={{ background: 'var(--sage)', color: '#fff', fontSize: 13 }}
+        >
+          {saving ? (
+            <>
+              <span
+                className="rounded-full border-2 border-t-transparent animate-spin"
+                style={{ display: 'inline-block', width: 14, height: 14, borderColor: '#fff', borderTopColor: 'transparent' }}
+              />
+              Generating…
+            </>
+          ) : (
+            'Generate strategy — 50 tokens →'
+          )}
         </button>
       </div>
     </div>
   );
 }
 
-function CompetitorSection({ competitors }: { competitors: CompetitorApp[] }) {
-  const [open, setOpen] = useState(false);
+interface SummaryCardProps {
+  title: string;
+  accent: 'sage' | 'indigo' | 'amber';
+  children: React.ReactNode;
+}
+
+function SummaryCard({ title, accent, children }: SummaryCardProps) {
+  const colors: Record<string, { bg: string; border: string; text: string }> = {
+    sage:   { bg: 'var(--sage-d)',   border: 'var(--sage-b)',   text: 'var(--sage)' },
+    indigo: { bg: 'var(--indigo-d)', border: 'var(--indigo-b)', text: 'var(--indigo)' },
+    amber:  { bg: 'var(--amber-d)',  border: 'var(--amber-b)',  text: 'var(--amber)' },
+  };
+  const c = colors[accent];
 
   return (
     <div
-      className="rounded-[10px] overflow-hidden"
-      style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+      className="rounded-[10px] p-4"
+      style={{ background: 'var(--surface)', border: `1.5px solid ${c.border}` }}
     >
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-6 py-4 font-medium transition-colors"
-        style={{ fontSize: 13, color: 'var(--ink)' }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--raised)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+      <p
+        className="font-semibold mb-3 pb-2"
+        style={{ fontSize: 12, color: c.text, borderBottom: `1px solid ${c.border}` }}
       >
-        <span>Competitors ({competitors.length})</span>
-        <span style={{ color: 'var(--ink3)' }}>{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="px-6 pb-4 space-y-3">
-          {competitors.map((c, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between py-3"
-              style={{ borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}
-            >
-              <div>
-                <p className="font-medium" style={{ fontSize: 13, color: 'var(--ink)' }}>{c.name}</p>
-                <p style={{ fontSize: 12, color: 'var(--ink2)' }}>{c.developer}</p>
-              </div>
-              <div className="text-right">
-                <p style={{ fontSize: 13, color: 'var(--ink)' }}>★ {c.rating.toFixed(1)}</p>
-                <p style={{ fontSize: 12, color: 'var(--ink3)' }}>{c.priceTier}</p>
-              </div>
-            </div>
-          ))}
+        {title}
+      </p>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p style={{ fontSize: 10, color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 12, color: 'var(--ink)' }}>{value}</p>
+    </div>
+  );
+}
+
+interface StrategyPeriodProps {
+  period: string;
+  label: string;
+  color: string;
+  items: string[];
+}
+
+function StrategyPeriod({ period, label, color, items }: StrategyPeriodProps) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 600, color, letterSpacing: '0.02em' }}>{period}</p>
+          <p style={{ fontSize: 10, color: 'var(--ink3)' }}>{label}</p>
         </div>
-      )}
+      </div>
+      <ul className="space-y-1">
+        {items.map((item, i) => (
+          <li key={i} style={{ fontSize: 12, color: 'var(--ink2)', paddingLeft: 12, position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 0, color: 'var(--ink3)' }}>·</span>
+            {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

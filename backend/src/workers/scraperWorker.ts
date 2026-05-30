@@ -1,6 +1,6 @@
 /**
  * @file scraperWorker.ts
- * @description App Store (Cheerio) and Play Store (Playwright) scraper functions.
+ * @description App Store (Cheerio + app-store-scraper) and Play Store (google-play-scraper) scraper functions.
  *   Designed to run in a sandboxed Docker container via BullMQ job queue.
  *   A scraper crash CANNOT crash the Fastify API — communication is via Redis only.
  *   Platform detection handles both store URLs before dispatching.
@@ -8,8 +8,7 @@
  *   - Never executes shell commands with user-supplied content.
  *   - Scraped URLs are validated against known store hostname patterns before fetch.
  *   - All output validated through ScrapedAppDataSchema before returning.
- *   - Playwright runs headless with no filesystem access to host.
- * @dependencies cheerio, playwright, zod
+ * @dependencies cheerio, app-store-scraper, google-play-scraper, zod
  */
 
 import * as cheerio from 'cheerio';
@@ -254,80 +253,131 @@ function parseMillified(s: string): number {
 }
 
 /**
- * Scrapes the top 5 competitor apps in the same category and platform.
- * @param category - App category (from scraped data)
+/**
+ * Maps a human-readable app category string to a google-play-scraper category ID.
+ * Falls back to APPLICATION (general) for unrecognised categories.
+ */
+const PLAY_CATEGORY_MAP: Record<string, string> = {
+  'house & home':       'HOUSE_AND_HOME',
+  'house and home':     'HOUSE_AND_HOME',
+  'health & fitness':   'HEALTH_AND_FITNESS',
+  'health and fitness': 'HEALTH_AND_FITNESS',
+  'food & drink':       'FOOD_AND_DRINK',
+  'food and drink':     'FOOD_AND_DRINK',
+  'travel & local':     'TRAVEL_AND_LOCAL',
+  'travel and local':   'TRAVEL_AND_LOCAL',
+  'news & magazines':   'NEWS_AND_MAGAZINES',
+  'maps & navigation':  'MAPS_AND_NAVIGATION',
+  'music & audio':      'MUSIC_AND_AUDIO',
+  'art & design':       'ART_AND_DESIGN',
+  'books & reference':  'BOOKS_AND_REFERENCE',
+  'auto & vehicles':    'AUTO_AND_VEHICLES',
+  'business':           'BUSINESS',
+  'education':          'EDUCATION',
+  'finance':            'FINANCE',
+  'productivity':       'PRODUCTIVITY',
+  'tools':              'TOOLS',
+  'utilities':          'TOOLS',
+  'lifestyle':          'LIFESTYLE',
+  'shopping':           'SHOPPING',
+  'social':             'SOCIAL',
+  'social networking':  'SOCIAL',
+  'entertainment':      'ENTERTAINMENT',
+  'sports':             'SPORTS',
+  'medical':            'MEDICAL',
+  'communication':      'COMMUNICATION',
+  'photography':        'PHOTOGRAPHY',
+  'dating':             'DATING',
+  'games':              'GAME',
+  'game':               'GAME',
+  'weather':            'WEATHER',
+  'parenting':          'PARENTING',
+};
+
+function mapToPlayCategory(category: string): string {
+  return PLAY_CATEGORY_MAP[category.toLowerCase().trim()] ?? 'APPLICATION';
+}
+
+/**
+ * Finds the top 5 competitor apps in the same category using store-native APIs.
+ * App Store: app-store-scraper keyword search (iTunes Search API — no auth required).
+ * Play Store: google-play-scraper category list (TOP_FREE) — avoids bot-detection
+ *   that blocks Play Store keyword search from server environments.
+ * @param category - App category string from scraped metadata
  * @param platform - 'app_store' | 'play_store'
- * @returns        Array of up to 5 competitor apps
- * @throws         {Error} If the search fetch fails
- * @security       Category string is URL-encoded before use in fetch calls.
+ * @returns        Up to 5 competitor apps; empty array on any failure
+ * @security       Category string never executed as code or shell command.
  */
 export async function scrapeCompetitors(
   category: string,
   platform: 'app_store' | 'play_store'
 ): Promise<CompetitorApp[]> {
-  const encoded = encodeURIComponent(category);
 
   if (platform === 'app_store') {
-    const searchUrl = `https://itunes.apple.com/search?term=${encoded}&entity=software&limit=6`;
-    const resp = await fetch(searchUrl, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) return [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const asScraper = (await import('app-store-scraper')) as any;
+    const search: (opts: Record<string, unknown>) => Promise<Array<{
+      title: string; developer: string; score: number; free: boolean; url: string;
+    }>> = asScraper.search ?? asScraper.default?.search;
 
-    const data = await resp.json() as {
-      results: Array<{
-        trackName: string;
-        artistName: string;
-        averageUserRating: number;
-        primaryGenreName: string;
-        formattedPrice: string;
-        trackViewUrl: string;
-      }>;
-    };
-
-    return (data.results ?? []).slice(0, 5).map((r) => ({
-      name: r.trackName,
-      developer: r.artistName,
-      rating: r.averageUserRating ?? 0,
-      category: r.primaryGenreName,
-      priceTier: r.formattedPrice === 'Free' ? 'free' : 'paid',
-      platform: 'app_store' as const,
-      storeUrl: r.trackViewUrl,
+    const results = await search({ term: category, num: 6, country: 'us' });
+    return (results ?? []).slice(0, 5).map((r) => ({
+      name:      r.title,
+      developer: r.developer,
+      rating:    r.score ?? 0,
+      category,
+      priceTier: r.free ? 'free' : 'paid',
+      platform:  'app_store' as const,
+      storeUrl:  r.url,
     }));
   }
 
-  const searchUrl = `https://play.google.com/store/search?q=${encoded}&c=apps`;
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
+  // Play Store: browse TOP_FREE by category — reliable on server, no bot detection
+  const gp = (await import('google-play-scraper')).default;
+  const gpCategory = mapToPlayCategory(category);
 
-  try {
-    const page = await browser.newPage();
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+  const results = await (gp.list as (opts: Record<string, unknown>) => Promise<Array<{
+    title: string; developer: string; score: number; free: boolean; url: string;
+  }>>)({
+    category:   gpCategory,
+    collection: gp.collection.TOP_FREE,
+    num:        6,
+    throttle:   5,
+  });
 
-    const results: CompetitorApp[] = [];
-    const cards = await page.locator('div[role="listitem"]').all();
+  return (results ?? []).slice(0, 5).map((r) => ({
+    name:      r.title,
+    developer: r.developer,
+    rating:    r.score ?? 0,
+    category,
+    priceTier: r.free ? 'free' : 'paid',
+    platform:  'play_store' as const,
+    storeUrl:  r.url,
+  }));
+}
 
-    for (const card of cards.slice(0, 5)) {
-      const name = await card.locator('div[class*="nnK0zc"]').textContent().catch(() => null);
-      const developer = await card.locator('div[class*="b8cIId"]').textContent().catch(() => '');
-      const ratingText = await card.locator('span[class*="w2kbF"]').textContent().catch(() => '0');
-      const href = await card.locator('a').first().getAttribute('href').catch(() => null);
+/**
+ * Discovers web-based competitors via Google Custom Search API.
+ * Gap 1 placeholder — requires GOOGLE_CUSTOM_SEARCH_API_KEY +
+ * GOOGLE_CUSTOM_SEARCH_ENGINE_ID in environment before enabling.
+ * @param appName  - Name of the founder's app (search seed term)
+ * @param category - App category for query refinement
+ * @returns        Up to 5 competitor website entries; empty array until API key is provisioned
+ */
+export async function discoverWebCompetitors(
+  appName: string,
+  category: string
+): Promise<CompetitorApp[]> {
+  const apiKey = process.env.GOOGLE_CUSTOM_SEARCH_API_KEY;
+  const engineId = process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID;
 
-      if (name) {
-        results.push({
-          name: name.trim(),
-          developer: developer?.trim() ?? '',
-          rating: parseFloat(ratingText ?? '0') || 0,
-          category,
-          priceTier: 'free',
-          platform: 'play_store',
-          storeUrl: href ? `https://play.google.com${href}` : undefined,
-        });
-      }
-    }
-
-    return results;
-  } finally {
-    await browser.close();
+  if (!apiKey || !engineId) {
+    // Gap 1: not yet provisioned — return empty, competitors page still works with store results
+    return [];
   }
+
+  // TODO (Gap 1 — prod): call Google Custom Search API, parse results, return CompetitorApp[]
+  // Endpoint: https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${engineId}&q=${appName}+${category}+app
+  void appName; void category;
+  return [];
 }

@@ -49,6 +49,7 @@ import { foundersRoutes } from './routes/founders.route';
 import { InsufficientTokensError } from './types/errors';
 import { checkAnomaly, extractFounderIdFromHeader } from './middleware/auth.middleware';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
+import { startIntakeWorker } from './workers/intakeWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
 
 /**
@@ -173,8 +174,9 @@ async function start(): Promise<void> {
   try {
     await server.listen({ port, host: '0.0.0.0' });
 
-    // Start BullMQ worker and register weekly cron (only in production process)
+    // Start BullMQ workers and register weekly cron (only in production process)
     startBriefWorker();
+    startIntakeWorker();
     await scheduleWeeklyBrief();
   } catch (err) {
     Sentry.captureException(err);

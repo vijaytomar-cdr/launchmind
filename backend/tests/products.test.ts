@@ -59,6 +59,13 @@ vi.mock('../src/services/reviewAnalysis', () => ({
 
 vi.mock('../src/services/icpService', () => ({
   buildICPBrief: vi.fn(() => mockICP),
+  scrapeWebsite: vi.fn(async () => ({
+    title: 'Angi - Hire Home Services',
+    description: 'Find local pros for home repair and improvement.',
+    keywords: ['home services', 'contractors'],
+    ogImage: undefined,
+  })),
+  analyseScreenshots: vi.fn(async () => ({ insights: [] })),
 }));
 
 vi.mock('../src/lib/tokens', () => ({
@@ -74,6 +81,12 @@ const mockFrom = vi.fn();
 vi.mock('../src/lib/supabaseAdmin', () => ({
   getSupabaseAdmin: () => ({
     from: mockFrom,
+    auth: {
+      getUser: vi.fn(async () => ({
+        data: { user: { id: 'f1000000-0000-0000-0000-000000000001', email: 'test@example.com' } },
+        error: null,
+      })),
+    },
   }),
 }));
 
@@ -271,6 +284,55 @@ describe('Products routes', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ id: PRODUCT_ID });
+    });
+  });
+
+  describe('POST /products/competitor/website', () => {
+    it('returns 401 without token', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/products/competitor/website',
+        payload: { url: 'https://angi.com' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('returns 400 for a store URL', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/products/competitor/website',
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: { url: 'https://play.google.com/store/apps/details?id=com.test.app' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ error: expect.stringContaining('/products/scrape') });
+    });
+
+    it('returns 400 for a non-HTTPS URL', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/products/competitor/website',
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: { url: 'http://angi.com' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns scraped competitor data for a valid website URL', async () => {
+      const { detectPlatform } = await import('../src/workers/scraperWorker');
+      vi.mocked(detectPlatform).mockReturnValueOnce(null);
+
+      const res = await server.inject({
+        method: 'POST',
+        url: '/products/competitor/website',
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: { url: 'https://angi.com' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{ scraped: { name: string; developer: string; platform: string } }>();
+      expect(body.scraped.name).toBe('Angi - Hire Home Services');
+      expect(body.scraped.developer).toBe('angi.com');
+      expect(body.scraped.platform).toBe('website');
     });
   });
 

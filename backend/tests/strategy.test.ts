@@ -74,7 +74,17 @@ vi.mock('../src/services/playbookService', () => ({
 vi.mock('../src/lib/tokens', () => ({ consumeTokens: vi.fn(async () => undefined) }));
 
 const mockFrom = vi.fn();
-vi.mock('../src/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ from: mockFrom }) }));
+vi.mock('../src/lib/supabaseAdmin', () => ({
+  getSupabaseAdmin: () => ({
+    from: mockFrom,
+    auth: {
+      getUser: vi.fn(async () => ({
+        data: { user: { id: 'f1000000-0000-0000-0000-000000000001', email: 'test@example.com' } },
+        error: null,
+      })),
+    },
+  }),
+}));
 
 vi.mock('../src/workers/scraperWorker', () => ({
   detectPlatform: vi.fn(() => null),
@@ -98,6 +108,7 @@ describe('Strategy routes', () => {
     mockFrom.mockReturnValue({
       select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { plan: 'solo' }, error: null }) }) }),
       insert: () => Promise.resolve({ data: {}, error: null }),
+      update: () => ({ eq: () => ({ lt: () => Promise.resolve({ data: null, error: null }) }) }),
     });
   });
 

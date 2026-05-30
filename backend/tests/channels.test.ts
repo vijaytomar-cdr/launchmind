@@ -35,7 +35,15 @@ vi.mock('../src/lib/tokenVault', () => ({
 
 const mockFrom = vi.fn();
 vi.mock('../src/lib/supabaseAdmin', () => ({
-  getSupabaseAdmin: () => ({ from: mockFrom }),
+  getSupabaseAdmin: () => ({
+    from: mockFrom,
+    auth: {
+      getUser: vi.fn(async () => ({
+        data: { user: { id: 'c1000000-0000-0000-0000-000000000001', email: 'test@example.com' } },
+        error: null,
+      })),
+    },
+  }),
 }));
 
 // ── Mock other services (required by server.ts imports) ───────────────────────

@@ -151,7 +151,15 @@ const mockSelect = vi.fn().mockReturnValue({ eq: mockEq, single: mockSingle });
 const mockFrom = vi.fn().mockReturnValue({ select: mockSelect, eq: mockEq, single: mockSingle });
 
 vi.mock('../src/lib/supabaseAdmin', () => ({
-  getSupabaseAdmin: () => ({ from: mockFrom }),
+  getSupabaseAdmin: () => ({
+    from: mockFrom,
+    auth: {
+      getUser: vi.fn(async () => ({
+        data: { user: { id: 'ba100000-0000-0000-0000-000000000001', email: 'test@example.com' } },
+        error: null,
+      })),
+    },
+  }),
 }));
 
 import { buildServer } from '../src/server';

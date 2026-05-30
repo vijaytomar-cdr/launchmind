@@ -17,7 +17,7 @@ import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { detectPlatform, scrapeAppStore, scrapePlayStore, scrapeCompetitors } from '../workers/scraperWorker';
 import { analyseReviews } from '../services/reviewAnalysis';
-import { buildICPBrief } from '../services/icpService';
+import { buildICPBrief, analyseScreenshots, scrapeWebsite } from '../services/icpService';
 import { generateStrategy, generateContentAssets, getProductStrategy } from '../services/strategyService';
 import { AssetsRequestSchema } from '../types/strategy';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
@@ -25,13 +25,17 @@ import { consumeTokens } from '../lib/tokens';
 import { getProductMetrics } from '../services/metricsService';
 import { previewBrandVoice } from '../services/brandVoiceService';
 import { InsufficientTokensError } from '../types/errors';
+import { enqueueScrapeJob, getScrapeJob } from '../lib/scraperQueue';
 import {
   ScrapedAppDataSchema,
   ICPBriefSchema,
   CompetitorAppSchema,
   ConfirmProductBodySchema,
+  FounderContextSchema,
+  IntakeScrapeBodySchema,
 } from '../types/scraper';
 
+// Kept for backward-compatible single-URL scrape (sync path)
 const ScrapeBodySchema = z.object({
   url: z.string().url(),
 });
@@ -107,30 +111,112 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
   /**
    * POST /products/scrape
-   * Scrapes a store URL and returns metadata + ICP brief. Does NOT save to DB.
-   * Returns within 30 seconds or times out with 504.
+   * Two paths:
+   *   Legacy (url field only): sync scrape → returns { scraped, icpBrief, competitors }.
+   *   Multi-URL (appStoreUrl / playStoreUrl / websiteUrl): creates product row, queues BullMQ job
+   *     → returns { productId, jobId, status: 'queued' }. Poll GET /products/scrape/:jobId.
+   * @security founderId extracted from JWT. No DB save on legacy path.
    */
-  server.post<{ Body: { url: string } }>(
+  server.post<{ Body: Record<string, unknown> }>(
     '/products/scrape',
-    {
-      schema: {
-        body: {
-          type: 'object',
-          required: ['url'],
-          properties: { url: { type: 'string', format: 'uri' } },
-        },
-      },
-    },
     async (request, reply) => {
       const founderId = getFounderId(request);
+      const body = request.body as Record<string, unknown>;
 
-      const { url } = ScrapeBodySchema.parse(request.body);
+      // ── Multi-URL async path ────────────────────────────────────────────────
+      // Catch all multi-URL variants including legacy storeUrl field and websiteUrl-only
+      const hasMultiUrl = body.appStoreUrl || body.playStoreUrl || body.storeUrl || body.websiteUrl;
+      if (hasMultiUrl) {
+        const parsed = IntakeScrapeBodySchema.safeParse(body);
+        if (!parsed.success) {
+          // Distinguish between format errors (400) and missing-store-URL refine failures (422)
+          const isRefineError = parsed.error.errors.every((e) => e.code === 'custom');
+          const status = isRefineError ? 422 : 400;
+          return reply.status(status).send({ error: parsed.error.errors[0]?.message ?? 'At least one app store URL is required' });
+        }
+
+        // Map legacy storeUrl to the right platform field
+        const appStoreUrl  = parsed.data.appStoreUrl;
+        const playStoreUrl = parsed.data.playStoreUrl ?? (parsed.data.storeUrl?.includes('play.google') ? parsed.data.storeUrl : undefined);
+        const appStoreResolved = appStoreUrl ?? (parsed.data.storeUrl?.includes('apps.apple') ? parsed.data.storeUrl : undefined);
+        const websiteUrl   = parsed.data.websiteUrl;
+        const storeUrl     = appStoreResolved ?? playStoreUrl ?? '';
+        const platform = detectPlatform(storeUrl);
+
+        if (!platform) {
+          return reply.status(422).send({ error: 'appStoreUrl or playStoreUrl must be a valid store URL' });
+        }
+
+        // Plan limit check — run both queries in parallel
+        const [{ data: founder }, { count: productCount }] = await Promise.all([
+          getSupabaseAdmin().from('founders').select('plan').eq('id', founderId).single(),
+          getSupabaseAdmin().from('products').select('id', { count: 'exact', head: true }).eq('founder_id', founderId),
+        ]);
+
+        const limit = PLAN_PRODUCT_LIMITS[founder?.plan ?? 'free'] ?? 1;
+        if ((productCount ?? 0) >= limit) {
+          return reply.status(422).send({
+            error: `Your ${founder?.plan ?? 'free'} plan allows ${limit} product${limit === 1 ? '' : 's'}. Upgrade to add more.`,
+            code: 'PLAN_LIMIT_REACHED',
+          });
+        }
+
+        // Create a product placeholder row (worker fills in name, scraped_meta, etc.)
+        const { data: product, error: insertError } = await getSupabaseAdmin()
+          .from('products')
+          .insert({
+            founder_id: founderId,
+            name: 'Untitled Product',
+            store_url: storeUrl,
+            platform,
+            app_store_url: appStoreUrl ?? null,
+            play_store_url: playStoreUrl ?? null,
+            website_url: websiteUrl ?? null,
+            intake_step: 1,
+          })
+          .select('id')
+          .single();
+
+        if (insertError || !product) {
+          Sentry.captureException(insertError, { tags: { route: 'POST /products/scrape async' } });
+          return reply.status(500).send({ error: 'Failed to create product slot' });
+        }
+
+        const jobId = await enqueueScrapeJob({
+          productId: product.id,
+          founderId,
+          appStoreUrl,
+          playStoreUrl,
+          websiteUrl,
+        });
+
+        // Audit log is non-critical — fire and forget so it doesn't delay the 202
+        void (async () => {
+          try {
+            await getSupabaseAdmin().from('audit_logs').insert({
+              founder_id: founderId,
+              action: 'product_scrape_queued',
+              resource_type: 'product',
+              resource_id: product.id,
+              metadata: { platform, appStoreUrl, playStoreUrl, websiteUrl, jobId },
+            });
+          } catch { /* non-critical */ }
+        })();
+
+        return reply.status(202).send({ productId: product.id, jobId, status: 'queued' });
+      }
+
+      // ── Legacy single-URL sync path (backward compat) ──────────────────────
+      const legacyParsed = ScrapeBodySchema.safeParse(body);
+      if (!legacyParsed.success) {
+        return reply.status(400).send({ error: 'url is required and must be a valid URL' });
+      }
+
+      const { url } = legacyParsed.data;
       const platform = detectPlatform(url);
 
       if (!platform) {
-        return reply.status(422).send({
-          error: 'URL must be an App Store or Play Store URL',
-        });
+        return reply.status(422).send({ error: 'URL must be an App Store or Play Store URL' });
       }
 
       const scrapeWithTimeout = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -149,7 +235,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
         const [reviewAnalysis, competitors] = await Promise.all([
           analyseReviews(scraped.reviews, founderId),
-          scrapeCompetitors(scraped.category, platform).catch(() => []), // non-fatal
+          scrapeCompetitors(scraped.category, platform).catch(() => []),
         ]);
 
         const icpBrief = buildICPBrief(scraped, reviewAnalysis);
@@ -173,6 +259,251 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
   );
 
   /**
+   * POST /products/competitor/website
+   * Scrapes open-graph + meta tags from a competitor's website URL.
+   * Used when a competitor has no app store presence — returns name from <title>,
+   * developer from domain, rating=0. Store URLs must use POST /products/scrape.
+   * @security HTTPS only. Blocks private/loopback addresses. founderId from JWT.
+   */
+  server.post<{ Body: { url: string } }>(
+    '/products/competitor/website',
+    async (request, reply) => {
+      const BodySchema = z.object({
+        url: z.string().url().refine(
+          (u) => {
+            try {
+              const p = new URL(u);
+              return (
+                p.protocol === 'https:' &&
+                !p.hostname.includes('localhost') &&
+                !/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(p.hostname)
+              );
+            } catch { return false; }
+          },
+          { message: 'URL must be a public HTTPS address' }
+        ),
+      });
+
+      const parsed = BodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.errors[0]?.message ?? 'Invalid URL' });
+      }
+
+      const { url } = parsed.data;
+
+      if (detectPlatform(url)) {
+        return reply.status(400).send({ error: 'Use POST /products/scrape for App Store or Play Store URLs' });
+      }
+
+      try {
+        const meta = await scrapeWebsite(url);
+        const domain = new URL(url).hostname.replace(/^www\./, '');
+        return reply.send({
+          scraped: {
+            name:        meta.title || domain,
+            developer:   domain,
+            rating:      0,
+            ratingCount: 0,
+            priceTier:   '',
+            description: meta.description || '',
+            category:    '',
+            screenshots: [],
+            platform:    'website',
+            storeUrl:    url,
+          },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to fetch website';
+        Sentry.captureException(err, { tags: { route: 'POST /products/competitor/website' } });
+        return reply.status(422).send({ error: msg });
+      }
+    }
+  );
+
+  /**
+   * GET /products/scrape/:jobId
+   * Polls a BullMQ scrape job queued by POST /products/scrape (multi-URL path).
+   * Returns { status, progress?, result? } — frontend polls until status='completed'|'failed'.
+   * @security founderId from JWT. Job data includes founderId for cross-check.
+   */
+  server.get<{ Params: { jobId: string } }>(
+    '/products/scrape/:jobId',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { jobId } = request.params;
+
+      try {
+        const job = await getScrapeJob(jobId);
+        if (!job) {
+          return reply.status(404).send({ error: 'Job not found' });
+        }
+
+        // Verify this job belongs to the requesting founder
+        if (job.data.founderId !== founderId) {
+          return reply.status(404).send({ error: 'Job not found' });
+        }
+
+        const state = await job.getState();
+        const progress = typeof job.progress === 'number' ? job.progress : 0;
+
+        if (state === 'completed') {
+          return reply.send({
+            status: 'completed',
+            progress: 100,
+            productId: job.data.productId,
+            result: job.returnvalue,
+          });
+        }
+
+        if (state === 'failed') {
+          return reply.send({
+            status: 'failed',
+            progress,
+            productId: job.data.productId,
+            error: job.failedReason ?? 'Scrape failed — please retry',
+          });
+        }
+
+        return reply.send({
+          status: state === 'active' ? 'active' : 'waiting',
+          progress,
+          productId: job.data.productId,
+        });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'GET /products/scrape/:jobId' } });
+        return reply.status(500).send({ error: 'Failed to fetch job status' });
+      }
+    }
+  );
+
+  /**
+   * POST /products/intake/context
+   * Saves the founder's context answers to a product's founder_context JSONB column.
+   * Advances intake_step to at least 3.
+   * @security founderId verified against product.founder_id before update.
+   */
+  server.post<{ Body: { productId: string; founderContext: Record<string, unknown> } }>(
+    '/products/intake/context',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+
+      const BodySchema = z.object({
+        productId: z.string().uuid(),
+        founderContext: FounderContextSchema,
+      });
+
+      const parsed = BodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid request body', detail: parsed.error.message });
+      }
+
+      const { productId, founderContext } = parsed.data;
+
+      // Verify ownership and fetch existing context for merge
+      const { data: existing } = await getSupabaseAdmin()
+        .from('products')
+        .select('id, intake_step, founder_context')
+        .eq('id', productId)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+
+      // Merge incoming fields into existing context (partial saves preserve prior answers)
+      const mergedContext = { ...(existing.founder_context ?? {}), ...founderContext };
+      const nextStep = Math.max(existing.intake_step ?? 0, 3);
+
+      const { data: updated, error } = await getSupabaseAdmin()
+        .from('products')
+        .update({
+          founder_context: mergedContext,
+          intake_step: nextStep,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', productId)
+        .eq('founder_id', founderId)
+        .select('id, intake_step, founder_context')
+        .single();
+
+      if (error || !updated) {
+        Sentry.captureException(error, { tags: { route: 'POST /products/intake/context' } });
+        return reply.status(500).send({ error: 'Failed to save founder context' });
+      }
+
+      return reply.send(updated);
+    }
+  );
+
+  /**
+   * POST /products/intake/screenshots
+   * Analyses app screenshots using Claude Haiku vision (5 tokens) and saves the result.
+   * Accepts public screenshot URLs or base64 data URIs.
+   * Advances intake_step to at least 4.
+   * @security founderId verified. Screenshots passed to Claude only — never stored raw.
+   */
+  server.post<{ Body: { productId: string; screenshots: string[] } }>(
+    '/products/intake/screenshots',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+
+      const BodySchema = z.object({
+        productId: z.string().uuid(),
+        screenshots: z.array(z.string().min(1)).min(1).max(10),
+      });
+
+      const parsed = BodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid request body', detail: parsed.error.message });
+      }
+
+      const { productId, screenshots } = parsed.data;
+
+      // Verify ownership
+      const { data: existing } = await getSupabaseAdmin()
+        .from('products')
+        .select('id, intake_step')
+        .eq('id', productId)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+
+      await consumeTokens(founderId, 'scoring', 5);
+
+      try {
+        const analysis = await analyseScreenshots(screenshots, founderId);
+        const nextStep = Math.max(existing.intake_step ?? 0, 4);
+
+        const { data: updated, error } = await getSupabaseAdmin()
+          .from('products')
+          .update({
+            screenshot_analysis: analysis,
+            intake_step: nextStep,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', productId)
+          .eq('founder_id', founderId)
+          .select('id, intake_step, screenshot_analysis')
+          .single();
+
+        if (error || !updated) {
+          Sentry.captureException(error, { tags: { route: 'POST /products/intake/screenshots' } });
+          return reply.status(500).send({ error: 'Failed to save screenshot analysis' });
+        }
+
+        return reply.send(updated);
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /products/intake/screenshots' } });
+        return reply.status(500).send({ error: 'Screenshot analysis failed' });
+      }
+    }
+  );
+
+  /**
    * POST /products/confirm
    * Validates and saves the ICP brief to the DB. Enforces plan product limits.
    * Returns 422 if the founder is at their plan limit.
@@ -188,6 +519,66 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         body = ConfirmProductBodySchema.parse(request.body);
       } catch (err) {
         return reply.status(400).send({ error: 'Invalid request body', detail: String(err) });
+      }
+
+      // ── v2 async path: UPDATE an existing product ──────────────────────────
+      if (body.productId) {
+        const { data: existing } = await supabase
+          .from('products')
+          .select('id')
+          .eq('id', body.productId)
+          .eq('founder_id', founderId)
+          .single();
+
+        if (!existing) {
+          return reply.status(404).send({ error: 'Product not found' });
+        }
+
+        await consumeTokens(founderId, 'icp_structuring', 10);
+
+        const { data: product, error: updateError } = await supabase
+          .from('products')
+          .update({
+            confirmed_icp: body.icpBrief,
+            competitor_set: body.competitors.length ? body.competitors : undefined,
+            markets: body.selectedMarkets ?? body.icpBrief.suggestedMarkets,
+            selected_markets: body.selectedMarkets ?? null,
+            primary_channel: body.primaryChannel ?? null,
+            excluded_channels: body.excludedChannels ?? null,
+            intake_step: 6,
+            intake_completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', body.productId)
+          .eq('founder_id', founderId)
+          .select()
+          .single();
+
+        if (updateError || !product) {
+          Sentry.captureException(updateError, { tags: { route: 'POST /products/confirm v2' } });
+          return reply.status(500).send({ error: 'Failed to update product' });
+        }
+
+        await getSupabaseAdmin().from('audit_logs').insert({
+          founder_id: founderId,
+          action: 'product_confirmed',
+          resource_type: 'product',
+          resource_id: product.id,
+          metadata: { name: product.name, platform: product.platform },
+        });
+
+        await getSupabaseAdmin()
+          .from('founders')
+          .update({ onboarding_step: 1, updated_at: new Date().toISOString() })
+          .eq('id', founderId)
+          .lt('onboarding_step', 1);
+
+        return reply.status(200).send(product);
+      }
+
+      // ── Legacy path: INSERT a new product ─────────────────────────────────
+      if (!body.url || !body.platform || !body.scraped) {
+        return reply.status(400).send({ error: 'url, platform, and scraped are required when productId is not provided' });
       }
 
       const { data: founder, error: founderError } = await supabase
@@ -223,12 +614,17 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
           store_url: body.url,
           platform: body.platform,
           category: body.scraped.category,
-          markets: body.icpBrief.suggestedMarkets,
+          markets: body.selectedMarkets ?? body.icpBrief.suggestedMarkets,
           price_tier: body.scraped.priceTier,
           confirmed_icp: body.icpBrief,
           competitor_set: body.competitors,
           scraped_meta: body.scraped,
           last_scraped_at: new Date().toISOString(),
+          selected_markets: body.selectedMarkets ?? null,
+          primary_channel: body.primaryChannel ?? null,
+          excluded_channels: body.excludedChannels ?? null,
+          intake_step: 6,
+          intake_completed_at: new Date().toISOString(),
         })
         .select()
         .single();
@@ -246,7 +642,6 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         metadata: { name: product.name, platform: product.platform },
       });
 
-      // Advance onboarding step to 1 (icp_confirmed) if not already further along
       await getSupabaseAdmin()
         .from('founders')
         .update({ onboarding_step: 1, updated_at: new Date().toISOString() })

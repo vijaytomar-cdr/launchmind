@@ -16,6 +16,7 @@ import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
 import { buildPlaybookContext } from './playbookService';
+import { buildStrategyContext } from './icpService';
 import {
   StrategySchema,
   ContentAssetsSchema,
@@ -43,7 +44,8 @@ function buildStrategyPrompt(
   appName: string,
   category: string,
   icp: ICPBrief,
-  playbookContext: string
+  playbookContext: string,
+  founderContext = ''
 ): string {
   return `Generate a 30/60/90-day marketing strategy for this app:
 
@@ -54,7 +56,7 @@ Pain points: ${icp.painPoints.join(', ')}
 Competitor gaps: ${icp.competitorGaps.join(', ')}
 Suggested markets: ${icp.suggestedMarkets.join(', ')}
 Price tier: ${icp.priceTier}
-
+${founderContext}
 ${playbookContext}
 
 Return JSON matching EXACTLY this schema:
@@ -109,6 +111,8 @@ export async function generateStrategy(
 
   await consumeTokens(founderId, 'strategy_generation', 50);
 
+  const founderContext = buildStrategyContext(product);
+
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
@@ -116,7 +120,13 @@ export async function generateStrategy(
     messages: [
       {
         role: 'user',
-        content: buildStrategyPrompt(product.name, product.category ?? 'Productivity', icp, playbookContext),
+        content: buildStrategyPrompt(
+          product.name,
+          product.category ?? 'Productivity',
+          icp,
+          playbookContext,
+          founderContext
+        ),
       },
     ],
   });
