@@ -138,8 +138,16 @@ export const api = {
       request<Product>(`/products/${id}`, { token }),
     metrics: (id: string, token: string, weekCount = 8) =>
       request<ProductMetrics>(`/products/${id}/metrics?weekCount=${weekCount}`, { token }),
+    getStrategy: (id: string, token: string) =>
+      request<Record<string, unknown>>(`/products/${id}/strategy`, { token }),
     generateStrategy: (id: string, token: string) =>
-      request<Record<string, unknown>>(`/products/${id}/strategy`, { method: 'POST', token }),
+      request<Record<string, unknown>>(`/products/${id}/strategy`, { method: 'POST', body: '{}', token }),
+    generateAssets: (id: string, channel: string, market: string, token: string) =>
+      request<Record<string, unknown>>(`/products/${id}/strategy/assets`, {
+        method: 'POST',
+        body: JSON.stringify({ channel, market }),
+        token,
+      }),
   },
 
   channels: {
@@ -199,6 +207,7 @@ export const api = {
     cancel: (token: string) =>
       request<{ message: string }>('/billing/cancel', {
         method: 'POST',
+        body: '{}',
         token,
       }),
     topup: (data: TokenTopupBody, token: string) =>
@@ -228,7 +237,7 @@ export const api = {
       request<{ products: Product[] }>(`/workspaces/${id}/products`, { token }),
     assignProduct: (workspaceId: string, productId: string, token: string) =>
       request<{ assigned: boolean }>(`/workspaces/${workspaceId}/products/${productId}`, {
-        method: 'POST', token,
+        method: 'POST', body: '{}', token,
       }),
   },
 
@@ -257,7 +266,7 @@ export const api = {
         method: 'PATCH', body: JSON.stringify(data), token,
       }),
     revokeSessions: (token: string) =>
-      request<{ revoked: boolean }>('/auth/revoke-sessions', { method: 'POST', token }),
+      request<{ revoked: boolean }>('/auth/revoke-sessions', { method: 'POST', body: '{}', token }),
     tokenUsage: (token: string) =>
       request<TokenUsage>('/founders/me/token-usage', { token }),
   },
@@ -267,6 +276,56 @@ export const api = {
       request<BrandVoicePreview>(`/products/${productId}/brand-voice/preview`, {
         method: 'POST', body: JSON.stringify({ copy }), token,
       }),
+  },
+
+  contentAssets: {
+    list: (
+      productId: string,
+      token: string,
+      params?: { status?: string; channel?: string; limit?: number; offset?: number }
+    ) => {
+      const qs = params ? '?' + new URLSearchParams(Object.fromEntries(
+        Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])
+      )).toString() : '';
+      return request<{ assets: import('./types/content').ContentAsset[]; total: number }>(
+        `/products/${productId}/content-assets${qs}`,
+        { token }
+      );
+    },
+    approve: (id: string, token: string) =>
+      request<{ asset: { id: string; status: string } }>(`/content-assets/${id}/approve`, { method: 'POST', body: '{}', token }),
+    hold: (id: string, token: string) =>
+      request<{ asset: { id: string; status: string } }>(`/content-assets/${id}/hold`, { method: 'POST', body: '{}', token }),
+    approveAll: (productId: string, token: string) =>
+      request<{ approved: number }>(`/products/${productId}/content-assets/approve-all`, { method: 'POST', body: '{}', token }),
+    regenerate: (id: string, token: string, reason: string, additionalNote?: string) =>
+      request<{ message: string }>(`/content-assets/${id}/regenerate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason, additionalNote }),
+        token,
+      }),
+    generate: (productId: string, token: string) =>
+      request<{ message: string }>(`/products/${productId}/content`, { method: 'POST', body: '{}', token }),
+  },
+
+  settings: {
+    updateContentPreferences: (
+      productId: string,
+      preferences: import('./types/content').ContentPreferences,
+      token: string
+    ) =>
+      request<{ preferences: import('./types/content').ContentPreferences }>(
+        '/settings/content-preferences',
+        { method: 'POST', body: JSON.stringify({ productId, preferences }), token }
+      ),
+    uploadVoiceClone: (audioBase64: string, token: string) =>
+      request<{ voiceCloneId: string }>('/settings/voice-clone', {
+        method: 'POST',
+        body: JSON.stringify({ audioBase64 }),
+        token,
+      }),
+    deleteVoiceClone: (token: string) =>
+      request<void>('/settings/voice-clone', { method: 'DELETE', token }),
   },
 };
 

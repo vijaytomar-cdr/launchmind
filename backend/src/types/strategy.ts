@@ -42,31 +42,31 @@ export const StrategySchema = z.object({
 });
 
 export const WhatsAppTemplateSchema = z.object({
-  hookType: HookTypeSchema,
-  headline: z.string().max(60),
-  body: z.string().max(200),
-  cta: z.string().max(20),
+  hookType: HookTypeSchema.catch('pain_first'),
+  headline: z.string().transform((s) => s.slice(0, 80)),
+  body: z.string().transform((s) => s.slice(0, 300)),
+  cta: z.string().transform((s) => s.slice(0, 30)),
 });
 
 export const AppStoreListingSchema = z.object({
-  title: z.string().max(30),
-  subtitle: z.string().max(30),
-  description: z.string().max(4000),
+  title: z.string().transform((s) => s.slice(0, 30)),
+  subtitle: z.string().transform((s) => s.slice(0, 30)),
+  description: z.string(),
   keywords: z.array(z.string()),
 });
 
 export const EmailSequenceItemSchema = z.object({
   day: z.number(),
   subject: z.string(),
-  preview: z.string(),
+  preview: z.string().optional().default(''),
   body: z.string(),
 });
 
 export const MetaAdVariantSchema = z.object({
   headline: z.string(),
-  bodyText: z.string(),
-  cta: z.string(),
-});
+  bodyText: z.string().optional().default(''),
+  cta: z.string().optional().default(''),
+}).passthrough();
 
 export const ContentAssetsSchema = z.object({
   channel: ChannelSchema,

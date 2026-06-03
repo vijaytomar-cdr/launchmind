@@ -26,8 +26,6 @@ import {
 } from '../types/strategy';
 import type { ICPBrief } from '../types/scraper';
 
-const client = new Anthropic();
-
 const CHANNELS: Channel[] = ['meta', 'google', 'whatsapp', 'linkedin', 'email'];
 
 // ── Strategy generation ───────────────────────────────────────────────────────
@@ -113,7 +111,8 @@ export async function generateStrategy(
 
   const founderContext = buildStrategyContext(product);
 
-  const message = await client.messages.create({
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: STRATEGY_SYSTEM,
@@ -134,13 +133,19 @@ export async function generateStrategy(
   const content = message.content[0];
   if (content.type !== 'text') throw new Error('Claude returned non-text response');
 
+  // Strip markdown code fences if Claude wraps the JSON despite the system prompt
+  const rawText = content.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
   let strategy: Strategy;
   try {
-    const parsed = JSON.parse(content.text);
+    const parsed = JSON.parse(rawText);
     parsed.generatedAt = new Date().toISOString();
     strategy = StrategySchema.parse(parsed);
   } catch (err) {
-    Sentry.captureException(err, { tags: { service: 'strategyService', productId } });
+    Sentry.captureException(err, {
+      tags: { service: 'strategyService', productId },
+      extra: { rawResponse: rawText.slice(0, 500) },
+    });
     throw new Error('Strategy generation returned invalid JSON — please retry');
   }
 
@@ -180,6 +185,16 @@ export async function generateStrategy(
     resource_id: productId,
     metadata: { campaignDrafts: campaignInserts.length },
   });
+
+  // Kick off full content pipeline (fire-and-forget — does not block strategy response)
+  void (async () => {
+    try {
+      const { generateContentAssets: runContentPipeline } = await import('./contentService');
+      await runContentPipeline(productId, founderId, null);
+    } catch (err) {
+      Sentry.captureException(err, { tags: { service: 'strategyService', step: 'contentPipeline' } });
+    }
+  })();
 
   return strategy;
 }
@@ -285,7 +300,8 @@ export async function generateContentAssets(
 
   await consumeTokens(founderId, 'content_generation', 20);
 
-  const message = await client.messages.create({
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: ASSETS_SYSTEM,
@@ -300,16 +316,21 @@ export async function generateContentAssets(
   const msgContent = message.content[0];
   if (msgContent.type !== 'text') throw new Error('Claude returned non-text response');
 
+  // Strip markdown code fences if Claude wraps the JSON
+  const rawAssets = msgContent.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
   let assets: ContentAssets;
   try {
-    const parsed = JSON.parse(msgContent.text);
+    const parsed = JSON.parse(rawAssets);
     parsed.channel = channel;
     parsed.market = market;
     parsed.generatedAt = new Date().toISOString();
     assets = ContentAssetsSchema.parse(parsed);
   } catch (err) {
+    console.error('[strategyService] assets parse error:', (err as Error).message, '\nraw:', rawAssets.slice(0, 400));
     Sentry.captureException(err, {
       tags: { service: 'strategyService', productId, channel, market },
+      extra: { rawResponse: rawAssets.slice(0, 500) },
     });
     throw new Error('Content generation returned invalid JSON — please retry');
   }

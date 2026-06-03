@@ -4,6 +4,7 @@
  *   Weekly job: every Sunday at 17:00 UTC — fires for every active product.
  *   One-off job: triggerBriefNow() — admin endpoint or manual trigger.
  *   Retries: 3 attempts with exponential backoff (2s → 4s → 8s base).
+ *   videoQueue: separate queue for Creatomate video rendering jobs.
  * @security
  *   - Queue is internal only — no public endpoint writes directly to the queue.
  *   - Admin trigger endpoint verifies ADMIN_SECRET header before enqueuing.
@@ -15,6 +16,7 @@ import { Queue, JobsOptions } from 'bullmq';
 import IORedis from 'ioredis';
 
 export const BRIEF_QUEUE_NAME = 'weekly-brief';
+export const VIDEO_QUEUE_NAME = 'video-render';
 
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
@@ -37,7 +39,15 @@ export interface BriefJobData {
   triggeredBy: 'cron' | 'admin';
 }
 
+export interface VideoJobData {
+  assetId: string;
+  productId: string;
+  founderId: string;
+  renderId: string;
+}
+
 let _queue: Queue<BriefJobData> | null = null;
+let _videoQueue: Queue<VideoJobData> | null = null;
 let _connection: IORedis | null = null;
 
 function getRedisConnection(): IORedis {
@@ -60,6 +70,24 @@ export function getBriefQueue(): Queue<BriefJobData> {
   });
   return _queue;
 }
+
+/**
+ * Returns the singleton BullMQ queue for video rendering jobs.
+ * Lazy-initialised so tests can stub Redis before first call.
+ */
+export function getVideoQueue(): Queue<VideoJobData> {
+  if (_videoQueue) return _videoQueue;
+  _videoQueue = new Queue<VideoJobData>(VIDEO_QUEUE_NAME, {
+    connection: getRedisConnection(),
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  });
+  return _videoQueue;
+}
+
+/** Singleton accessor used by contentService for fire-and-forget video render jobs. */
+export const videoQueue = {
+  add: (name: string, data: VideoJobData) => getVideoQueue().add(name, data),
+};
 
 /**
  * Schedules the weekly repeating brief job for all active products.

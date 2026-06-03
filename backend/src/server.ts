@@ -8,12 +8,12 @@
  * @dependencies @sentry/node, @fastify/cors, jose, @fastify/rate-limit
  */
 
-// Load .env.dev from project root before anything else (local dev only — no-op in prod).
+// Load .env.local from project root before anything else (local dev only — no-op in prod).
 import { existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 const __dirname_compat = dirname(fileURLToPath(import.meta.url));
-const envPath = resolve(__dirname_compat, '..', '..', '.env.dev');
+const envPath = resolve(__dirname_compat, '..', '..', '.env.local');
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
     const trimmed = line.trim();
@@ -46,6 +46,8 @@ import { waitlistRoutes } from './routes/waitlist.route';
 import { workspacesRoutes } from './routes/workspaces.route';
 import { apiKeysRoutes } from './routes/apiKeys.route';
 import { foundersRoutes } from './routes/founders.route';
+import { contentAssetsRoutes } from './routes/contentAssets.route';
+import { settingsRoutes } from './routes/settings.route';
 import { InsufficientTokensError } from './types/errors';
 import { checkAnomaly, extractFounderIdFromHeader } from './middleware/auth.middleware';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
@@ -129,6 +131,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await server.register(workspacesRoutes);
   await server.register(apiKeysRoutes);
   await server.register(foundersRoutes);
+  await server.register(contentAssetsRoutes);
+  await server.register(settingsRoutes);
 
   // Anomaly detection — fires on every request with an Authorization header.
   // Decodes JWT payload (no re-verification) to extract founderId, then fires

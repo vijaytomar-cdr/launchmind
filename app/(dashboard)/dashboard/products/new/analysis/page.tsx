@@ -108,7 +108,10 @@ export default function AnalysisPage() {
 
     intervalRef.current = setInterval(async () => {
       try {
-        const result = await api.products.pollScrapeJob(jobId, token);
+        // Get a fresh token each poll cycle to handle auto-refreshed sessions
+        const { data: { session } } = await supabase.auth.getSession();
+        const pollToken = session?.access_token ?? token;
+        const result = await api.products.pollScrapeJob(jobId, pollToken);
         setStatus(result.status);
 
         if (result.status === 'completed' || result.status === 'complete') {

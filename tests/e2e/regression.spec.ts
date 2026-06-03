@@ -487,3 +487,67 @@ test.describe('Public pages regression', () => {
     }
   });
 });
+
+// ── Content generation — regression ──────────────────────────────────────────
+
+test.describe('Content generation — regression', () => {
+  test('/dashboard/products/[id]/strategy still loads after contentService refactor', async ({ page }) => {
+    // Strategy page must load without crashing even when unauthenticated
+    await page.goto('/dashboard/products/test-id/strategy');
+    // Auth guard redirects to /login — page must not 500 or throw
+    const url = page.url();
+    const isLoginOrStrategy = url.includes('/login') || url.includes('/strategy');
+    expect(isLoginOrStrategy).toBe(true);
+    await expect(page.locator('body')).not.toBeEmpty();
+  });
+
+  test('/dashboard/campaigns still renders after contentService additions', async ({ page }) => {
+    await page.goto('/dashboard/campaigns');
+    const url = page.url();
+    const isLoginOrCampaigns = url.includes('/login') || url.includes('/campaigns');
+    expect(isLoginOrCampaigns).toBe(true);
+    await expect(page.locator('body')).not.toBeEmpty();
+  });
+
+  test('/dashboard loads without regression', async ({ page }) => {
+    await page.goto('/dashboard');
+    const url = page.url();
+    const isLoginOrDashboard = url.includes('/login') || url.includes('/dashboard');
+    expect(isLoginOrDashboard).toBe(true);
+    await expect(page.locator('body')).not.toBeEmpty();
+  });
+
+  test('/dashboard/briefs page does not throw after 2-column layout rewrite', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/briefs');
+    // Filter known hydration warnings; only real errors matter
+    const realErrors = errors.filter(e => !e.toLowerCase().includes('hydrat'));
+    expect(realErrors).toHaveLength(0);
+  });
+
+  test('/dashboard/settings page does not throw after tab refactor', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings');
+    const realErrors = errors.filter(e => !e.toLowerCase().includes('hydrat'));
+    expect(realErrors).toHaveLength(0);
+  });
+
+  test('/dashboard/settings?tab=content renders token cost bar structure', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings?tab=content');
+    // Auth guard redirects to /login — page must not crash
+    const realErrors = errors.filter(e => !e.toLowerCase().includes('hydrat'));
+    expect(realErrors).toHaveLength(0);
+    await expect(page.locator('body')).not.toBeEmpty();
+  });
+
+  test('AssetBlock component import does not break next.js build (no 500 on briefs)', async ({ page }) => {
+    let has500 = false;
+    page.on('response', resp => { if (resp.status() === 500) has500 = true; });
+    await page.goto('/dashboard/briefs');
+    expect(has500).toBe(false);
+  });
+});

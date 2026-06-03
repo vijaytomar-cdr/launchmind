@@ -30,16 +30,12 @@ export default function CompetitorsPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [token, setToken]             = useState('');
   const [competitors, setCompetitors] = useState<CompetitorEntry[]>([]);
   const [addUrl, setAddUrl]       = useState('');
   const [adding, setAdding]       = useState(false);
   const [addError, setAddError]   = useState('');
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.access_token) setToken(data.session.access_token);
-    });
     const pid = sessionStorage.getItem(INTAKE_STORAGE.productId);
     if (!pid) { router.replace('/dashboard/products/new'); return; }
 
@@ -64,15 +60,20 @@ export default function CompetitorsPage() {
   }
 
   async function handleAddCompetitor() {
-    if (!addUrl.trim() || !token) return;
+    if (!addUrl.trim()) return;
     setAdding(true);
     setAddError('');
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const freshToken = session?.access_token;
+    if (!freshToken) { setAddError('Session expired — please refresh'); setAdding(false); return; }
+
     try {
       const trimmed = addUrl.trim();
       const isStoreUrl = trimmed.includes('play.google.com') || trimmed.includes('apps.apple.com');
       const result = isStoreUrl
-        ? await api.products.scrape(trimmed, token)
-        : await api.products.scrapeCompetitorWebsite(trimmed, token);
+        ? await api.products.scrape(trimmed, freshToken)
+        : await api.products.scrapeCompetitorWebsite(trimmed, freshToken);
 
       const newComp: CompetitorEntry = {
         name:      result.scraped.name,

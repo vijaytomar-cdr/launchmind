@@ -48,9 +48,13 @@ export default function NewProductPage() {
 
   async function handleContinue(e: React.FormEvent) {
     e.preventDefault();
-    if (!hasStoreUrl || !token) return;
+    if (!hasStoreUrl) return;
     setError('');
     setLoading(true);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const freshToken = session?.access_token;
+    if (!freshToken) { setError('Session expired — please refresh the page'); setLoading(false); return; }
 
     try {
       const result = await api.products.scrapeMulti(
@@ -59,7 +63,7 @@ export default function NewProductPage() {
           appStoreUrl:  appStoreUrl.trim()  || undefined,
           websiteUrl:   websiteUrl.trim()   || undefined,
         },
-        token
+        freshToken
       );
 
       sessionStorage.setItem(INTAKE_STORAGE.productId, result.productId);

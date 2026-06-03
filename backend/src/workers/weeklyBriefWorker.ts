@@ -297,6 +297,16 @@ async function runBriefPipeline(
   // Step 8: Upsert brief
   const briefId = await upsertWeeklyBrief(productId, founderId, weekOf, narrative, narrative.tokensConsumed);
 
+  // Step 8.5: Content pipeline (fire-and-forget — does not block brief delivery)
+  void (async () => {
+    try {
+      const { generateContentAssets } = await import('../services/contentService');
+      await generateContentAssets(productId, founderId, briefId);
+    } catch (err) {
+      Sentry.captureException(err, { tags: { step: 'generateContentAssets', productId } });
+    }
+  })();
+
   // Step 9: Send email (non-fatal)
   await sendBriefEmail(founderEmail, productName, briefId, weekOf, narrative);
 

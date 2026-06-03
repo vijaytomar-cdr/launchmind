@@ -321,7 +321,8 @@ CREATE POLICY "workspaces_owner" ON workspaces USING (founder_id = auth.uid());
 
 ### 4.1 Secrets
 - NEVER commit secrets to any file
-- `.env.local` is gitignored — never committed
+- `.env.local` is the **single env file** for all local dev (frontend + backend) — gitignored, never committed
+- `.env.dev` has been deleted — `.env.local` replaced it; `backend/src/server.ts` loads `.env.local`
 - `.env.example`: placeholder names only, never values
 - Secrets: Oracle Cloud VM env file (backend) · Vercel env vars (frontend) · GitHub Actions secrets (CI)
 - Pre-commit check: `git grep -rE "(key|secret|password|token)\s*=\s*['\"][^'\"]{8,}"`
@@ -497,10 +498,11 @@ Indigo/Accent:  bg-[--indigo-d] border-[--indigo-b] text-indigo
 ```
 
 ### 6.5 Icons
-Use `@tabler/icons-react`. Outline only — never filled variants.
-Key: `TbLayoutDashboard TbSearch TbRoute TbSpeakerphone TbFileAnalytics TbPlug TbCreditCard
-TbSettings TbCheck TbAlertCircle TbShieldCheck TbSparkles TbArrowRight TbBrandWhatsapp
-TbBrandFacebook TbBrandGoogle TbBrandLinkedin TbMail TbLock TbDownload`
+Use `@tabler/icons-react` v3. Outline only — never filled variants.
+**v3 uses `Icon` prefix, NOT `Tb` prefix.** `size` prop accepts `string | number`.
+Key: `IconLayoutDashboard IconSearch IconRoute IconSpeakerphone IconFileAnalytics IconPlug IconCreditCard
+IconSettings IconCheck IconAlertCircle IconShieldCheck IconSparkles IconArrowRight IconBrandWhatsapp
+IconBrandFacebook IconBrandGoogle IconBrandLinkedin IconMail IconLock IconDownload`
 
 ### 6.6 shadcn Usage
 Use shadcn: `Button Input Textarea Select Card Dialog Toast Badge Tabs Table`
@@ -583,9 +585,9 @@ launchmind/
 ├── phases/
 │   ├── phase-1/ weeks-01-04.md       ← Weeks 0–4 (DONE)
 │   ├── phase-2/ weeks-05-08.md       ← Weeks 5–8 (DONE)
-│   ├── phase-3/ weeks-09-13.md       ← CURRENT — start here
-│   ├── phase-4/ weeks-14-17.md
-│   └── phase-5/ weeks-18-20.md
+│   ├── phase-3/ weeks-09-13.md       ← Weeks 9–13 (DONE)
+│   ├── phase-4/ weeks-14-17.md       ← Weeks 14–17 (DONE)
+│   └── phase-5/ weeks-18-20.md       ← CURRENT (Week 19 in progress)
 ├── tests/e2e/
 │   ├── sanity.spec.ts
 │   └── regression.spec.ts
@@ -602,7 +604,9 @@ launchmind/
 │   │   └── lib/
 │   │       ├── tokens.ts             ← consumeTokens()
 │   │       ├── tokenVault.ts         ← AES-256 + AWS KMS
-│   │       ├── aiClient.ts
+│   │       ├── aiClient.ts           ← callSonnet() / callHaiku() (lazy init)
+│   │       ├── creatomateClient.ts   ← video render via Creatomate API
+│   │       ├── elevenLabsClient.ts   ← voice synthesis via ElevenLabs API
 │   │       └── scheduler.ts          ← BullMQ cron
 │   ├── migrations/
 │   └── tests/
@@ -632,9 +636,9 @@ launchmind/
 > Update this section at the end of every phase.
 
 ```
-Last updated: Phase 5 Week 18 complete (2026-05-25)
+Last updated: Phase 5 Week 19 in progress (2026-05-31)
 
-Backend — Weeks 0–18: COMMITTED AND COMPLETE
+Backend — Weeks 0–19: COMMITTED AND COMPLETE
   Week 0:  Scaffold, Docker, CI/CD, Oracle deploy, GitHub Actions
   Week 1:  Fastify, all 9 DB migrations, RLS, token vault, consumeTokens()
   Week 2:  Scraper (Cheerio + Playwright), ICP service, product routes + tests
@@ -655,8 +659,36 @@ Backend — Weeks 0–18: COMMITTED AND COMPLETE
            POST /products/intake/screenshots, storeUrl backward compat, 120 tests passing.
            Migration 024: ClientPulse seed product. Migration 025: aligned seed data with spec
            (primary_channel=whatsapp, moat/quote copy, 3 campaigns + metrics + brief).
+  Week 19: Content OS backend:
+           Migration 026: content_assets table (type, channel, market, asset_data JSONB, status)
+           Migration 027: content_preferences table (founder prefs per asset type, voice_clone_id)
+           Migration 028: learning_loop table (weekly performance signals, retargeting triggers)
+           lib/aiClient.ts — callSonnet() + callHaiku() with lazy Anthropic init (reads
+             ANTHROPIC_API_KEY at call time, not module load — fixes ESM init order issue)
+           lib/creatomateClient.ts — video render via Creatomate API (graceful mock if key missing)
+           lib/elevenLabsClient.ts — voice synthesis via ElevenLabs API (graceful mock if key missing)
+           services/contentService.ts — 6-step pipeline:
+             context build → callSonnet (structured JSON) → callHaiku (char-limit + scoring)
+             → ElevenLabs voice note → Creatomate video → DB insert into content_assets
+           routes/contentAssets.route.ts — GET/POST content_assets per product
+           routes/settings.route.ts — GET/PUT content_preferences, POST voice-clone upload
+           strategyService.ts — lazy Anthropic init (same fix as aiClient.ts); fires
+             generateContentAssets() as fire-and-forget after strategy generation
 
-Frontend — Weeks 9–18: COMPLETE
+Bug fixes (this session):
+  lib/api.ts — added body:'{}' to all 8 bodyless POST calls (Fastify FST_ERR_CTP_EMPTY_JSON_BODY)
+  All intake wizard pages — fetch fresh supabase.auth.getSession() inside every action handler
+    (prevents stale 15-min JWT from causing 401 at button-click time)
+  aiClient.ts + strategyService.ts — lazy Anthropic client init (fixes "Could not resolve
+    authentication method" on strategy generation)
+
+Env:
+  .env.dev deleted. .env.local is now the single source of truth for all local dev secrets.
+  backend/src/server.ts loads .env.local (updated from .env.dev).
+  .env.local has all 35 keys including CREATOMATE_API_KEY, ELEVENLABS_API_KEY,
+    GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CUSTOM_SEARCH_ENGINE_ID, STABILITY_AI_KEY.
+
+Frontend — Weeks 9–19: COMPLETE
   All 12 dashboard screens implemented from launchmind-ux-slate-sage.html reference.
   Week 14: Strategy page — playbook insights box (Builder/Studio data, Solo locked)
   Week 15: Settings page — delete account (type DELETE), Studio-only API keys card
@@ -675,6 +707,14 @@ Frontend — Weeks 9–18: COMPLETE
            IntakeSteps 7-step progress bar, lib/types/intake.ts, lib/api.ts intake methods
            api.products.generateStrategy() added. tsc --noEmit: 0 errors.
            12 new E2E tests in sanity.spec.ts.
+  Week 19: Content OS frontend:
+           components/launchmind/AssetBlock.tsx — renders all 9 asset types (text/video/visual),
+             playback, download, regenerate, edit actions; all icons use Icon prefix (v3)
+           app/(dashboard)/dashboard/briefs/page.tsx — 2-col layout, AssetBlock grid, icon fix
+           app/(dashboard)/dashboard/settings/page.tsx — 3-tab layout (Account / Content / Danger):
+             Content tab: token cost bar (data-token-cost), 5 content type toggle sections
+             (text/video/visual/community/socialProof), voice clone upload, debounced auto-save
+           E2E tests: 3 new describe blocks in sanity.spec.ts, 1 in regression.spec.ts
 
 Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
   playbook_signals: 52 rows (migration 11 + migration 18)
@@ -682,14 +722,17 @@ Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
   ClientPulse product: intake_step=6, whatsapp/india primary, full founder_context
   3 launched campaigns (whatsapp/india, meta/usa, google/india) + metrics + brief
 
-Pending (gate 4):
+Pending:
+  Push 3 new migrations to hosted Supabase:
+    20260530_000026_content_assets.sql
+    20260530_000027_content_preferences.sql
+    20260530_000028_learning_loop.sql
   Studio billing plan-change flow requires live STRIPE_SECRET_KEY in VM env.
-
-Pending (gate 5 — sections 3 & 4 of intake validation):
   Manual browser testing of all 7 intake wizard steps (requires Next.js dev server + Vijay login).
   Strategy quality check: MOAT/quote/language in generated output (requires Claude API key on VM).
+  Set ELEVENLABS_API_KEY + CREATOMATE_API_KEY on Oracle VM for production video generation.
 
-Next: open phases/phase-5/weeks-19-20.md and continue Week 19.
+Next: complete Week 19 browser testing, then open phases/phase-5/weeks-19-20.md for Week 20.
 ```
 
 ---

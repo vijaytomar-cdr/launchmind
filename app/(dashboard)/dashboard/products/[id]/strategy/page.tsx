@@ -12,12 +12,15 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { Product } from '@/lib/api';
+import type { ContentAsset } from '@/lib/types/content';
+import { CHANNEL_ORDER, groupAssetsByChannel } from '@/lib/types/content';
+import { AssetBlock } from '@/components/launchmind/AssetBlock';
 import { trackOnboarding } from '@/lib/analytics';
 
 type Phase = '30d' | '60d' | '90d';
@@ -96,6 +99,13 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
   const [plan, setPlan] = useState('free');
   const [showTopUpDialog, setShowTopUpDialog] = useState(false);
 
+  // Content assets (from content_assets table — video, voice, text)
+  const [contentAssets, setContentAssets] = useState<ContentAsset[]>([]);
+  const [contentAssetsLoading, setContentAssetsLoading] = useState(false);
+  const [generatingContent, setGeneratingContent] = useState(false);
+  const tokenRef = useRef('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.access_token) {
@@ -123,13 +133,10 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     if (!token) return;
-    fetch(`/api/products/${params.id}/strategy`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
+    api.products.getStrategy(params.id, token)
       .then((data) => {
         if (data.fullStrategy) {
-          setStrategy(data.fullStrategy);
+          setStrategy(data.fullStrategy as unknown as Strategy);
           setIsPremium(true);
         }
       })
@@ -140,22 +147,21 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
     setError('');
     setGenerating(true);
     try {
-      const res = await fetch(`/api/products/${params.id}/strategy`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.status === 402) { setShowTopUpDialog(true); return; }
-      if (!res.ok) throw new ApiError(res.status, data.error ?? 'Generation failed');
-      setStrategy(data);
+      const { data: { session } } = await supabase.auth.getSession();
+      const freshToken = session?.access_token;
+      if (!freshToken) { setError('Session expired — please refresh'); setGenerating(false); return; }
+
+      const data = await api.products.generateStrategy(params.id, freshToken);
+      setStrategy(data as unknown as Strategy);
       setIsPremium(true);
       const channelCount = [
-        ...(data.thirtyDay ?? []),
-        ...(data.sixtyDay ?? []),
-        ...(data.ninetyDay ?? []),
+        ...((data.thirtyDay as unknown[]) ?? []),
+        ...((data.sixtyDay as unknown[]) ?? []),
+        ...((data.ninetyDay as unknown[]) ?? []),
       ].length;
       trackOnboarding('strategy_generated', { channel_count: channelCount });
     } catch (err) {
+      if (err instanceof ApiError && err.status === 402) { setShowTopUpDialog(true); return; }
       setError(err instanceof ApiError ? err.message : 'Strategy generation failed');
     } finally {
       setGenerating(false);
@@ -167,21 +173,82 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
     setActiveChannel(channel);
     setAssets(null);
     try {
-      const res = await fetch(`/api/products/${params.id}/strategy/assets`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel, market }),
-      });
-      const data = await res.json();
-      if (res.status === 402) { setShowTopUpDialog(true); return; }
-      if (!res.ok) throw new Error(data.error ?? 'Failed');
-      setAssets(data);
-    } catch {
+      const { data: { session } } = await supabase.auth.getSession();
+      const freshToken = session?.access_token ?? token;
+      const data = await api.products.generateAssets(params.id, channel, market, freshToken);
+      setAssets(data as unknown as ContentAssets);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 402) { setShowTopUpDialog(true); return; }
       setError('Failed to generate assets — retry');
     } finally {
       setLoadingAssets(false);
     }
-  }, [token, params.id, market]);
+  }, [token, params.id, market, supabase]);
+
+  // ── Content assets (video, voice, text from content_assets table) ──────────
+
+  const loadContentAssets = useCallback(async (freshToken?: string) => {
+    const tok = freshToken ?? tokenRef.current;
+    if (!tok) return;
+    setContentAssetsLoading(true);
+    try {
+      const { assets: data } = await api.contentAssets.list(params.id, tok, { limit: 100 });
+      setContentAssets(data);
+    } catch { /* silent — table may not have rows yet */ } finally {
+      setContentAssetsLoading(false);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
+    if (!token) return;
+    tokenRef.current = token;
+    loadContentAssets(token);
+  }, [token, loadContentAssets]);
+
+  // Poll every 15 s for video render completion
+  useEffect(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    const hasPending = contentAssets.some((a) => a.asset_type.startsWith('video_') && !a.media_url);
+    if (!hasPending) return;
+    pollRef.current = setInterval(() => loadContentAssets(), 15_000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [contentAssets, loadContentAssets]);
+
+  async function handleApproveAsset(id: string) {
+    await api.contentAssets.approve(id, tokenRef.current);
+    setContentAssets((prev) => prev.map((a) => a.id === id ? { ...a, status: 'approved' } : a));
+  }
+
+  async function handleHoldAsset(id: string) {
+    await api.contentAssets.hold(id, tokenRef.current);
+    setContentAssets((prev) => prev.map((a) => a.id === id ? { ...a, status: 'held' } : a));
+  }
+
+  async function handleRegenAsset(id: string, reason: string, note?: string) {
+    await api.contentAssets.regenerate(id, tokenRef.current, reason, note);
+    setContentAssets((prev) => prev.map((a) => a.id === id ? { ...a, regen_count: a.regen_count + 1 } : a));
+    setTimeout(() => loadContentAssets(), 3000);
+  }
+
+  async function handleGenerateContent() {
+    setGeneratingContent(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const tok = session?.access_token ?? tokenRef.current;
+      await api.contentAssets.generate(params.id, tok);
+      // Poll every 6 s until at least one asset appears, then stop forcing the loading state
+      const check = setInterval(async () => {
+        const { assets: data } = await api.contentAssets.list(params.id, tokenRef.current, { limit: 1 }).catch(() => ({ assets: [] as ContentAsset[] }));
+        if (data.length > 0) {
+          clearInterval(check);
+          setGeneratingContent(false);
+          loadContentAssets();
+        }
+      }, 6000);
+      // Safety cap — stop after 3 minutes regardless
+      setTimeout(() => { clearInterval(check); setGeneratingContent(false); }, 180_000);
+    } catch { setGeneratingContent(false); }
+  }
 
   async function copy(text: string, key: string) {
     await navigator.clipboard.writeText(text);
@@ -526,6 +593,85 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
               )}
             </div>
           )}
+
+          {/* ── Generated content assets (video, voice, text) ───────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold" style={{ fontSize: 13, color: 'var(--ink)' }}>
+                Generated content
+              </h3>
+              {!generatingContent && (
+                <button
+                  onClick={handleGenerateContent}
+                  disabled={contentAssetsLoading}
+                  className="rounded-[6px] px-3 py-1.5 font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
+                  style={{ fontSize: 12, background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' }}
+                >
+                  {contentAssets.length > 0 ? '↺ Regenerate all' : '✦ Generate all content'}
+                </button>
+              )}
+            </div>
+
+            {generatingContent ? (
+              <div className="rounded-[10px] p-8 text-center" style={{ background: 'var(--surface)', border: '1.5px solid var(--sage-b)' }}>
+                <div
+                  className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin mx-auto mb-4"
+                  style={{ borderColor: 'var(--sage)', borderTopColor: 'transparent' }}
+                />
+                <p className="font-semibold mb-1" style={{ fontSize: 14, color: 'var(--ink)' }}>Generating content assets…</p>
+                <p style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 8 }}>
+                  Claude is writing copy · ElevenLabs is recording voice notes · Creatomate is rendering video
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--ink3)' }}>
+                  Text assets appear in ~30 seconds · Video renders take 2–3 minutes
+                </p>
+              </div>
+            ) : contentAssetsLoading ? (
+              <div className="rounded-[10px] p-8 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                <p style={{ fontSize: 13, color: 'var(--ink3)' }}>Loading content assets…</p>
+              </div>
+            ) : contentAssets.length === 0 ? (
+              <div className="rounded-[10px] p-8 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                <p className="font-medium mb-1" style={{ fontSize: 13, color: 'var(--ink)' }}>No content generated yet</p>
+                <p style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 14 }}>
+                  Generate video, voice notes, and copy assets across all your channels in one click.
+                </p>
+                <button
+                  onClick={handleGenerateContent}
+                  className="rounded-[6px] px-4 py-2 font-medium transition-opacity hover:opacity-90"
+                  style={{ fontSize: 13, background: 'var(--sage)', color: '#fff' }}
+                >
+                  ✦ Generate now
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {CHANNEL_ORDER.map((channel) => {
+                  const grouped = groupAssetsByChannel(contentAssets);
+                  const channelAssets = grouped[channel];
+                  if (!channelAssets?.length) return null;
+                  return (
+                    <div key={channel}>
+                      <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+                        {channel}
+                      </p>
+                      <div className="space-y-3">
+                        {channelAssets.map((asset) => (
+                          <AssetBlock
+                            key={asset.id}
+                            asset={asset}
+                            onApprove={handleApproveAsset}
+                            onHold={handleHoldAsset}
+                            onRegen={handleRegenAsset}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Free tier upgrade overlay */}
           {!isPremium && (

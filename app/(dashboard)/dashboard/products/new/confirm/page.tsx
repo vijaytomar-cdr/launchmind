@@ -118,9 +118,18 @@ export default function ConfirmPage() {
   }, [router]);
 
   async function handleGenerate() {
-    if (!productId || !icp || !token) return;
+    if (!productId || !icp) return;
     setSaving(true);
     setError('');
+
+    // Always fetch a fresh token immediately before API calls — avoids stale 15-min JWT
+    const { data: { session } } = await supabase.auth.getSession();
+    const freshToken = session?.access_token;
+    if (!freshToken) {
+      setError('Session expired — please refresh the page and try again');
+      setSaving(false);
+      return;
+    }
 
     try {
       const confirmedComps = competitors.filter((c) => c.confirmed);
@@ -135,11 +144,11 @@ export default function ConfirmPage() {
           primaryChannel:  markets?.primaryChannel,
           excludedChannels: markets?.excludedChannels,
         },
-        token
+        freshToken
       );
 
       // Step 2: Trigger strategy generation
-      await api.products.generateStrategy(product.id, token);
+      await api.products.generateStrategy(product.id, freshToken);
 
       // Clear intake state
       Object.values(INTAKE_STORAGE).forEach((k) => sessionStorage.removeItem(k));
