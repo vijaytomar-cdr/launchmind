@@ -37,6 +37,15 @@ export function startIntakeWorker(): void {
 
   const connection = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
     maxRetriesPerRequest: null,
+    enableOfflineQueue: false,
+    retryStrategy: (times: number) => Math.min(times * 500, 30_000),
+  });
+  let _warnedOnce = false;
+  connection.on('error', (err: Error) => {
+    if (process.env.NODE_ENV !== 'production' && !_warnedOnce) {
+      console.warn('[intakeWorker] Redis unavailable — worker idle:', err.message);
+      _warnedOnce = true;
+    }
   });
 
   _intakeWorker = new Worker<ScrapeJobData, ScrapeJobResult>(

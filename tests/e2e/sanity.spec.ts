@@ -328,3 +328,100 @@ test.describe('Content quality — Vijay seed data', () => {
     expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
   });
 });
+
+// ── Settings — left nav layout ────────────────────────────────────────────────
+
+test.describe('Settings — left nav layout', () => {
+  test('/dashboard/settings redirects unauthenticated to /login', async ({ page }) => {
+    await page.goto('/dashboard/settings');
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('/dashboard/settings?tab=products redirects unauthenticated to /login', async ({ page }) => {
+    await page.goto('/dashboard/settings?tab=products');
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('/dashboard/settings?tab=account redirects unauthenticated to /login', async ({ page }) => {
+    await page.goto('/dashboard/settings?tab=account');
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('/dashboard/settings loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings');
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+
+  test('/dashboard/settings?tab=security loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings?tab=security');
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+
+  test('/dashboard/settings?tab=notifications loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings?tab=notifications');
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+});
+
+// ── Products — archive flow ───────────────────────────────────────────────────
+
+test.describe('Products — archive flow', () => {
+  test('/dashboard/products redirects unauthenticated to /login', async ({ page }) => {
+    await page.goto('/dashboard/products');
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('/dashboard/products loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/products');
+    // Redirect to login is fine — no crash either way
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+
+  test('/dashboard/settings?tab=products loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings?tab=products');
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+});
+
+// ── Settings — regression ─────────────────────────────────────────────────────
+
+test.describe('Settings — regression', () => {
+  test('/dashboard/settings?tab=voice loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings?tab=voice');
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+
+  test('/dashboard/settings?tab=account loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings?tab=account');
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+
+  test('/dashboard/settings?tab=profile loads without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto('/dashboard/settings?tab=profile');
+    expect(errors.filter(e => !e.includes('hydrat'))).toHaveLength(0);
+  });
+
+  test('/dashboard/settings all tab query params redirect cleanly when unauthenticated', async ({ page }) => {
+    const tabs = ['profile', 'security', 'content', 'voice', 'notifications', 'products', 'account'];
+    for (const tab of tabs) {
+      await page.goto(`/dashboard/settings?tab=${tab}`);
+      await expect(page).toHaveURL(/\/login/, { timeout: 5_000 });
+    }
+  });
+});

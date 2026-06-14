@@ -204,7 +204,7 @@ interface AssetBlockProps {
 
 export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProps) {
   const [showRegen, setShowRegen] = useState(false)
-  const [selectedReason, setSelectedReason] = useState<string | null>(null)
+  const [selectedReasons, setSelectedReasons] = useState<Set<string>>(new Set())
   const [regenNote, setRegenNote] = useState('')
   const [loading, setLoading] = useState<'approve' | 'hold' | 'regen' | null>(null)
 
@@ -230,13 +230,23 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
     try { await onHold(asset.id) } finally { setLoading(null) }
   }
 
+  function toggleReason(r: string) {
+    setSelectedReasons(prev => {
+      const next = new Set(prev)
+      if (next.has(r)) next.delete(r)
+      else next.add(r)
+      return next
+    })
+  }
+
   async function handleRegen() {
-    if (!selectedReason) return
+    if (selectedReasons.size === 0) return
     setLoading('regen')
     try {
-      await onRegen(asset.id, selectedReason, regenNote || undefined)
+      const reasonStr = Array.from(selectedReasons).join(', ')
+      await onRegen(asset.id, reasonStr, regenNote || undefined)
       setShowRegen(false)
-      setSelectedReason(null)
+      setSelectedReasons(new Set())
       setRegenNote('')
     } finally {
       setLoading(null)
@@ -447,37 +457,43 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
       {/* Regenerate drawer */}
       {showRegen && (
         <div style={{
-          margin: '0 13px 12px',
-          background: 'rgba(79,70,229,0.05)',
-          border: '1px solid rgba(79,70,229,0.20)',
-          borderRadius: 8, padding: 12,
+          background: 'var(--surface)',
+          border: '1.5px solid rgba(79,70,229,0.22)',
+          borderRadius: 8, padding: 14, margin: '0 13px 12px',
         }}>
-          <p style={{ fontSize: 11, fontWeight: 500, color: '#4f46e5', marginBottom: 8, marginTop: 0 }}>
-            Why do you want to regenerate this?
-          </p>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5, marginBottom: 10 }}>
-            {reasons.map((r) => (
-              <button
-                key={r}
-                onClick={() => setSelectedReason(r === selectedReason ? null : r)}
-                style={{
-                  padding: '5px 10px', borderRadius: 99, fontSize: 10, cursor: 'pointer',
-                  border: selectedReason === r ? '0.5px solid rgba(79,70,229,0.35)' : '0.5px solid var(--border)',
-                  background: selectedReason === r ? 'rgba(79,70,229,0.10)' : 'var(--raised)',
-                  color: selectedReason === r ? '#4f46e5' : 'var(--ink2)',
-                  fontFamily: 'inherit',
-                }}
-              >
-                {r}
-              </button>
-            ))}
+          <div style={{ fontSize: 11, fontWeight: 500, color: '#4f46e5', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconRefresh size={13} color="#4f46e5" />
+            {isVideo ? 'What should we change in the video?' : 'Why do you want to regenerate this?'}
           </div>
 
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5, marginBottom: 10 }}>
+            {reasons.map((r) => {
+              const sel = selectedReasons.has(r)
+              return (
+                <button
+                  key={r}
+                  onClick={() => toggleReason(r)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 99, fontSize: 10, cursor: 'pointer',
+                    border: sel ? '0.5px solid rgba(79,70,229,0.35)' : '0.5px solid var(--border)',
+                    background: sel ? 'rgba(79,70,229,0.10)' : 'var(--raised)',
+                    color: sel ? '#4f46e5' : 'var(--ink2)',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {r}
+                </button>
+              )
+            })}
+          </div>
+
+          <div style={{ fontSize: 10, color: 'var(--ink2)', marginBottom: 6 }}>
+            Optional: tell LaunchMind specifically what to change
+          </div>
           <textarea
             value={regenNote}
             onChange={(e) => setRegenNote(e.target.value)}
-            placeholder="Optional: tell LaunchMind exactly what to change…"
+            placeholder="e.g. Make it warmer and less formal. Remove the competitor mention."
             style={{
               width: '100%', padding: '7px 10px', background: 'var(--raised)',
               border: '0.5px solid var(--border2)', borderRadius: 5,
@@ -487,13 +503,19 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
             rows={2}
           />
 
-          <p style={{ fontSize: 9, color: 'var(--ink3)', marginBottom: 8, marginTop: 0 }}>
-            This reason improves future generations · {3 - asset.regen_count} regen{3 - asset.regen_count !== 1 ? 's' : ''} left this week
-          </p>
+          {asset.regen_count > 0 ? (
+            <p style={{ fontSize: 9, color: 'var(--amber)', marginBottom: 8, marginTop: 0 }}>
+              ⚠ {asset.regen_count} of 3 regenerations used for this asset this week
+            </p>
+          ) : (
+            <p style={{ fontSize: 9, color: 'var(--ink3)', marginBottom: 8, marginTop: 0 }}>
+              This reason will be saved so future generations avoid this issue · {3 - asset.regen_count} regenerations remaining
+            </p>
+          )}
 
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
             <button
-              onClick={() => { setShowRegen(false); setSelectedReason(null); setRegenNote('') }}
+              onClick={() => { setShowRegen(false); setSelectedReasons(new Set()); setRegenNote('') }}
               style={{
                 background: 'transparent', border: '0.5px solid var(--border2)',
                 borderRadius: 5, padding: '6px 12px', fontSize: 11,
@@ -504,13 +526,13 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
             </button>
             <button
               onClick={handleRegen}
-              disabled={!selectedReason || loading !== null}
+              disabled={selectedReasons.size === 0 || loading !== null}
               style={{
-                background: selectedReason ? 'rgba(79,70,229,0.10)' : 'var(--raised)',
-                border: `0.5px solid ${selectedReason ? 'rgba(79,70,229,0.28)' : 'var(--border)'}`,
-                color: selectedReason ? '#4f46e5' : 'var(--ink3)',
+                background: selectedReasons.size > 0 ? 'rgba(79,70,229,0.10)' : 'var(--raised)',
+                border: `0.5px solid ${selectedReasons.size > 0 ? 'rgba(79,70,229,0.28)' : 'var(--border)'}`,
+                color: selectedReasons.size > 0 ? '#4f46e5' : 'var(--ink3)',
                 borderRadius: 5, padding: '6px 14px', fontSize: 11, fontWeight: 500,
-                cursor: selectedReason ? 'pointer' : 'not-allowed', fontFamily: 'inherit',
+                cursor: selectedReasons.size > 0 ? 'pointer' : 'not-allowed', fontFamily: 'inherit',
                 display: 'flex', alignItems: 'center', gap: 4,
               }}
             >

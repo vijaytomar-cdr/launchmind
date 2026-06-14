@@ -150,7 +150,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         // Plan limit check — run both queries in parallel
         const [{ data: founder }, { count: productCount }] = await Promise.all([
           getSupabaseAdmin().from('founders').select('plan').eq('id', founderId).single(),
-          getSupabaseAdmin().from('products').select('id', { count: 'exact', head: true }).eq('founder_id', founderId),
+          getSupabaseAdmin().from('products').select('id', { count: 'exact', head: true }).eq('founder_id', founderId).is('archived_at', null),
         ]);
 
         const limit = PLAN_PRODUCT_LIMITS[founder?.plan ?? 'free'] ?? 1;
@@ -594,7 +594,8 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       const { count: productCount } = await supabase
         .from('products')
         .select('id', { count: 'exact', head: true })
-        .eq('founder_id', founderId);
+        .eq('founder_id', founderId)
+        .is('archived_at', null);
 
       const limit = PLAN_PRODUCT_LIMITS[founder.plan] ?? 1;
       if ((productCount ?? 0) >= limit) {
@@ -664,6 +665,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       .from('products')
       .select('*')
       .eq('founder_id', founderId)
+      .is('archived_at', null)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -673,6 +675,234 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
     return reply.send(data ?? []);
   });
+
+  /**
+   * GET /products/archived
+   * Lists all archived products for the authenticated founder.
+   * Must be registered BEFORE /products/:id to avoid route conflict.
+   */
+  server.get('/products/archived', async (request, reply) => {
+    const founderId = getFounderId(request);
+
+    const { data, error } = await getSupabaseAdmin()
+      .from('products')
+      .select('id, name, store_url, platform, category, archived_at, archive_reason, created_at')
+      .eq('founder_id', founderId)
+      .not('archived_at', 'is', null)
+      .order('archived_at', { ascending: false });
+
+    if (error) {
+      Sentry.captureException(error, { tags: { route: 'GET /products/archived' } });
+      return reply.status(500).send({ error: 'Failed to fetch archived products' });
+    }
+
+    return reply.send(data ?? []);
+  });
+
+  /**
+   * POST /products/:id/archive
+   * Soft-deletes a product (sets archived_at + archive_reason = 'owner_archived').
+   * Also pauses any active campaigns for the product.
+   * @security founderId verified against product.founder_id.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/products/:id/archive',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { id } = request.params;
+
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid product ID' });
+      }
+
+      const supabase = getSupabaseAdmin();
+
+      const { data: product, error: fetchError } = await supabase
+        .from('products')
+        .select('id, name, founder_id, archived_at')
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (fetchError || !product) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+
+      if (product.archived_at) {
+        return reply.status(409).send({ error: 'Product is already archived' });
+      }
+
+      // Pause any active campaigns before archiving
+      await supabase
+        .from('campaigns')
+        .update({ status: 'paused', updated_at: new Date().toISOString() })
+        .eq('product_id', id)
+        .eq('founder_id', founderId)
+        .in('status', ['draft', 'approved', 'launched']);
+
+      const { error: archiveError } = await supabase
+        .from('products')
+        .update({ archived_at: new Date().toISOString(), archive_reason: 'owner_archived' })
+        .eq('id', id)
+        .eq('founder_id', founderId);
+
+      if (archiveError) {
+        Sentry.captureException(archiveError, { tags: { route: 'POST /products/:id/archive' } });
+        return reply.status(500).send({ error: 'Failed to archive product' });
+      }
+
+      await supabase.from('audit_logs').insert({
+        founder_id: founderId,
+        action: 'product_archived',
+        resource_type: 'product',
+        resource_id: id,
+        metadata: { name: product.name },
+      });
+
+      return reply.send({ ok: true });
+    }
+  );
+
+  /**
+   * POST /products/:id/restore
+   * Restores an archived product (clears archived_at and archive_reason).
+   * @security founderId verified against product.founder_id.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/products/:id/restore',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { id } = request.params;
+
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid product ID' });
+      }
+
+      const supabase = getSupabaseAdmin();
+
+      const { data: product, error: fetchError } = await supabase
+        .from('products')
+        .select('id, name, founder_id, archived_at')
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (fetchError || !product) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+
+      if (!product.archived_at) {
+        return reply.status(409).send({ error: 'Product is not archived' });
+      }
+
+      // Check plan limit before restoring
+      const [{ data: founder }, { count: activeCount }] = await Promise.all([
+        supabase.from('founders').select('plan').eq('id', founderId).single(),
+        supabase.from('products').select('id', { count: 'exact', head: true }).eq('founder_id', founderId).is('archived_at', null),
+      ]);
+
+      const limit = PLAN_PRODUCT_LIMITS[founder?.plan ?? 'free'] ?? 1;
+      if ((activeCount ?? 0) >= limit) {
+        return reply.status(422).send({
+          error: `Your ${founder?.plan ?? 'free'} plan allows ${limit} active product${limit === 1 ? '' : 's'}. Archive another product first.`,
+          code: 'PLAN_LIMIT_REACHED',
+        });
+      }
+
+      const { error: restoreError } = await supabase
+        .from('products')
+        .update({ archived_at: null, archive_reason: null })
+        .eq('id', id)
+        .eq('founder_id', founderId);
+
+      if (restoreError) {
+        Sentry.captureException(restoreError, { tags: { route: 'POST /products/:id/restore' } });
+        return reply.status(500).send({ error: 'Failed to restore product' });
+      }
+
+      await supabase.from('audit_logs').insert({
+        founder_id: founderId,
+        action: 'product_restored',
+        resource_type: 'product',
+        resource_id: id,
+        metadata: { name: product.name },
+      });
+
+      return reply.send({ ok: true });
+    }
+  );
+
+  /**
+   * DELETE /products/:id
+   * Permanently deletes a product and all associated data.
+   * Requires the product to be archived first (two-step safety gate).
+   * Body: { confirmation: "DELETE" } — must match exactly.
+   * @security founderId verified against product.founder_id.
+   */
+  server.delete<{ Params: { id: string }; Body: { confirmation: string } }>(
+    '/products/:id',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { id } = request.params;
+
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid product ID' });
+      }
+
+      const body = request.body as { confirmation?: unknown };
+      if (body?.confirmation !== 'DELETE') {
+        return reply.status(400).send({ error: 'Body must include { "confirmation": "DELETE" }' });
+      }
+
+      const supabase = getSupabaseAdmin();
+
+      const { data: product, error: fetchError } = await supabase
+        .from('products')
+        .select('id, name, founder_id, archived_at')
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (fetchError || !product) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+
+      if (!product.archived_at) {
+        return reply.status(422).send({
+          error: 'Product must be archived before it can be permanently deleted. Call POST /products/:id/archive first.',
+          code: 'MUST_ARCHIVE_FIRST',
+        });
+      }
+
+      // Stamp archive_reason = 'owner_deleted' for audit trail before hard delete
+      await supabase
+        .from('products')
+        .update({ archive_reason: 'owner_deleted' })
+        .eq('id', id)
+        .eq('founder_id', founderId);
+
+      await supabase.from('audit_logs').insert({
+        founder_id: founderId,
+        action: 'product_deleted',
+        resource_type: 'product',
+        resource_id: id,
+        metadata: { name: product.name, permanent: true },
+      });
+
+      const { error: deleteError } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', id)
+        .eq('founder_id', founderId);
+
+      if (deleteError) {
+        Sentry.captureException(deleteError, { tags: { route: 'DELETE /products/:id' } });
+        return reply.status(500).send({ error: 'Failed to delete product' });
+      }
+
+      return reply.status(204).send();
+    }
+  );
 
   /**
    * GET /products/:id

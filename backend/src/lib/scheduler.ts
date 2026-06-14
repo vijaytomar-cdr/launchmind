@@ -54,9 +54,23 @@ function getRedisConnection(): IORedis {
   if (_connection) return _connection;
   _connection = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
     maxRetriesPerRequest: null,
+    enableOfflineQueue: false,
+    // Back off to 30s max — prevents retry storms when Redis is unavailable locally
+    retryStrategy: (times: number) => Math.min(times * 500, 30_000),
+  });
+  _connection.on('error', (err: Error) => {
+    if (process.env.NODE_ENV !== 'production') {
+      // Suppress per-retry noise in dev; server stays healthy without Redis
+      if (!_redisWarnedOnce) {
+        console.warn('[scheduler] Redis unavailable — BullMQ queues disabled:', err.message);
+        _redisWarnedOnce = true;
+      }
+    }
   });
   return _connection;
 }
+
+let _redisWarnedOnce = false;
 
 /**
  * Returns the singleton BullMQ queue for weekly briefs.

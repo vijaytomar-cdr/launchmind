@@ -148,6 +148,14 @@ export const api = {
         body: JSON.stringify({ channel, market }),
         token,
       }),
+    listArchived: (token: string) =>
+      request<Product[]>('/products/archived', { token }),
+    archive: (id: string, token: string) =>
+      request<{ ok: boolean }>(`/products/${id}/archive`, { method: 'POST', body: '{}', token }),
+    restore: (id: string, token: string) =>
+      request<{ ok: boolean }>(`/products/${id}/restore`, { method: 'POST', body: '{}', token }),
+    deletePermanently: (id: string, token: string) =>
+      request<void>(`/products/${id}`, { method: 'DELETE', body: JSON.stringify({ confirmation: 'DELETE' }), token }),
   },
 
   channels: {
@@ -344,6 +352,8 @@ export interface Product {
   competitor_set: CompetitorApp[] | null;
   scraped_meta: ScrapedMeta | null;
   last_scraped_at: string | null;
+  archived_at: string | null;
+  archive_reason: string | null;
   created_at: string;
   updated_at: string;
 }

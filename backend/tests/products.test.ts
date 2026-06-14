@@ -215,7 +215,9 @@ describe('Products routes', () => {
       mockFrom.mockReturnValue({
         select: () => ({
           eq: () => ({
-            order: () => Promise.resolve({ data: [{ id: PRODUCT_ID, name: 'TestApp' }], error: null }),
+            is: () => ({
+              order: () => Promise.resolve({ data: [{ id: PRODUCT_ID, name: 'TestApp' }], error: null }),
+            }),
           }),
         }),
       });
@@ -374,7 +376,7 @@ describe('Products routes', () => {
         return {
           select: (_col: string, opts: { count: string }) =>
             opts?.count === 'exact'
-              ? { eq: () => Promise.resolve({ count: 1, error: null }) }
+              ? { eq: () => ({ is: () => Promise.resolve({ count: 1, error: null }) }) }
               : { eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) },
           insert: () => Promise.resolve({ data: null, error: null }),
         };
@@ -389,6 +391,288 @@ describe('Products routes', () => {
 
       expect(res.statusCode).toBe(422);
       expect(res.json()).toMatchObject({ code: 'PLAN_LIMIT_REACHED' });
+    });
+  });
+
+  // ─── Archive / Restore / Delete ──────────────────────────────────────────────
+
+  describe('GET /products/archived', () => {
+    it('returns 401 without token', async () => {
+      const res = await server.inject({ method: 'GET', url: '/products/archived' });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('returns array of archived products for authenticated founder', async () => {
+      const archivedProduct = { id: PRODUCT_ID, name: 'TestApp', archived_at: new Date().toISOString() };
+      mockFrom.mockReturnValue({
+        select: () => ({
+          eq: () => ({
+            not: () => ({
+              order: () => Promise.resolve({ data: [archivedProduct], error: null }),
+            }),
+          }),
+        }),
+      });
+
+      const res = await server.inject({
+        method: 'GET',
+        url: '/products/archived',
+        headers: { authorization: `Bearer ${makeToken()}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.json())).toBe(true);
+    });
+  });
+
+  describe('POST /products/:id/archive', () => {
+    it('returns 401 without token', async () => {
+      const res = await server.inject({ method: 'POST', url: `/products/${PRODUCT_ID}/archive`, payload: {} });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('returns 400 for invalid UUID', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/products/not-a-uuid/archive',
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 404 when product not found', async () => {
+      mockFrom.mockReturnValue({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              single: () => Promise.resolve({ data: null, error: { message: 'not found' } }),
+            }),
+          }),
+        }),
+      });
+
+      const res = await server.inject({
+        method: 'POST',
+        url: `/products/${PRODUCT_ID}/archive`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('returns 409 when product is already archived', async () => {
+      mockFrom.mockReturnValue({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: { id: PRODUCT_ID, name: 'TestApp', founder_id: FOUNDER_ID, archived_at: new Date().toISOString() },
+                  error: null,
+                }),
+            }),
+          }),
+        }),
+      });
+
+      const res = await server.inject({
+        method: 'POST',
+        url: `/products/${PRODUCT_ID}/archive`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(409);
+    });
+
+    it('archives an active product successfully', async () => {
+      let callCount = 0;
+      mockFrom.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // Product lookup
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  single: () =>
+                    Promise.resolve({
+                      data: { id: PRODUCT_ID, name: 'TestApp', founder_id: FOUNDER_ID, archived_at: null },
+                      error: null,
+                    }),
+                }),
+              }),
+            }),
+          };
+        }
+        // Campaign pause + product update + audit_log insert
+        return {
+          update: () => ({ eq: () => ({ eq: () => ({ in: () => Promise.resolve({ error: null }) }) }) }),
+          insert: () => Promise.resolve({ error: null }),
+        };
+      });
+
+      const res = await server.inject({
+        method: 'POST',
+        url: `/products/${PRODUCT_ID}/archive`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ok: true });
+    });
+  });
+
+  describe('POST /products/:id/restore', () => {
+    it('returns 409 when product is not archived', async () => {
+      mockFrom.mockReturnValue({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: { id: PRODUCT_ID, name: 'TestApp', founder_id: FOUNDER_ID, archived_at: null },
+                  error: null,
+                }),
+            }),
+          }),
+        }),
+      });
+
+      const res = await server.inject({
+        method: 'POST',
+        url: `/products/${PRODUCT_ID}/restore`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(409);
+    });
+
+    it('restores an archived product successfully', async () => {
+      let callCount = 0;
+      mockFrom.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // Product lookup
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  single: () =>
+                    Promise.resolve({
+                      data: { id: PRODUCT_ID, name: 'TestApp', founder_id: FOUNDER_ID, archived_at: new Date().toISOString() },
+                      error: null,
+                    }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (callCount === 2) {
+          // founders plan check
+          return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { plan: 'solo' }, error: null }) }) }) };
+        }
+        if (callCount === 3) {
+          // active product count
+          return { select: () => ({ eq: () => ({ is: () => Promise.resolve({ count: 0, error: null }) }) }) };
+        }
+        // update + audit insert
+        return {
+          update: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }),
+          insert: () => Promise.resolve({ error: null }),
+        };
+      });
+
+      const res = await server.inject({
+        method: 'POST',
+        url: `/products/${PRODUCT_ID}/restore`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ok: true });
+    });
+  });
+
+  describe('DELETE /products/:id', () => {
+    it('returns 401 without token', async () => {
+      const res = await server.inject({
+        method: 'DELETE',
+        url: `/products/${PRODUCT_ID}`,
+        payload: { confirmation: 'DELETE' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('returns 400 when confirmation is missing or wrong', async () => {
+      const res = await server.inject({
+        method: 'DELETE',
+        url: `/products/${PRODUCT_ID}`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: { confirmation: 'wrong' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 422 when product is not archived yet', async () => {
+      mockFrom.mockReturnValue({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: { id: PRODUCT_ID, name: 'TestApp', founder_id: FOUNDER_ID, archived_at: null },
+                  error: null,
+                }),
+            }),
+          }),
+        }),
+      });
+
+      const res = await server.inject({
+        method: 'DELETE',
+        url: `/products/${PRODUCT_ID}`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: { confirmation: 'DELETE' },
+      });
+      expect(res.statusCode).toBe(422);
+      expect(res.json()).toMatchObject({ code: 'MUST_ARCHIVE_FIRST' });
+    });
+
+    it('permanently deletes an archived product with correct confirmation', async () => {
+      let callCount = 0;
+      mockFrom.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // Product lookup
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  single: () =>
+                    Promise.resolve({
+                      data: { id: PRODUCT_ID, name: 'TestApp', founder_id: FOUNDER_ID, archived_at: new Date().toISOString() },
+                      error: null,
+                    }),
+                }),
+              }),
+            }),
+          };
+        }
+        // update reason + audit insert + delete
+        return {
+          update: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }),
+          insert: () => Promise.resolve({ error: null }),
+          delete: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }),
+        };
+      });
+
+      const res = await server.inject({
+        method: 'DELETE',
+        url: `/products/${PRODUCT_ID}`,
+        headers: { authorization: `Bearer ${makeToken()}` },
+        payload: { confirmation: 'DELETE' },
+      });
+      expect(res.statusCode).toBe(204);
     });
   });
 });

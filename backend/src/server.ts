@@ -10,10 +10,8 @@
 
 // Load .env.local from project root before anything else (local dev only — no-op in prod).
 import { existsSync, readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-const __dirname_compat = dirname(fileURLToPath(import.meta.url));
-const envPath = resolve(__dirname_compat, '..', '..', '.env.local');
+import { resolve } from 'path';
+const envPath = resolve(__dirname, '..', '..', '.env.local');
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
     const trimmed = line.trim();
@@ -178,10 +176,16 @@ async function start(): Promise<void> {
   try {
     await server.listen({ port, host: '0.0.0.0' });
 
-    // Start BullMQ workers and register weekly cron (only in production process)
-    startBriefWorker();
-    startIntakeWorker();
-    await scheduleWeeklyBrief();
+    // Start BullMQ workers only when Redis is properly configured
+    const redisUrl = process.env.REDIS_URL ?? '';
+    const redisReady = redisUrl && !redisUrl.includes('your_upstash') && !redisUrl.includes('localhost');
+    if (redisReady) {
+      startBriefWorker();
+      startIntakeWorker();
+      await scheduleWeeklyBrief();
+    } else {
+      console.warn('[server] REDIS_URL not configured — BullMQ workers skipped (set a real URL to enable)');
+    }
   } catch (err) {
     Sentry.captureException(err);
     server.log.error(err);

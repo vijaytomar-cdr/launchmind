@@ -18,6 +18,7 @@ import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
   LayoutDashboard,
+  LayoutGrid,
   Megaphone,
   FileText,
   Radio,
@@ -26,13 +27,13 @@ import {
   ShieldCheck,
   CreditCard,
   Layers,
-  Search,
 } from 'lucide-react';
 
 type NavItem = {
   href: string;
   label: string;
   icon: React.ElementType;
+  children?: { href: string; label: string }[];
 };
 
 type NavSection = {
@@ -44,8 +45,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     section: 'Products',
     items: [
+      { href: '/dashboard/products', label: 'Products', icon: LayoutGrid },
       { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/dashboard/products/new', label: 'Add product', icon: Search },
     ],
   },
   {
@@ -66,7 +67,20 @@ const NAV_SECTIONS: NavSection[] = [
     section: 'Account',
     items: [
       { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
-      { href: '/dashboard/settings', label: 'Settings', icon: Settings },
+      {
+        href: '/dashboard/settings',
+        label: 'Settings',
+        icon: Settings,
+        children: [
+          { href: '/dashboard/settings/profile', label: 'Profile' },
+          { href: '/dashboard/settings/security', label: 'Security' },
+          { href: '/dashboard/settings/content', label: 'Content types' },
+          { href: '/dashboard/settings/voice', label: 'Voice clone' },
+          { href: '/dashboard/settings/notifications', label: 'Notifications' },
+          { href: '/dashboard/settings/products', label: 'Products' },
+          { href: '/dashboard/settings/account', label: 'Account' },
+        ],
+      },
     ],
   },
 ];
@@ -94,6 +108,7 @@ export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free
 
   function isActive(href: string): boolean {
     if (href === '/dashboard') return pathname === '/dashboard';
+    if (href === '/dashboard/products') return pathname.startsWith('/dashboard/products');
     return pathname.startsWith(href);
   }
 
@@ -128,36 +143,72 @@ export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free
             >
               {section}
             </div>
-            {items.map(({ href, label, icon: Icon }) => {
+            {items.map(({ href, label, icon: Icon, children }) => {
               const active = isActive(href);
+              const expanded = !!children && pathname.startsWith(href);
+              const navHref = children && children.length > 0 ? children[0].href : href;
               return (
-                <Link
-                  key={href}
-                  href={href}
-                  className="flex items-center gap-3 transition-colors"
-                  style={{
-                    fontSize: 13,
-                    paddingLeft: 20,
-                    paddingRight: 20,
-                    paddingTop: 8,
-                    paddingBottom: 8,
-                    color: active ? '#fff' : 'var(--s-text)',
-                    background: active ? 'rgba(5,150,105,0.18)' : 'transparent',
-                    borderRight: active ? '2px solid var(--sage-l)' : '2px solid transparent',
-                  }}
-                  onMouseEnter={e => {
-                    if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--sidebar2)';
-                  }}
-                  onMouseLeave={e => {
-                    if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent';
-                  }}
-                >
-                  <Icon
-                    className="flex-shrink-0"
-                    style={{ width: 15, height: 15, color: active ? 'var(--sage-l)' : 'var(--s-text2)' }}
-                  />
-                  {label}
-                </Link>
+                <div key={href}>
+                  <Link
+                    href={navHref}
+                    className="flex items-center gap-3 transition-colors"
+                    style={{
+                      fontSize: 13,
+                      paddingLeft: 20,
+                      paddingRight: 20,
+                      paddingTop: 8,
+                      paddingBottom: 8,
+                      color: active ? '#fff' : 'var(--s-text)',
+                      background: active ? 'rgba(5,150,105,0.18)' : 'transparent',
+                      borderRight: active ? '2px solid var(--sage-l)' : '2px solid transparent',
+                    }}
+                    onMouseEnter={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--sidebar2)';
+                    }}
+                    onMouseLeave={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    }}
+                  >
+                    <Icon
+                      className="flex-shrink-0"
+                      style={{ width: 15, height: 15, color: active ? 'var(--sage-l)' : 'var(--s-text2)' }}
+                    />
+                    {label}
+                  </Link>
+                  {expanded && children && (
+                    <div style={{ paddingBottom: 4 }}>
+                      {children.map(child => {
+                        const childActive = pathname.startsWith(child.href);
+                        return (
+                          <Link
+                            key={child.href}
+                            href={child.href}
+                            className="flex items-center transition-colors"
+                            style={{
+                              fontSize: 11,
+                              paddingLeft: 38,
+                              paddingRight: 20,
+                              paddingTop: 5,
+                              paddingBottom: 5,
+                              color: childActive ? 'var(--sage-l)' : 'var(--s-text2)',
+                              background: childActive ? 'rgba(5,150,105,0.10)' : 'transparent',
+                              borderRight: childActive ? '2px solid var(--sage-l)' : '2px solid transparent',
+                            }}
+                            onMouseEnter={e => {
+                              if (!childActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)';
+                            }}
+                            onMouseLeave={e => {
+                              if (!childActive) (e.currentTarget as HTMLElement).style.background = 'transparent';
+                            }}
+                          >
+                            <span style={{ width: 4, height: 4, borderRadius: '50%', background: childActive ? 'var(--sage-l)' : 'var(--s-text3)', marginRight: 8, flexShrink: 0, display: 'inline-block' }} />
+                            {child.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

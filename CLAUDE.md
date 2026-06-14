@@ -636,7 +636,7 @@ launchmind/
 > Update this section at the end of every phase.
 
 ```
-Last updated: Phase 5 Week 19 in progress (2026-05-31)
+Last updated: Phase 5 Week 19 — Settings refactor + product archive (2026-06-03)
 
 Backend — Weeks 0–19: COMMITTED AND COMPLETE
   Week 0:  Scaffold, Docker, CI/CD, Oracle deploy, GitHub Actions
@@ -711,10 +711,27 @@ Frontend — Weeks 9–19: COMPLETE
            components/launchmind/AssetBlock.tsx — renders all 9 asset types (text/video/visual),
              playback, download, regenerate, edit actions; all icons use Icon prefix (v3)
            app/(dashboard)/dashboard/briefs/page.tsx — 2-col layout, AssetBlock grid, icon fix
-           app/(dashboard)/dashboard/settings/page.tsx — 3-tab layout (Account / Content / Danger):
-             Content tab: token cost bar (data-token-cost), 5 content type toggle sections
-             (text/video/visual/community/socialProof), voice clone upload, debounced auto-save
-           E2E tests: 3 new describe blocks in sanity.spec.ts, 1 in regression.spec.ts
+           app/(dashboard)/dashboard/settings/page.tsx — refactored to left nav (170px) + 7 tabs:
+             Profile, Security, Content types, Voice clone, Notifications, Products, Account management
+             ?tab= query param drives tab; each tab is its own component (tabs/ folder)
+             lib/types/settings.ts: SettingsTab, SETTINGS_NAV, ArchivedProduct
+             components/launchmind/SettingsLayout.tsx: left nav with @tabler/icons-react v3
+           Settings tabs: ProfileTab, SecurityTab, NotificationsTab, ContentTypesTab,
+             VoiceCloneTab, ProductsTab, AccountManagementTab
+           ProductsTab: active products (Archive), archived products (Restore + Delete permanently)
+             Archive confirmation dialog (amber); permanent delete dialog (type DELETE)
+           components/launchmind/ProductMenu.tsx: three-dot overflow menu per product card
+             Archive + navigation actions; archive confirmation dialog embedded
+           app/(dashboard)/dashboard/products/page.tsx: ProductMenu per card (position:relative);
+             ArchivedSection inline component (collapsed, restore + permanent delete)
+           Backend: migration 029 (archived_at + archive_reason on products), 4 new routes:
+             GET /products/archived, POST /products/:id/archive, POST /products/:id/restore,
+             DELETE /products/:id; archive pauses campaigns; restore checks plan limit;
+             .is('archived_at', null) filter added to all active product queries
+           lib/api.ts: Product type extended with archived_at/archive_reason; 4 new api methods
+           162 tests passing (13 new tests for archive routes); tsc --noEmit: 0 errors
+           E2E tests: 3 new describe blocks in sanity.spec.ts (Settings left nav layout,
+             Products archive flow, Settings regression) + 3 describe blocks from content OS
 
 Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
   playbook_signals: 52 rows (migration 11 + migration 18)
@@ -723,16 +740,17 @@ Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
   3 launched campaigns (whatsapp/india, meta/usa, google/india) + metrics + brief
 
 Pending:
-  Push 3 new migrations to hosted Supabase:
+  Push 4 new migrations to hosted Supabase (SQL editor at supabase.com/dashboard → project gseqtbwdenjkwysregpp):
     20260530_000026_content_assets.sql
     20260530_000027_content_preferences.sql
     20260530_000028_learning_loop.sql
+    20260530_000029_product_archive.sql  ← archived_at + archive_reason on products
   Studio billing plan-change flow requires live STRIPE_SECRET_KEY in VM env.
-  Manual browser testing of all 7 intake wizard steps (requires Next.js dev server + Vijay login).
+  Manual browser testing: settings left nav, products archive/restore flow (requires Next.js dev server + Vijay login).
   Strategy quality check: MOAT/quote/language in generated output (requires Claude API key on VM).
   Set ELEVENLABS_API_KEY + CREATOMATE_API_KEY on Oracle VM for production video generation.
 
-Next: complete Week 19 browser testing, then open phases/phase-5/weeks-19-20.md for Week 20.
+Next: push migration 029 to hosted Supabase, then browser test archive flow, then open phases/phase-5/weeks-19-20.md for Week 20.
 ```
 
 ---

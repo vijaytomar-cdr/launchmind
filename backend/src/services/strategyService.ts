@@ -91,6 +91,7 @@ export async function generateStrategy(
     .select('*')
     .eq('id', productId)
     .eq('founder_id', founderId)
+    .is('archived_at', null)
     .single();
 
   if (error || !product) throw new Error('Product not found or access denied');
@@ -285,6 +286,7 @@ export async function generateContentAssets(
     .select('name, category, confirmed_icp, icp_embedding, founder_id')
     .eq('id', productId)
     .eq('founder_id', founderId)
+    .is('archived_at', null)
     .single();
 
   if (error || !product) throw new Error('Product not found or access denied');

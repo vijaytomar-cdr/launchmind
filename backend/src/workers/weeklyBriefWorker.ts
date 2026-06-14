@@ -143,7 +143,8 @@ async function fetchAllActiveProducts(): Promise<ProductBriefTarget[]> {
   const { data, error } = await getSupabaseAdmin()
     .from('products')
     .select('id, founder_id, name, category, competitor_set, founders(email)')
-    .not('confirmed_icp', 'is', null);
+    .not('confirmed_icp', 'is', null)
+    .is('archived_at', null);
 
   if (error || !data) {
     throw new Error(`Failed to fetch active products: ${error?.message}`);
@@ -370,6 +371,15 @@ export function startBriefWorker(redisUrl?: string): Worker<BriefJobData> {
 
   const connection = new IORedis(redisUrl ?? process.env.REDIS_URL ?? 'redis://localhost:6379', {
     maxRetriesPerRequest: null,
+    enableOfflineQueue: false,
+    retryStrategy: (times: number) => Math.min(times * 500, 30_000),
+  });
+  let _warnedOnce = false;
+  connection.on('error', (err: Error) => {
+    if (process.env.NODE_ENV !== 'production' && !_warnedOnce) {
+      console.warn('[weeklyBriefWorker] Redis unavailable — worker idle:', err.message);
+      _warnedOnce = true;
+    }
   });
 
   _worker = new Worker<BriefJobData>(
