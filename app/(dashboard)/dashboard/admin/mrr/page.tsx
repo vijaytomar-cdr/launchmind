@@ -103,7 +103,7 @@ export default function AdminMrrPage() {
   const foundersPct = Math.min(100, Math.round((data.totalPayingFounders / TARGET_FOUNDERS) * 100));
 
   return (
-    <div className="p-8 max-w-3xl space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -365,7 +365,7 @@ export default function ConfirmPage() {
                 className="rounded-full border-2 border-t-transparent animate-spin"
                 style={{ display: 'inline-block', width: 14, height: 14, borderColor: '#fff', borderTopColor: 'transparent' }}
               />
-              Generating…
+              Building strategy (~15s)…
             </>
           ) : (
             'Generate strategy — 50 tokens →'

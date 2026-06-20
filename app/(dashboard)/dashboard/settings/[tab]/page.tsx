@@ -61,7 +61,7 @@ export default function SettingsTabPage({ params }: { params: { tab: string } })
   const { title, sub, component: TabComponent } = meta;
 
   return (
-    <div className="p-6" style={{ maxWidth: 860 }}>
+    <div className="p-4 sm:p-6">
       <div style={{ marginBottom: 24 }}>
         <h1 className="font-display font-bold" style={{ fontSize: 20, color: 'var(--ink)' }}>
           {title}

@@ -9,7 +9,7 @@
  * @dependencies lib/api, lib/types/intake, next/navigation
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { api } from '@/lib/api';
@@ -28,7 +28,7 @@ const PROGRESS_ITEMS: ProgressItem[] = [
   {
     label: 'App Store / Play Store metadata',
     sub: 'Reading name, category, rating, screenshots…',
-    doneAt: ['scraping_app_store', 'scraping_website', 'analysing_reviews', 'finding_competitors', 'matching_playbook', 'building_icp', 'complete', 'completed'],
+    doneAt: ['scraping_website', 'analysing_reviews', 'finding_competitors', 'matching_playbook', 'building_icp', 'complete', 'completed'],
     runAt: ['scraping_play_store', 'scraping_app_store', 'queued', 'active', 'waiting'],
   },
   {
@@ -70,17 +70,41 @@ function getItemState(item: ProgressItem, status: ScrapeJobStatus['status']): 'd
   return 'pending';
 }
 
+const STATUS_MSG: Partial<Record<ScrapeJobStatus['status'], string>> = {
+  queued:              'Queued — starting shortly…',
+  active:              'Starting analysis…',
+  waiting:             'Starting analysis…',
+  scraping_play_store: 'Reading Play Store listing…',
+  scraping_app_store:  'Reading App Store listing…',
+  scraping_website:    'Scanning your website…',
+  analysing_reviews:   'Analyzinguser reviews…',
+  finding_competitors: 'Finding competitor apps…',
+  matching_playbook:   'Matching campaign patterns…',
+  building_icp:        'Building your ICP brief…',
+  complete:            'Wrapping up…',
+  completed:           'Wrapping up…',
+};
+
 export default function AnalysisPage() {
   const router = useRouter();
   const supabase = createClient();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [token, setToken]     = useState('');
-  const [jobId, setJobId]     = useState('');
-  const [appName, setAppName] = useState('your app');
+  const [token, setToken]         = useState('');
+  const [jobId, setJobId]         = useState('');
+  const [productId, setProductId] = useState('');
+  const [appName, setAppName]     = useState('your app');
   const [hasWebsite, setHasWebsite] = useState(false);
-  const [status, setStatus]   = useState<ScrapeJobStatus['status']>('queued');
-  const [failed, setFailed]   = useState('');
+  const [status, setStatus]       = useState<ScrapeJobStatus['status']>('queued');
+  const [failed, setFailed]       = useState('');
+  const [elapsed, setElapsed]     = useState(0);
+  const [abandoning, setAbandoning] = useState(false);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -90,15 +114,31 @@ export default function AnalysisPage() {
     const jid = sessionStorage.getItem(INTAKE_STORAGE.jobId);
     if (!jid) { router.replace('/dashboard/products/new'); return; }
     setJobId(jid);
+    const pid = sessionStorage.getItem(INTAKE_STORAGE.productId);
+    if (pid) setProductId(pid);
 
     const urlsRaw = sessionStorage.getItem(INTAKE_STORAGE.urls);
     if (urlsRaw) {
       try {
         const urls = JSON.parse(urlsRaw);
         if (urls.websiteUrl) setHasWebsite(true);
-        const storeUrl = urls.appStoreUrl || urls.playStoreUrl || '';
-        const match = storeUrl.match(/\/([^/]+)\/id\d+/) || storeUrl.match(/\?id=([^&]+)/);
-        if (match) setAppName(match[1].replace(/[.-]/g, ' ').trim());
+        const storeUrl: string = urls.appStoreUrl || urls.playStoreUrl || '';
+        // App Store: URL contains human-readable slug before /idNNNNN
+        const toTitle = (s: string) =>
+          s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const appStoreMatch = storeUrl.match(/\/app\/([^/]+)\/id\d+/);
+        if (appStoreMatch) {
+          setAppName(toTitle(appStoreMatch[1].replace(/[-_]/g, ' ').trim()));
+        } else {
+          // Play Store: package ID like com.company.appname — skip TLD prefix + generic suffixes
+          const playMatch = storeUrl.match(/[?&]id=([^&]+)/);
+          if (playMatch) {
+            const GENERIC = new Set(['android', 'app', 'mobile', 'lite', 'free', 'pro', 'apps', 'ios']);
+            const parts = playMatch[1].split('.');
+            const name = parts.slice(1).find(p => !GENERIC.has(p.toLowerCase())) ?? parts[parts.length - 1];
+            setAppName(toTitle(name.replace(/[-_]/g, ' ').trim()));
+          }
+        }
       } catch { /* ignore */ }
     }
   }, [router]);
@@ -135,6 +175,33 @@ export default function AnalysisPage() {
     };
   }, [jobId, token, router]);
 
+  const handleStartOver = useCallback(async () => {
+    if (!productId) return;
+    setAbandoning(true);
+    // Stop current polling + timer
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (timerRef.current) clearInterval(timerRef.current);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const t = session?.access_token ?? token;
+      const { jobId: newJobId } = await api.products.rescrape(productId, t!);
+      // Update sessionStorage so polling uses the new job
+      sessionStorage.setItem(INTAKE_STORAGE.jobId, newJobId);
+      // Reset analysis UI state
+      setJobId(newJobId);
+      setStatus('queued');
+      setFailed('');
+      setElapsed(0);
+      setAbandoning(false);
+      // Restart elapsed timer
+      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    } catch {
+      // Rescrape failed — fall back to step 1
+      Object.values(INTAKE_STORAGE).forEach(k => sessionStorage.removeItem(k));
+      router.push('/dashboard/products/new');
+    }
+  }, [productId, token, router, supabase]);
+
   if (failed) {
     return (
       <div>
@@ -165,11 +232,31 @@ export default function AnalysisPage() {
 
       <div className="mb-6">
         <h1 className="font-display font-bold mb-1" style={{ fontSize: 22, color: 'var(--ink)' }}>
-          Analysing {appName}
+          Analyzing {appName}
         </h1>
-        <p style={{ fontSize: 13, color: 'var(--ink2)' }}>
-          Reading your app, reviews, and founder context. About 30 seconds.
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <p style={{ fontSize: 13, color: 'var(--ink2)' }}>
+            {STATUS_MSG[status] ?? 'Analysing…'}
+          </p>
+          <span
+            className="font-mono"
+            style={{
+              fontSize: 12,
+              color: elapsed > 60 ? 'var(--amber)' : 'var(--ink3)',
+              background: 'var(--raised)',
+              border: '1px solid var(--border2)',
+              borderRadius: 4,
+              padding: '1px 7px',
+            }}
+          >
+            {elapsed}s
+          </span>
+          {elapsed > 90 && (
+            <span style={{ fontSize: 12, color: 'var(--amber)' }}>
+              Taking longer than usual — you can start over above
+            </span>
+          )}
+        </div>
       </div>
 
       <div
@@ -225,6 +312,17 @@ export default function AnalysisPage() {
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-6 flex justify-start">
+        <button
+          onClick={handleStartOver}
+          disabled={abandoning}
+          className="rounded-[6px] px-4 py-2 font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
+          style={{ fontSize: 13, color: 'var(--ink2)', border: '1px solid var(--border2)', background: 'var(--surface)' }}
+        >
+          {abandoning ? 'Stopping…' : '← Start over'}
+        </button>
       </div>
     </div>
   );

@@ -24,6 +24,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       capture_pageleave: true,
       autocapture: false,
       persistence: 'localStorage',
+      disable_surveys: true,
     });
   }, []);
 

@@ -299,7 +299,7 @@ describe('Intake flow routes (Phase 5 Week 18)', () => {
           return {
             select: (_col: string, opts?: { count?: string }) =>
               opts?.count === 'exact'
-                ? { eq: () => ({ is: () => Promise.resolve({ count: 0, error: null }) }) }
+                ? { eq: () => ({ is: () => ({ not: () => Promise.resolve({ count: 0, error: null }) }) }) }
                 : { eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) },
           };
         }
@@ -339,7 +339,7 @@ describe('Intake flow routes (Phase 5 Week 18)', () => {
         return {
           select: (_col: string, opts?: { count?: string }) =>
             opts?.count === 'exact'
-              ? { eq: () => ({ is: () => Promise.resolve({ count: 1, error: null }) }) }
+              ? { eq: () => ({ is: () => ({ not: () => Promise.resolve({ count: 1, error: null }) }) }) }
               : { eq: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }) },
         };
       });

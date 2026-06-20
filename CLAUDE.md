@@ -739,18 +739,17 @@ Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
   ClientPulse product: intake_step=6, whatsapp/india primary, full founder_context
   3 launched campaigns (whatsapp/india, meta/usa, google/india) + metrics + brief
 
+Migrations pushed to hosted Supabase (gseqtbwdenjkwysregpp) — all current as of 2026-06-19:
+  026 content_assets, 027 content_preferences, 028 content_learnings,
+  029 product_archive, 030 product_full_strategy ✓
+
 Pending:
-  Push 4 new migrations to hosted Supabase (SQL editor at supabase.com/dashboard → project gseqtbwdenjkwysregpp):
-    20260530_000026_content_assets.sql
-    20260530_000027_content_preferences.sql
-    20260530_000028_learning_loop.sql
-    20260530_000029_product_archive.sql  ← archived_at + archive_reason on products
   Studio billing plan-change flow requires live STRIPE_SECRET_KEY in VM env.
   Manual browser testing: settings left nav, products archive/restore flow (requires Next.js dev server + Vijay login).
   Strategy quality check: MOAT/quote/language in generated output (requires Claude API key on VM).
   Set ELEVENLABS_API_KEY + CREATOMATE_API_KEY on Oracle VM for production video generation.
 
-Next: push migration 029 to hosted Supabase, then browser test archive flow, then open phases/phase-5/weeks-19-20.md for Week 20.
+Next: browser test the full intake → strategy flow end-to-end (confirm page → strategy page), then open phases/phase-5/weeks-19-20.md for Week 20.
 ```
 
 ---

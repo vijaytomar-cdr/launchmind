@@ -33,7 +33,7 @@ export default async function ProductDetailPage({ params }: Props) {
   } | null;
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-6" style={{ fontSize: 13, color: 'var(--ink3)' }}>
         <Link href="/dashboard/products" className="transition-opacity hover:opacity-70" style={{ color: 'var(--ink2)' }}>

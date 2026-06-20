@@ -178,7 +178,7 @@ async function start(): Promise<void> {
 
     // Start BullMQ workers only when Redis is properly configured
     const redisUrl = process.env.REDIS_URL ?? '';
-    const redisReady = redisUrl && !redisUrl.includes('your_upstash') && !redisUrl.includes('localhost');
+    const redisReady = redisUrl && !redisUrl.includes('your_upstash');
     if (redisReady) {
       startBriefWorker();
       startIntakeWorker();

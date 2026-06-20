@@ -216,7 +216,9 @@ describe('Products routes', () => {
         select: () => ({
           eq: () => ({
             is: () => ({
-              order: () => Promise.resolve({ data: [{ id: PRODUCT_ID, name: 'TestApp' }], error: null }),
+              not: () => ({
+                order: () => Promise.resolve({ data: [{ id: PRODUCT_ID, name: 'TestApp' }], error: null }),
+              }),
             }),
           }),
         }),

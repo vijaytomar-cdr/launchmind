@@ -179,6 +179,12 @@ export async function generateStrategy(
     });
   }
 
+  // Persist full strategy JSON so GET /products/:id/strategy can return it without re-generating
+  await supabase
+    .from('products')
+    .update({ full_strategy: strategy, updated_at: new Date().toISOString() })
+    .eq('id', productId);
+
   await supabase.from('audit_logs').insert({
     founder_id: founderId,
     action: 'strategy_generated',
@@ -363,7 +369,7 @@ export async function getProductStrategy(
   const supabase = getSupabaseAdmin();
 
   const [{ data: product }, { data: campaigns }] = await Promise.all([
-    supabase.from('products').select('founder_id').eq('id', productId).single(),
+    supabase.from('products').select('founder_id, full_strategy').eq('id', productId).single(),
     supabase
       .from('campaigns')
       .select('*')
@@ -374,5 +380,15 @@ export async function getProductStrategy(
 
   if (!product || product.founder_id !== founderId) throw new Error('Product not found');
 
-  return { campaigns: campaigns ?? [], fullStrategy: null };
+  let fullStrategy: Strategy | null = null;
+  if (product.full_strategy) {
+    try {
+      fullStrategy = StrategySchema.parse(product.full_strategy);
+    } catch {
+      // Stored strategy doesn't match current schema — treat as no strategy
+      fullStrategy = null;
+    }
+  }
+
+  return { campaigns: campaigns ?? [], fullStrategy };
 }

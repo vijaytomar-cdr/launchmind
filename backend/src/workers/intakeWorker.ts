@@ -66,27 +66,32 @@ export function startIntakeWorker(): void {
       }
 
       try {
-        const storeUrl = appStoreUrl ?? playStoreUrl;
+        // Prefer Play Store when both URLs present — google-play-scraper is a direct API
+        // call (~1-2s, no HTML parsing). App Store uses Cheerio which can fail on layout changes.
+        const storeUrl = playStoreUrl ?? appStoreUrl;
         if (!storeUrl) throw new Error('No store URL in job data');
 
         const platform = detectPlatform(storeUrl);
         if (!platform) throw new Error(`Cannot detect platform from URL: ${storeUrl}`);
 
-        await job.updateProgress(20);
+        await job.updateProgress({ status: platform === 'play_store' ? 'scraping_play_store' : 'scraping_app_store', pct: 10 });
 
         const scraped =
           platform === 'app_store'
             ? await scrapeAppStore(storeUrl)
             : await scrapePlayStore(storeUrl);
 
-        await job.updateProgress(50);
+        await job.updateProgress({ status: 'analysing_reviews', pct: 40 });
 
         const [reviewAnalysis, competitors] = await Promise.all([
           analyseReviews(scraped.reviews, founderId),
-          scrapeCompetitors(scraped.category, platform).catch(() => []),
+          (async () => {
+            await job.updateProgress({ status: 'finding_competitors', pct: 55 });
+            return scrapeCompetitors(scraped.category, platform).catch(() => []);
+          })(),
         ]);
 
-        await job.updateProgress(70);
+        await job.updateProgress({ status: websiteUrl ? 'scraping_website' : 'matching_playbook', pct: 70 });
 
         const icpBrief = buildICPBrief(scraped, reviewAnalysis);
 
@@ -95,7 +100,7 @@ export function startIntakeWorker(): void {
           websiteMeta = await scrapeWebsite(websiteUrl).catch(() => null);
         }
 
-        await job.updateProgress(90);
+        await job.updateProgress({ status: 'building_icp', pct: 90 });
 
         await getSupabaseAdmin()
           .from('products')

@@ -148,6 +148,12 @@ export const api = {
         body: JSON.stringify({ channel, market }),
         token,
       }),
+    inProgress: (token: string) =>
+      request<{ product: { id: string; name: string; store_url: string; play_store_url: string | null; app_store_url: string | null; intake_step: number | null; created_at: string } | null }>('/products/in-progress', { token }),
+    abandon: (id: string, token: string) =>
+      request<void>(`/products/${id}/abandon`, { method: 'DELETE', body: '{}', token }),
+    rescrape: (id: string, token: string) =>
+      request<{ jobId: string }>(`/products/${id}/rescrape`, { method: 'POST', body: '{}', token }),
     listArchived: (token: string) =>
       request<Product[]>('/products/archived', { token }),
     archive: (id: string, token: string) =>

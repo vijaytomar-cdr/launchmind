@@ -55,16 +55,33 @@ export const ScrapeResultSchema = z.object({
   competitors: z.array(CompetitorAppSchema),
 });
 
+// Looser ICP brief schema for the confirm route — suggestedMarkets accepts any string
+// (the markets wizard supports 4 regions; the strict enum is only for scraper output)
+const ConfirmICPBriefSchema = z.object({
+  targetUser: z.string(),
+  geography: z.array(z.string()),
+  priceTier: z.string(),
+  painPoints: z.array(z.string()),
+  competitorGaps: z.array(z.string()),
+  suggestedMarkets: z.array(z.string()),
+});
+
+// Loose competitor schema for the confirm route — user-curated entries saved to JSONB;
+// only name is guaranteed; all other fields come from scraper and may be missing
+const ConfirmCompetitorSchema = z.object({
+  name: z.string(),
+}).passthrough();
+
 export const ConfirmProductBodySchema = z.object({
   // v2 async path: UPDATE an existing product instead of INSERT
   productId: z.string().uuid().optional(),
   url: z.string().url().optional(),
   platform: z.enum(['app_store', 'play_store']).optional(),
   scraped: ScrapedAppDataSchema.optional(),
-  icpBrief: ICPBriefSchema,
-  competitors: z.array(CompetitorAppSchema).optional().default([]),
-  // Intake v2 enrichment fields
-  selectedMarkets: z.array(z.enum(['usa', 'india'])).optional(),
+  icpBrief: ConfirmICPBriefSchema,
+  competitors: z.array(ConfirmCompetitorSchema).optional().default([]),
+  // Intake v2 enrichment fields — selectedMarkets accepts all 4 wizard regions
+  selectedMarkets: z.array(z.string()).optional(),
   primaryChannel: z.string().optional(),
   excludedChannels: z.array(z.string()).optional(),
 });

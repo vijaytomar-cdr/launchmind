@@ -121,124 +121,53 @@ export async function scrapeAppStore(url: string): Promise<ScrapedAppData> {
 }
 
 /**
- * Scrapes Play Store metadata using Playwright (headless Chromium).
+ * Scrapes Play Store metadata using google-play-scraper (direct API — no browser).
  * @param url - Validated Play Store URL
  * @returns   Structured app metadata including reviews
- * @throws    {Error} If browser launch fails, navigation fails, or validation fails
- * @security  URL validated to play.google.com domain before launch.
- *             Playwright runs in isolated sandbox — no host filesystem access.
+ * @throws    {Error} If package ID cannot be extracted or API call fails
+ * @security  URL validated to play.google.com domain. No shell execution.
  */
 export async function scrapePlayStore(url: string): Promise<ScrapedAppData> {
   if (!new URL(url).hostname.includes(PLAY_STORE_HOST)) {
     throw new Error('URL is not a Play Store URL');
   }
 
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
+  const match = url.match(/[?&]id=([^&]+)/);
+  if (!match) throw new Error('Could not extract package ID from Play Store URL');
+  const appId = match[1];
 
-  try {
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 });
+  const gplay = (await import('google-play-scraper')).default;
 
-    // h1 is the app name in current Play Store HTML (2026)
-    const name = await page
-      .locator('h1')
-      .first()
-      .textContent({ timeout: 5_000 })
-      .catch(() => '');
+  const [appData, reviewResult] = await Promise.all([
+    gplay.app({ appId, lang: 'en', country: 'us' }),
+    gplay.reviews({ appId, lang: 'en', country: 'us', num: 10, sort: gplay.sort.RATING })
+      .then((r: { data: Array<{ text?: string; score?: number; date?: Date | string }> }) => r.data)
+      .catch(() => [] as Array<{ text?: string; score?: number; date?: Date | string }>),
+  ]);
 
-    const developer = await page
-      .locator('a[href*="/store/apps/developer"]')
-      .first()
-      .textContent({ timeout: 5_000 })
-      .catch(() => '');
+  const reviews: ScrapedAppData['reviews'] = reviewResult
+    .filter((r) => r.text?.trim())
+    .map((r) => ({
+      rating: Math.min(5, Math.max(1, Math.round(r.score ?? 3))),
+      text: r.text!,
+      date: r.date instanceof Date ? r.date.toISOString() : (r.date as string ?? new Date().toISOString()),
+    }));
 
-    // itemprop="description" (last occurrence is the full description block)
-    const description = await page
-      .locator('[itemprop="description"]')
-      .last()
-      .textContent({ timeout: 5_000 })
-      .catch(() => '');
+  const raw = {
+    name: (appData.title ?? '').trim(),
+    developer: (appData.developer ?? '').trim(),
+    description: (appData.description ?? '').trim(),
+    category: (appData.genre ?? 'Productivity').trim(),
+    rating: Math.min(5, Math.max(0, appData.score ?? 0)),
+    ratingCount: appData.ratings ?? 0,
+    priceTier: 'free',
+    screenshots: ((appData.screenshots ?? []) as string[]).slice(0, 10),
+    reviews,
+    platform: 'play_store' as const,
+    storeUrl: url,
+  };
 
-    // itemprop="genre" is a DIV in current Play Store HTML
-    const category = await page
-      .locator('[itemprop="genre"]')
-      .first()
-      .textContent({ timeout: 5_000 })
-      .catch(() => 'Productivity');
-
-    // aria-label="Rated X.X stars out of five stars"
-    const ratingAriaLabel = await page
-      .locator('[aria-label*="stars out of five"]')
-      .first()
-      .getAttribute('aria-label', { timeout: 5_000 })
-      .catch(() => '');
-    const rating = parseFloat(ratingAriaLabel?.match(/[\d.]+/)?.[0] ?? '0') || 0;
-
-    // Rating count embedded in the rating block text: "4.3star35.6M reviews..."
-    const ratingBlockText = await page
-      .locator('[itemprop="starRating"]')
-      .locator('../../..')
-      .first()
-      .textContent({ timeout: 5_000 })
-      .catch(() => '');
-    const countMatch = ratingBlockText?.match(/([\d,.]+[KkMmBb]?)\s*reviews?/i);
-    const ratingCount = countMatch
-      ? parseMillified(countMatch[1])
-      : 0;
-
-    const screenshots: string[] = await page
-      .locator('img[src*="play-lh.googleusercontent.com"]')
-      .evaluateAll((els) =>
-        (els as Array<{ src: string }>)
-          .map((el) => el.src)
-          .filter(Boolean)
-          .slice(0, 10)
-      );
-
-    // Reviews: try both old jsname selectors and new aria-based ones
-    const reviews: ScrapedAppData['reviews'] = [];
-    const reviewEls = await page
-      .locator('div[jsname="fk8dgd"], [data-reviewid]')
-      .all()
-      .catch(() => []);
-    for (const el of reviewEls.slice(0, 10)) {
-      const text = await el
-        .locator('span[jsname="bN97Pc"], [class*="review-body"]')
-        .textContent()
-        .catch(() => null);
-      const ratingEl = await el
-        .locator('div[role="img"]')
-        .getAttribute('aria-label')
-        .catch(() => '3 stars');
-      const r = parseInt((ratingEl ?? '3').replace(/[^0-9]/g, '')[0] ?? '3', 10);
-      if (text) {
-        reviews.push({
-          rating: Math.min(5, Math.max(1, r)),
-          text,
-          date: new Date().toISOString(),
-        });
-      }
-    }
-
-    const raw = {
-      name: name?.trim() ?? '',
-      developer: developer?.trim() ?? '',
-      description: description?.trim() ?? '',
-      category: category?.trim() ?? 'Productivity',
-      rating: Math.min(5, Math.max(0, rating)),
-      ratingCount,
-      priceTier: 'free',
-      screenshots,
-      reviews,
-      platform: 'play_store' as const,
-      storeUrl: url,
-    };
-
-    return ScrapedAppDataSchema.parse(raw);
-  } finally {
-    await browser.close();
-  }
+  return ScrapedAppDataSchema.parse(raw);
 }
 
 /** Converts "35.6M" → 35600000, "1.2K" → 1200, plain numbers pass through. */

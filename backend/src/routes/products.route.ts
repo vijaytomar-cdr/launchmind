@@ -147,10 +147,13 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
           return reply.status(422).send({ error: 'appStoreUrl or playStoreUrl must be a valid store URL' });
         }
 
-        // Plan limit check — run both queries in parallel
+        // Plan limit check — only confirmed (completed intake) products count against the limit
         const [{ data: founder }, { count: productCount }] = await Promise.all([
           getSupabaseAdmin().from('founders').select('plan').eq('id', founderId).single(),
-          getSupabaseAdmin().from('products').select('id', { count: 'exact', head: true }).eq('founder_id', founderId).is('archived_at', null),
+          getSupabaseAdmin().from('products').select('id', { count: 'exact', head: true })
+            .eq('founder_id', founderId)
+            .is('archived_at', null)
+            .not('confirmed_icp', 'is', null),
         ]);
 
         const limit = PLAN_PRODUCT_LIMITS[founder?.plan ?? 'free'] ?? 1;
@@ -344,7 +347,10 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         }
 
         const state = await job.getState();
-        const progress = typeof job.progress === 'number' ? job.progress : 0;
+        // Progress can be a number (legacy) or { status, pct } object (current)
+        const rawProgress = job.progress as { status?: string; pct?: number } | number | undefined;
+        const namedStatus = typeof rawProgress === 'object' ? (rawProgress?.status ?? null) : null;
+        const pct = typeof rawProgress === 'object' ? (rawProgress?.pct ?? 0) : (typeof rawProgress === 'number' ? rawProgress : 0);
 
         if (state === 'completed') {
           return reply.send({
@@ -358,15 +364,15 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         if (state === 'failed') {
           return reply.send({
             status: 'failed',
-            progress,
+            progress: pct,
             productId: job.data.productId,
             error: job.failedReason ?? 'Scrape failed — please retry',
           });
         }
 
         return reply.send({
-          status: state === 'active' ? 'active' : 'waiting',
-          progress,
+          status: namedStatus ?? (state === 'active' ? 'active' : 'waiting'),
+          progress: pct,
           productId: job.data.productId,
         });
       } catch (err) {
@@ -666,6 +672,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       .select('*')
       .eq('founder_id', founderId)
       .is('archived_at', null)
+      .not('confirmed_icp', 'is', null)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -698,6 +705,158 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
     return reply.send(data ?? []);
   });
+
+  /**
+   * GET /products/in-progress
+   * Returns the most recent incomplete intake product (confirmed_icp IS NULL) for this founder.
+   * Used by the products page to detect an abandoned session before starting a new one.
+   * Must be registered before /products/:id to avoid Fastify treating "in-progress" as :id.
+   * @security founderId from JWT.
+   */
+  server.get('/products/in-progress', async (request, reply) => {
+    const founderId = getFounderId(request);
+
+    const { data, error } = await getSupabaseAdmin()
+      .from('products')
+      .select('id, name, store_url, play_store_url, app_store_url, intake_step, created_at')
+      .eq('founder_id', founderId)
+      .is('confirmed_icp', null)
+      .is('archived_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      Sentry.captureException(error, { tags: { route: 'GET /products/in-progress' } });
+      return reply.status(500).send({ error: 'Failed to check in-progress intake' });
+    }
+
+    return reply.send({ product: data ?? null });
+  });
+
+  /**
+   * DELETE /products/:id/abandon
+   * Hard-deletes an incomplete intake product (confirmed_icp IS NULL only).
+   * Bypasses the archive-first requirement — these are orphan placeholders, not real products.
+   * @security founderId verified against product.founder_id. Confirmed products are rejected.
+   */
+  server.delete<{ Params: { id: string } }>(
+    '/products/:id/abandon',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { id } = request.params;
+
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid product ID' });
+      }
+
+      const supabase = getSupabaseAdmin();
+
+      const { data: product, error: fetchError } = await supabase
+        .from('products')
+        .select('id, name, founder_id, confirmed_icp')
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (fetchError || !product) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+
+      if (product.confirmed_icp !== null) {
+        return reply.status(422).send({
+          error: 'Cannot abandon a confirmed product. Use archive instead.',
+          code: 'PRODUCT_ALREADY_CONFIRMED',
+        });
+      }
+
+      void getSupabaseAdmin().from('audit_logs').insert({
+        founder_id: founderId,
+        action: 'intake_abandoned',
+        resource_type: 'product',
+        resource_id: id,
+        metadata: { name: product.name },
+      });
+
+      const { error: deleteError } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', id)
+        .eq('founder_id', founderId);
+
+      if (deleteError) {
+        Sentry.captureException(deleteError, { tags: { route: 'DELETE /products/:id/abandon' } });
+        return reply.status(500).send({ error: 'Failed to abandon product' });
+      }
+
+      return reply.status(204).send();
+    }
+  );
+
+  /**
+   * POST /products/:id/rescrape
+   * Retries the analysis for an incomplete product — removes the stale BullMQ job (best-effort),
+   * resets intake_step to 1, enqueues a fresh scrape job, returns the new jobId.
+   * Only allowed while confirmed_icp IS NULL (analysis not yet complete).
+   * @security founderId verified against product.founder_id.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/products/:id/rescrape',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { id } = request.params;
+
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid product ID' });
+      }
+
+      const supabase = getSupabaseAdmin();
+      const { data: product, error: fetchError } = await supabase
+        .from('products')
+        .select('id, founder_id, confirmed_icp, app_store_url, play_store_url, website_url')
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (fetchError || !product) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+      if (product.confirmed_icp !== null) {
+        return reply.status(422).send({ error: 'Analysis already complete. No rescrape needed.' });
+      }
+
+      // Remove stale job so a fresh one can be enqueued with the same deterministic ID
+      try {
+        const oldJob = await getScrapeJob(`scrape-${id}`);
+        if (oldJob) await oldJob.remove();
+      } catch { /* ignore — job may already be gone or active */ }
+
+      // Reset intake_step so the poll route returns 'waiting' cleanly
+      await supabase
+        .from('products')
+        .update({ intake_step: 1, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('founder_id', founderId);
+
+      const newJobId = await enqueueScrapeJob({
+        productId: id,
+        founderId,
+        appStoreUrl:  product.app_store_url  ?? undefined,
+        playStoreUrl: product.play_store_url ?? undefined,
+        websiteUrl:   product.website_url    ?? undefined,
+      });
+
+      void supabase.from('audit_logs').insert({
+        founder_id: founderId,
+        action: 'intake_rescrape',
+        resource_type: 'product',
+        resource_id: id,
+        metadata: { jobId: newJobId },
+      });
+
+      return reply.send({ jobId: newJobId });
+    }
+  );
 
   /**
    * POST /products/:id/archive
@@ -1217,6 +1376,61 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
         resource_type: 'campaign',
         resource_id: id,
         metadata: { status: 'approved' },
+      });
+
+      return reply.send(updated);
+    }
+  );
+
+  /**
+   * PATCH /campaigns/:id/pause
+   * Pauses a live campaign — sets status to 'paused'.
+   * @security founderId verified against campaign.founder_id. Only launched/approved can be paused.
+   */
+  server.patch<{ Params: { id: string } }>(
+    '/campaigns/:id/pause',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const { id } = request.params;
+
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid campaign ID' });
+      }
+
+      const { data: campaign, error: fetchError } = await getSupabaseAdmin()
+        .from('campaigns')
+        .select('id, founder_id, status')
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (fetchError || !campaign) {
+        return reply.status(404).send({ error: 'Campaign not found' });
+      }
+
+      if (!['launched', 'approved'].includes(campaign.status)) {
+        return reply.status(409).send({ error: `Campaign is ${campaign.status} — only launched/approved campaigns can be paused` });
+      }
+
+      const { data: updated, error: updateError } = await getSupabaseAdmin()
+        .from('campaigns')
+        .update({ status: 'paused', updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('founder_id', founderId)
+        .select()
+        .single();
+
+      if (updateError || !updated) {
+        Sentry.captureException(updateError, { tags: { route: 'PATCH /campaigns/:id/pause' } });
+        return reply.status(500).send({ error: 'Failed to pause campaign' });
+      }
+
+      await getSupabaseAdmin().from('audit_logs').insert({
+        founder_id: founderId,
+        action: 'campaign_paused',
+        resource_type: 'campaign',
+        resource_id: id,
+        metadata: { status: 'paused' },
       });
 
       return reply.send(updated);

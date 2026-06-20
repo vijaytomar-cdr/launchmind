@@ -81,6 +81,68 @@ function ConvRow({ label, hint, children }: { label: string; hint?: string; chil
   );
 }
 
+// ── First-action placeholder keyed to app category ───────────────────────────
+
+function getFirstActionPlaceholder(category?: string): string {
+  const c = (category ?? '').toLowerCase();
+  if (/health|fitness|wellness|sport|gym|workout/.test(c))
+    return 'e.g. Log first workout · Set a fitness goal · Connect wearable';
+  if (/education|learning|school|tutor|study|course/.test(c))
+    return 'e.g. Enrol in first course · Set a daily goal · Complete first lesson';
+  if (/finance|banking|accounting|tax|invoice|payment/.test(c))
+    return 'e.g. Link a bank account · Create first invoice · Set a budget';
+  if (/crm|sales|lead|pipeline/.test(c))
+    return 'e.g. Add first contact · Create a deal · Book first call';
+  if (/house|home|cleaning|repair|maintenance|property/.test(c))
+    return 'e.g. Post first job · Browse nearby services · Get first quote';
+  if (/travel|hotel|flight|booking|vacation|trip/.test(c))
+    return 'e.g. Search first destination · Save a trip · Book a stay';
+  if (/food|restaurant|recipe|delivery|grocery|dining/.test(c))
+    return 'e.g. Place first order · Save a favourite · Browse nearby restaurants';
+  if (/shopping|retail|fashion|clothing|commerce/.test(c))
+    return 'e.g. Browse first category · Add to wishlist · Complete first purchase';
+  if (/game|gaming|entertainment|music/.test(c))
+    return 'e.g. Complete tutorial · Unlock first achievement · Invite a friend';
+  if (/social|chat|message|community|dating/.test(c))
+    return 'e.g. Create profile · Send first message · Join first group';
+  if (/photo|camera|video|creative/.test(c))
+    return 'e.g. Take first photo · Apply a filter · Share first creation';
+  if (/business|productivity|tool|utility|work/.test(c))
+    return 'e.g. Create first project · Invite a teammate · Complete onboarding';
+  return 'e.g. Complete first action · Invite a friend · Unlock first feature';
+}
+
+// ── MOAT placeholder keyed to app category ────────────────────────────────────
+
+function getMoatPlaceholder(category?: string): string {
+  const c = (category ?? '').toLowerCase();
+  if (/health|fitness|wellness|sport|gym|workout/.test(c))
+    return "e.g. Only app that syncs with both Apple Health and Google Fit — built by a marathon coach who trained 500+ athletes over 10 years.";
+  if (/education|learning|school|tutor|study|course/.test(c))
+    return "e.g. Only platform built for Indian tutors with official WhatsApp Business API — no banned workarounds. Built by a tutor who spent 8 years chasing payments.";
+  if (/finance|banking|accounting|tax|invoice|payment/.test(c))
+    return "e.g. Only invoicing app with built-in GST filing — built by a CA who spent 10 years doing it manually for SMEs.";
+  if (/crm|sales|lead|pipeline/.test(c))
+    return "e.g. Only CRM that auto-logs WhatsApp conversations — built by a sales rep who lost deals to missed follow-ups.";
+  if (/house|home|cleaning|repair|maintenance|property/.test(c))
+    return "e.g. Only home services app that guarantees same-day booking or it's free — 4 years of operations data behind our matching algorithm.";
+  if (/travel|hotel|flight|booking|vacation|trip/.test(c))
+    return "e.g. Only travel app with offline maps verified for remote India — built after getting stranded in Spiti Valley with no signal.";
+  if (/food|restaurant|recipe|delivery|grocery|dining/.test(c))
+    return "e.g. Only delivery platform that settles restaurants in 24 hours, not 7–30 days — built by a restaurant owner tired of cash flow gaps.";
+  if (/shopping|retail|fashion|clothing|commerce/.test(c))
+    return "e.g. Only fashion resale app that authenticates in-house before listing — built by a sneaker collector tired of buying fakes.";
+  if (/game|gaming|entertainment|music/.test(c))
+    return "e.g. Only casual game designed for 2G networks — 40% smaller APK than competitors, fully playable offline.";
+  if (/social|chat|message|community|dating/.test(c))
+    return "e.g. Only community app built exclusively for Indian expats — founder spent 5 years isolated abroad and built the network they wished existed.";
+  if (/photo|camera|video|creative/.test(c))
+    return "e.g. Only editing app that processes entirely on-device — no cloud upload, no privacy risk, works on phones from 2018 onward.";
+  if (/business|productivity|tool|utility|work/.test(c))
+    return "e.g. Only project tool that works fully offline and syncs when reconnected — built for teams in areas with unreliable connectivity.";
+  return "e.g. Only [your app type] built for [specific audience] with [unique capability] — [your founder story in one line].";
+}
+
 // ── Peak season options keyed to app category ─────────────────────────────────
 
 function getPeakSeasonOptions(category?: string): string[] {
@@ -89,21 +151,27 @@ function getPeakSeasonOptions(category?: string): string[] {
     return ['New year (Jan)', 'Summer prep (Apr–Jun)', 'No clear peak — year round', 'Not sure'];
   if (/education|learning|school|tutor|study|course/.test(c))
     return ['Back to school (Aug–Sept)', 'Exam season (Mar–May)', 'New year (Jan)', 'No clear peak — year round', 'Not sure'];
-  if (/finance|banking|accounting|tax|invoice|payment|crm/.test(c))
-    return ['Financial year start (Apr)', 'Tax season (Feb–Apr)', 'Q4 / New year (Oct–Jan)', 'No clear peak — year round', 'Not sure'];
+  if (/crm|sales|lead|pipeline/.test(c))
+    return ['New year (Jan)', 'Q4 push (Oct–Dec)', 'Financial year start (Apr)', 'No clear peak — year round', 'Not sure'];
+  if (/finance|banking|accounting|tax|invoice|payment/.test(c))
+    return ['Tax season (Feb–Apr)', 'Financial year start (Apr)', 'Q4 / New year (Oct–Jan)', 'No clear peak — year round', 'Not sure'];
   if (/house|home|cleaning|repair|maintenance|service|property/.test(c))
     return ['Spring cleaning (Mar–May)', 'Summer (Jun–Aug)', 'Pre-winter (Sept–Oct)', 'No clear peak — year round', 'Not sure'];
   if (/travel|hotel|flight|booking|vacation|trip/.test(c))
     return ['Summer (Jun–Aug)', 'Winter holidays (Nov–Jan)', 'Spring break (Mar–Apr)', 'No clear peak — year round', 'Not sure'];
   if (/food|restaurant|recipe|delivery|grocery|dining/.test(c))
-    return ['Holiday season (Nov–Jan)', 'Summer BBQ (Jun–Aug)', 'Festive / Diwali (Oct–Nov)', 'No clear peak — year round', 'Not sure'];
+    return ['Festive / Diwali (Oct–Nov)', 'Holiday season (Nov–Jan)', 'Summer (Jun–Aug)', 'No clear peak — year round', 'Not sure'];
   if (/shopping|retail|fashion|clothing|commerce/.test(c))
-    return ['Q4 holiday (Oct–Dec)', 'Diwali (Oct–Nov)', 'Back to school (Aug–Sept)', 'No clear peak — year round', 'Not sure'];
-  if (/game|gaming|entertainment|media|music/.test(c))
+    return ['Q4 holiday (Oct–Dec)', 'Diwali (Oct–Nov)', 'End of season sale (Jun, Dec)', 'No clear peak — year round', 'Not sure'];
+  if (/game|gaming|entertainment|music/.test(c))
     return ['Q4 holiday (Oct–Dec)', 'Summer (Jun–Aug)', 'No clear peak — year round', 'Not sure'];
+  if (/social|chat|message|community|dating/.test(c))
+    return ['New year (Jan)', 'Valentine\'s (Feb)', 'No clear peak — year round', 'Not sure'];
+  if (/photo|camera|video|creative/.test(c))
+    return ['New year (Jan)', 'Summer (Jun–Aug)', 'Holiday season (Nov–Jan)', 'No clear peak — year round', 'Not sure'];
   if (/business|productivity|tool|utility|work/.test(c))
-    return ['New year (Jan)', 'Financial year start (Apr)', 'No clear peak — year round', 'Not sure'];
-  return ['Back to school (Aug–Sept)', 'New year (Jan)', 'Financial year start', 'No clear peak — year round', 'Not sure'];
+    return ['New year (Jan)', 'Financial year start (Apr)', 'Q4 planning (Oct–Nov)', 'No clear peak — year round', 'Not sure'];
+  return ['New year (Jan)', 'Q4 holiday (Oct–Dec)', 'No clear peak — year round', 'Not sure'];
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -144,6 +212,7 @@ export default function ContextPage() {
 
   // Conv 5
   const [bestCustomerQuote, setBestCustomerQuote] = useState('');
+  const [contentFormats, setContentFormats] = useState<string[]>([]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -217,6 +286,7 @@ export default function ContextPage() {
         if (ctx.moat) setMoat(ctx.moat);
         if (ctx.peakSeason) setPeakSeason(ctx.peakSeason);
         if (ctx.bestCustomerQuote) setBestCustomerQuote(ctx.bestCustomerQuote);
+        if (ctx.contentFormats) setContentFormats(ctx.contentFormats);
       } catch { /* ignore */ }
     }
 
@@ -243,6 +313,7 @@ export default function ContextPage() {
       moat: moat || undefined,
       peakSeason: peakSeason || undefined,
       bestCustomerQuote: bestCustomerQuote || undefined,
+      contentFormats: contentFormats.length ? contentFormats : undefined,
     };
   }
 
@@ -444,7 +515,7 @@ export default function ContextPage() {
               type="text"
               value={firstUserAction}
               onChange={(e) => setFirstUserAction(e.target.value)}
-              placeholder="e.g. Add first student · Connect calendar · Book a demo"
+              placeholder={getFirstActionPlaceholder(appCategory)}
               className="autofill-light w-full rounded-[6px] px-3 py-2 outline-none"
               style={{ background: 'var(--raised)', border: '1px solid var(--border2)', color: 'var(--ink)', fontSize: 13 }}
             />
@@ -468,7 +539,7 @@ export default function ContextPage() {
               value={moat}
               onChange={(e) => setMoat(e.target.value)}
               rows={4}
-              placeholder={'e.g. Only CRM built for Indian tutors with official WhatsApp Business API — no banned workarounds. Built by a tutor who spent 8 years chasing payments.'}
+              placeholder={getMoatPlaceholder(appCategory)}
               className="w-full rounded-[6px] px-3 py-2 outline-none resize-none"
               style={{ background: 'var(--raised)', border: '1px solid var(--border2)', color: 'var(--ink)', fontSize: 13 }}
             />
@@ -523,13 +594,24 @@ export default function ContextPage() {
       {/* ── Conv 5 ── */}
       {conv === 5 && (
         <ConvCard
-          heading="Your best customer's voice"
-          sub="Optional — but this is the single most powerful input."
+          heading="What content do you want to create?"
+          sub="LaunchMind will generate these for you. Pick all that apply — skip if unsure."
           onBack={() => setConv(4)}
           onNext={() => saveAndAdvance('next-step')}
           onSkip={() => saveAndAdvance('next-step')}
           saving={saving}
         >
+          <ConvRow
+            label="Content formats (multi-select)"
+            hint="These become your first batch of campaign assets after strategy generation"
+          >
+            <ChipGroup
+              options={['Video ad (30–60s)', 'Static visual', 'Carousel', 'WhatsApp copy', 'Email sequence', 'Text / headline copy']}
+              selected={contentFormats}
+              onChange={(v) => setContentFormats(v as string[])}
+              mode="multi"
+            />
+          </ConvRow>
           <ConvRow label="Paste a DM, review, or email your happiest user ever sent you">
             <textarea
               value={bestCustomerQuote}

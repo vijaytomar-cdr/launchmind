@@ -16,6 +16,36 @@ import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { Product } from '@/lib/api';
 import { ProductMenu } from '@/components/launchmind/ProductMenu';
+import { INTAKE_STORAGE } from '@/lib/types/intake';
+
+type InProgressProduct = {
+  id: string;
+  name: string;
+  store_url: string;
+  play_store_url: string | null;
+  app_store_url: string | null;
+  intake_step: number | null;
+  created_at: string;
+};
+
+// Maps completed intake_step to the next URL the user should land on when resuming
+const RESUME_URLS: Record<number, string> = {
+  1: '/dashboard/products/new/context',
+  2: '/dashboard/products/new/analysis',
+  3: '/dashboard/products/new/icp',
+  4: '/dashboard/products/new/competitors',
+  5: '/dashboard/products/new/markets',
+  6: '/dashboard/products/new/confirm',
+};
+
+const STEP_LABELS: Record<number, string> = {
+  1: 'URL entry',
+  2: 'Context',
+  3: 'Analysis',
+  4: 'ICP brief',
+  5: 'Competitors',
+  6: 'Markets',
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -258,6 +288,85 @@ function ArchivedSection({ products, token, onRefresh }: { products: Product[]; 
   );
 }
 
+// ── Resume modal ──────────────────────────────────────────────────────────────
+
+function ResumeModal({
+  product,
+  onResume,
+  onStartFresh,
+  onCancel,
+  abandonLoading,
+}: {
+  product: InProgressProduct;
+  onResume: () => void;
+  onStartFresh: () => void;
+  onCancel: () => void;
+  abandonLoading: boolean;
+}) {
+  const step = product.intake_step ?? 1;
+  const displayUrl = product.play_store_url ?? product.app_store_url ?? product.store_url;
+  const shortUrl = displayUrl.replace(/^https?:\/\//, '').replace(/\?.+$/, '').substring(0, 52);
+  const stepLabel = STEP_LABELS[step] ?? 'URL entry';
+  const startedAt = new Date(product.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 12, padding: 24, maxWidth: 420, width: '90%', border: '1px solid var(--border2)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--amber-d)', border: '1px solid var(--amber-b)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="var(--amber)" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+          </div>
+          <div>
+            <div className="font-display font-semibold" style={{ fontSize: 15, color: 'var(--ink)', marginBottom: 2 }}>Unfinished setup found</div>
+            <div style={{ fontSize: 12, color: 'var(--ink3)' }}>Started {startedAt}</div>
+          </div>
+        </div>
+
+        {/* Product info */}
+        <div style={{ background: 'var(--raised)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 4 }}>In progress</div>
+          <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, wordBreak: 'break-all' }}>{shortUrl}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+            {/* Step progress dots */}
+            {[1,2,3,4,5,6].map(n => (
+              <div key={n} style={{ width: n <= step ? 20 : 8, height: 6, borderRadius: 3, background: n <= step ? 'var(--sage)' : 'var(--border2)', transition: 'width 0.2s' }} />
+            ))}
+            <span style={{ fontSize: 11, color: 'var(--ink2)', marginLeft: 4 }}>Step {step}/6 — {stepLabel}</span>
+          </div>
+        </div>
+
+        <p style={{ fontSize: 13, color: 'var(--ink2)', marginBottom: 20, lineHeight: 1.6 }}>
+          You left off at <strong style={{ color: 'var(--ink)' }}>{stepLabel}</strong>. Pick up where you left off or discard this and start fresh.
+        </p>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={onResume}
+            style={{ flex: 1, padding: '9px 16px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: 'var(--sage)', color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Resume setup →
+          </button>
+          <button
+            onClick={onStartFresh}
+            disabled={abandonLoading}
+            style={{ padding: '9px 16px', borderRadius: 6, fontSize: 13, background: 'var(--raised)', border: '1px solid var(--border2)', color: 'var(--ink2)', cursor: abandonLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: abandonLoading ? 0.6 : 1 }}
+          >
+            {abandonLoading ? 'Discarding…' : 'Start fresh'}
+          </button>
+          <button
+            onClick={onCancel}
+            style={{ padding: '9px 12px', borderRadius: 6, fontSize: 13, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink3)', cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ProductsPage() {
@@ -268,6 +377,9 @@ export default function ProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const mountedRef = useRef(true);
+  const [checkingInProgress, setCheckingInProgress] = useState(false);
+  const [inProgressProduct, setInProgressProduct] = useState<InProgressProduct | null>(null);
+  const [abandonLoading, setAbandonLoading] = useState(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -305,8 +417,60 @@ export default function ProductsPage() {
     fetchProducts();
   }, [fetchProducts]);
 
+  async function handleAddProduct() {
+    if (!token) { router.push('/dashboard/products/new'); return; }
+    setCheckingInProgress(true);
+    try {
+      const result = await api.products.inProgress(token);
+      if (result.product) {
+        setInProgressProduct(result.product);
+      } else {
+        router.push('/dashboard/products/new');
+      }
+    } catch {
+      router.push('/dashboard/products/new');
+    } finally {
+      setCheckingInProgress(false);
+    }
+  }
+
+  function handleResume() {
+    if (!inProgressProduct) return;
+    sessionStorage.setItem(INTAKE_STORAGE.productId, inProgressProduct.id);
+    sessionStorage.setItem(INTAKE_STORAGE.jobId, `scrape-${inProgressProduct.id}`);
+    const step = inProgressProduct.intake_step ?? 1;
+    // Products returned by /in-progress always have confirmed_icp=null (analysis not complete).
+    // step=1 means context not yet submitted → go to context page.
+    // step>=2 means context was submitted but analysis is still running → go to analysis page.
+    const url = step <= 1
+      ? '/dashboard/products/new/context'
+      : '/dashboard/products/new/analysis';
+    router.push(url);
+  }
+
+  async function handleStartFresh() {
+    if (!inProgressProduct || !token) return;
+    setAbandonLoading(true);
+    try {
+      await api.products.abandon(inProgressProduct.id, token);
+    } catch { /* ignore — product may not exist */ }
+    setInProgressProduct(null);
+    setAbandonLoading(false);
+    router.push('/dashboard/products/new');
+  }
+
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
+      {inProgressProduct && (
+        <ResumeModal
+          product={inProgressProduct}
+          onResume={handleResume}
+          onStartFresh={handleStartFresh}
+          onCancel={() => setInProgressProduct(null)}
+          abandonLoading={abandonLoading}
+        />
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
         <div>
@@ -317,13 +481,14 @@ export default function ProductsPage() {
             Your apps and their ICP briefs
           </p>
         </div>
-        <Link
-          href="/dashboard/products/new"
+        <button
+          onClick={handleAddProduct}
+          disabled={checkingInProgress}
           className="rounded-[6px] font-medium transition-opacity hover:opacity-90"
-          style={{ background: 'var(--sage)', color: '#fff', fontSize: 13, padding: '8px 16px' }}
+          style={{ background: 'var(--sage)', color: '#fff', fontSize: 13, padding: '8px 16px', border: 'none', cursor: checkingInProgress ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: checkingInProgress ? 0.7 : 1 }}
         >
-          + Add product
-        </Link>
+          {checkingInProgress ? 'Checking…' : '+ Add product'}
+        </button>
       </div>
 
       {/* States */}

@@ -2,7 +2,7 @@
  * @file app/(dashboard)/dashboard/campaigns/page.tsx
  * @description Campaigns list — all campaigns for the founder across all products.
  *   Shows amber banner when pending_approval campaigns exist.
- *   Shows channel, market, copy preview, budget, status, approve action.
+ *   Shows channel, market, copy preview, budget, status, approve/pause actions.
  *   Approval dialog requires explicit confirmation (approve-before-post gate).
  * @security Auth token from Supabase session. All data via Fastify backend.
  *   Approval endpoint verified server-side — campaigns.approved_at set by backend only.
@@ -16,27 +16,42 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { Campaign } from '@/lib/api';
+import {
+  IconBrandWhatsapp,
+  IconBrandFacebook,
+  IconBrandGoogle,
+  IconBrandLinkedin,
+  IconMail,
+  IconDeviceMobile,
+} from '@tabler/icons-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-const CHANNEL_ICON: Record<string, string> = {
-  whatsapp: '💬', meta: '📘', google: '🔍', linkedin: '💼', email: '✉️',
+type ChannelIconComp = React.ComponentType<{ size?: number | string; color?: string; stroke?: number | string }>;
+
+const CHANNEL_CONFIG: Record<string, { Icon: ChannelIconComp; color: string; bg: string; border: string }> = {
+  whatsapp:    { Icon: IconBrandWhatsapp, color: 'var(--sage)',   bg: 'var(--sage-d)',   border: 'var(--sage-b)' },
+  meta:        { Icon: IconBrandFacebook, color: 'var(--indigo)', bg: 'var(--indigo-d)', border: 'var(--indigo-b)' },
+  google:      { Icon: IconBrandGoogle,   color: 'var(--indigo)', bg: 'var(--indigo-d)', border: 'var(--indigo-b)' },
+  linkedin:    { Icon: IconBrandLinkedin, color: 'var(--indigo)', bg: 'var(--indigo-d)', border: 'var(--indigo-b)' },
+  email:       { Icon: IconMail,          color: 'var(--ink2)',   bg: 'var(--raised)',   border: 'var(--border2)' },
+  aso_rewrite: { Icon: IconDeviceMobile,  color: 'var(--ink2)',   bg: 'var(--raised)',   border: 'var(--border2)' },
 };
 
 const STATUS_STYLE: Record<Campaign['status'], React.CSSProperties> = {
-  draft:            { background: 'var(--raised)', color: 'var(--ink2)', border: '1px solid var(--border2)' },
-  pending_approval: { background: 'var(--amber-d)', color: 'var(--amber)', border: '1px solid var(--amber-b)' },
-  approved:         { background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' },
-  launched:         { background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' },
-  paused:           { background: 'var(--amber-d)', color: 'var(--amber)', border: '1px solid var(--amber-b)' },
-  completed:        { background: 'var(--raised)', color: 'var(--ink2)', border: '1px solid var(--border2)' },
+  draft:            { background: 'var(--raised)',   color: 'var(--ink2)',   border: '1px solid var(--border2)' },
+  pending_approval: { background: 'var(--amber-d)',  color: 'var(--amber)',  border: '1px solid var(--amber-b)' },
+  approved:         { background: 'var(--sage-d)',   color: 'var(--sage)',   border: '1px solid var(--sage-b)' },
+  launched:         { background: 'var(--sage-d)',   color: 'var(--sage)',   border: '1px solid var(--sage-b)' },
+  paused:           { background: 'var(--red-d)',    color: 'var(--red)',    border: '1px solid var(--red-b)' },
+  completed:        { background: 'var(--raised)',   color: 'var(--ink2)',   border: '1px solid var(--border2)' },
 };
 
 const STATUS_LABEL: Record<Campaign['status'], string> = {
   draft: 'Draft',
   pending_approval: 'Pending',
   approved: 'Approved',
-  launched: 'Live',
+  launched: 'Active',
   paused: 'Paused',
   completed: 'Completed',
 };
@@ -55,6 +70,7 @@ export default function CampaignsPage() {
   const [approveTarget, setApproveTarget] = useState<Campaign | null>(null);
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState('');
+  const [pausingId, setPausingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,7 +91,7 @@ export default function CampaignsPage() {
   useEffect(() => { load(); }, [load]);
 
   const pendingCount = campaigns.filter((c) => c.status === 'pending_approval').length;
-  const channels = ['all', ...Array.from(new Set(campaigns.map((c) => c.channel)))];
+  const channelOptions = ['all', ...Array.from(new Set(campaigns.map((c) => c.channel)))];
   const filtered = campaigns.filter((c) => {
     const matchStatus = statusFilter === 'all' || c.status === statusFilter;
     const matchChannel = channelFilter === 'all' || c.channel === channelFilter;
@@ -120,8 +136,30 @@ export default function CampaignsPage() {
     }
   }
 
+  async function handlePause(campaignId: string) {
+    if (!token) return;
+    setPausingId(campaignId);
+    try {
+      const res = await fetch(`${API_BASE}/campaigns/${campaignId}/pause`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Pause failed');
+      }
+      setCampaigns((prev) =>
+        prev.map((c) => c.id === campaignId ? { ...c, status: 'paused' as Campaign['status'] } : c)
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to pause campaign');
+    } finally {
+      setPausingId(null);
+    }
+  }
+
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Approval dialog */}
       {approveTarget && (
         <div
@@ -134,7 +172,7 @@ export default function CampaignsPage() {
           <div
             style={{
               background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
-              padding: '28px 32px', maxWidth: 440, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+              padding: 'clamp(16px, 4vw, 28px) clamp(16px, 5vw, 32px)', maxWidth: 440, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -143,7 +181,7 @@ export default function CampaignsPage() {
             </h3>
             <div className="rounded-[8px] p-3 mb-4" style={{ background: 'var(--raised)' }}>
               <div className="flex items-center gap-2 mb-2">
-                <span>{CHANNEL_ICON[approveTarget.channel] ?? '📡'}</span>
+                <ChannelIconBox platform={approveTarget.channel} size={14} />
                 <span className="font-medium" style={{ fontSize: 13, color: 'var(--ink)' }}>
                   {approveTarget.productName ?? approveTarget.product_id.slice(0, 8)}
                 </span>
@@ -214,7 +252,7 @@ export default function CampaignsPage() {
             ))}
           </select>
           <select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)} style={selectStyle}>
-            {channels.map((ch) => (
+            {channelOptions.map((ch) => (
               <option key={ch} value={ch}>{ch === 'all' ? 'All channels' : ch}</option>
             ))}
           </select>
@@ -232,21 +270,27 @@ export default function CampaignsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <span style={{ fontSize: 13, color: 'var(--amber)', fontWeight: 500 }}>
-              {pendingCount} campaign{pendingCount !== 1 ? 's' : ''} pending your approval
+              {pendingCount} campaign{pendingCount !== 1 ? 's' : ''} need your approval before they go live
             </span>
           </div>
           <button
             onClick={() => setStatusFilter('pending_approval')}
-            style={{ fontSize: 12, color: 'var(--amber)', fontWeight: 500, textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+            style={{
+              fontSize: 12, color: 'var(--amber)', fontWeight: 500,
+              background: 'none', border: '1px solid var(--amber-b)', borderRadius: 6,
+              cursor: 'pointer', flexShrink: 0, padding: '4px 10px',
+            }}
           >
-            Review now →
+            Review all
           </button>
         </div>
       )}
 
       {error && (
-        <div className="mb-4 rounded-[8px] px-4 py-3" style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
+        <div className="mb-4 rounded-[8px] px-4 py-3 flex items-center justify-between"
+          style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
           {error}
+          <button onClick={() => setError(null)} className="ml-4 opacity-60 hover:opacity-100">✕</button>
         </div>
       )}
 
@@ -257,13 +301,22 @@ export default function CampaignsPage() {
       ) : (
         <div className="rounded-[10px] overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left" style={{ tableLayout: 'fixed', minWidth: 640 }}>
               <thead>
                 <tr>
-                  {['Product', 'Channel', 'Market', 'Copy preview', 'Budget/wk', 'Status', 'Action'].map((h) => (
+                  {[
+                    { label: 'Campaign', width: '22%' },
+                    { label: 'Channel', width: '12%' },
+                    { label: 'Market', width: '9%' },
+                    { label: 'Copy preview', width: '27%' },
+                    { label: 'Budget/wk', width: '9%' },
+                    { label: 'Status', width: '9%' },
+                    { label: '', width: '12%' },
+                  ].map((h) => (
                     <th
-                      key={h}
+                      key={h.label}
                       style={{
+                        width: h.width,
                         padding: '10px 16px',
                         fontSize: 11,
                         fontWeight: 500,
@@ -274,14 +327,20 @@ export default function CampaignsPage() {
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {h}
+                      {h.label}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((c) => (
-                  <CampaignRow key={c.id} campaign={c} onApprove={setApproveTarget} />
+                  <CampaignRow
+                    key={c.id}
+                    campaign={c}
+                    onApprove={setApproveTarget}
+                    onPause={handlePause}
+                    pausing={pausingId === c.id}
+                  />
                 ))}
               </tbody>
             </table>
@@ -298,16 +357,60 @@ export default function CampaignsPage() {
   );
 }
 
-function CampaignRow({ campaign: c, onApprove }: { campaign: Campaign; onApprove: (c: Campaign) => void }) {
+// ── Channel icon with colored background (used in approval dialog) ────────────
+
+function ChannelIconBox({ platform, size = 16 }: { platform: string; size?: number }) {
+  const cfg = CHANNEL_CONFIG[platform];
+  if (!cfg) return <span style={{ fontSize: size, color: 'var(--ink3)' }}>◉</span>;
+  const { Icon, color, bg, border } = cfg;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      width: size + 10, height: size + 10, borderRadius: 4,
+      background: bg, border: `1px solid ${border}`, flexShrink: 0,
+    }}>
+      <Icon size={size} color={color} />
+    </span>
+  );
+}
+
+// ── Channel icon bare (no background box, used in table rows) ─────────────────
+
+function ChannelIconInline({ platform, size = 14 }: { platform: string; size?: number }) {
+  const cfg = CHANNEL_CONFIG[platform];
+  if (!cfg) return <span style={{ fontSize: size, color: 'var(--ink3)' }}>◉</span>;
+  const { Icon, color } = cfg;
+  return <Icon size={size} color={color} />;
+}
+
+// ── Campaign table row ────────────────────────────────────────────────────────
+
+function CampaignRow({
+  campaign: c,
+  onApprove,
+  onPause,
+  pausing,
+}: {
+  campaign: Campaign;
+  onApprove: (c: Campaign) => void;
+  onPause: (id: string) => void;
+  pausing: boolean;
+}) {
   const tdStyle: React.CSSProperties = {
     padding: '12px 16px',
     fontSize: 13,
     color: 'var(--ink)',
     borderBottom: '1px solid var(--border)',
+    verticalAlign: 'middle',
   };
 
   const spend = c.spend_cap as { weeklyUSD?: number; weeklyINR?: number } | null;
-  const budget = spend?.weeklyUSD ? `$${spend.weeklyUSD}/wk` : spend?.weeklyINR ? `₹${spend.weeklyINR}/wk` : '—';
+  const budget = spend?.weeklyUSD ? `$${spend.weeklyUSD}` : spend?.weeklyINR ? `₹${spend.weeklyINR}` : 'Free';
+
+  // Derive a short campaign label from channel + hook
+  const channelLabel = c.channel === 'aso_rewrite' ? 'ASO' : c.channel.charAt(0).toUpperCase() + c.channel.slice(1, 2).toUpperCase();
+  const campaignName = `${c.productName ?? c.product_id.slice(0, 8)} — ${channelLabel}`;
+  const subtitle = c.hook_type ?? null;
 
   return (
     <tr
@@ -315,22 +418,34 @@ function CampaignRow({ campaign: c, onApprove }: { campaign: Campaign; onApprove
       onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--raised)'}
       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
     >
-      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+      {/* Campaign */}
+      <td style={{ ...tdStyle, overflow: 'hidden' }}>
         <Link
           href={`/dashboard/products/${c.product_id}/strategy`}
           className="font-medium hover:underline"
-          style={{ color: 'var(--ink)' }}
+          style={{ color: 'var(--ink)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
         >
-          {c.productName ?? c.product_id.slice(0, 8) + '…'}
+          {campaignName}
         </Link>
+        {subtitle && (
+          <span style={{ fontSize: 11, color: 'var(--ink3)', display: 'block', marginTop: 1, textTransform: 'capitalize' }}>
+            {subtitle}
+          </span>
+        )}
       </td>
-      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+
+      {/* Channel */}
+      <td style={tdStyle}>
         <span className="flex items-center gap-1.5">
-          <span>{CHANNEL_ICON[c.channel] ?? '📡'}</span>
-          <span style={{ color: 'var(--ink2)' }}>{c.channel}</span>
+          <ChannelIconInline platform={c.channel} size={12} />
+          <span style={{ fontSize: 12, color: 'var(--ink2)', textTransform: 'capitalize' }}>
+            {c.channel === 'aso_rewrite' ? 'ASO' : c.channel}
+          </span>
         </span>
       </td>
-      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+
+      {/* Market */}
+      <td style={tdStyle}>
         <span
           className="rounded-full px-2 py-0.5 font-medium"
           style={{
@@ -342,53 +457,74 @@ function CampaignRow({ campaign: c, onApprove }: { campaign: Campaign; onApprove
           {c.market.toUpperCase()}
         </span>
       </td>
-      <td style={{ ...tdStyle, maxWidth: 200 }}>
+
+      {/* Copy preview */}
+      <td style={{ ...tdStyle, overflow: 'hidden' }}>
         {c.copy_text ? (
-          <span style={{ fontSize: 12, color: 'var(--ink2)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          <span style={{
+            fontSize: 12, color: 'var(--ink2)',
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          }}>
             {c.copy_text}
           </span>
         ) : (
           <span style={{ fontSize: 12, color: 'var(--ink3)' }}>—</span>
         )}
       </td>
-      <td style={{ ...tdStyle, whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12, color: 'var(--ink2)' }}>
+
+      {/* Budget */}
+      <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, monospace)', fontSize: 12, color: 'var(--ink2)', whiteSpace: 'nowrap' }}>
         {budget}
       </td>
+
+      {/* Status */}
       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
         <span className="rounded-full px-2 py-0.5 font-medium" style={{ fontSize: 11, ...STATUS_STYLE[c.status] }}>
           {STATUS_LABEL[c.status]}
         </span>
       </td>
+
+      {/* Action */}
       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-        {(c.status === 'draft' || c.status === 'pending_approval') ? (
+        {(c.status === 'draft' || c.status === 'pending_approval') && (
           <button
             onClick={() => onApprove(c)}
             className="rounded-[6px] px-3 py-1 font-medium transition-opacity hover:opacity-80"
-            style={{
-              fontSize: 11,
-              background: 'var(--sage-d)',
-              border: '1px solid var(--sage-b)',
-              color: 'var(--sage)',
-              cursor: 'pointer',
-            }}
+            style={{ fontSize: 11, background: 'var(--sage-d)', border: '1px solid var(--sage-b)', color: 'var(--sage)', cursor: 'pointer' }}
           >
             Approve
           </button>
-        ) : (
-          <span style={{ fontSize: 12, color: 'var(--ink3)' }}>—</span>
+        )}
+        {(c.status === 'launched' || c.status === 'approved') && (
+          <button
+            onClick={() => onPause(c.id)}
+            disabled={pausing}
+            className="rounded-[6px] px-3 py-1 transition-opacity hover:opacity-80"
+            style={{ fontSize: 11, border: '1px solid var(--border2)', color: 'var(--ink2)', background: 'var(--surface)', cursor: pausing ? 'not-allowed' : 'pointer', opacity: pausing ? 0.5 : 1 }}
+          >
+            {pausing ? '…' : 'Pause'}
+          </button>
+        )}
+        {c.status === 'paused' && (
+          <Link
+            href={`/dashboard/products/${c.product_id}/strategy`}
+            className="rounded-[6px] px-3 py-1 transition-opacity hover:opacity-80"
+            style={{ fontSize: 11, border: '1px solid var(--border2)', color: 'var(--ink2)', background: 'var(--surface)', textDecoration: 'none', display: 'inline-block' }}
+          >
+            Review
+          </Link>
         )}
       </td>
     </tr>
   );
 }
 
+// ── Empty state ───────────────────────────────────────────────────────────────
+
 function EmptyState({ hasCampaigns }: { hasCampaigns: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div
-        className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
-        style={{ background: 'var(--raised)' }}
-      >
+      <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4" style={{ background: 'var(--raised)' }}>
         <svg style={{ width: 24, height: 24, color: 'var(--ink3)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
         </svg>

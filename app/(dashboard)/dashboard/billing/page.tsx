@@ -2,6 +2,7 @@
  * @file app/(dashboard)/dashboard/billing/page.tsx
  * @description Billing & plan page — current plan summary, plan comparison grid, token top-ups.
  *   Initiates Stripe (USD) or Razorpay (INR) checkout via Fastify backend.
+ *   Shows both USD and INR prices side-by-side on each plan and top-up card.
  * @security Auth token from Supabase session. Payment handled server-side; no keys in frontend.
  * @dependencies lib/api, lib/supabase/client
  */
@@ -14,7 +15,6 @@ import { api, ApiError } from '@/lib/api';
 import type { SubscriptionStatus, TokenTopupBody } from '@/lib/api';
 
 type Plan = 'free' | 'solo' | 'builder' | 'studio';
-type Currency = 'usd' | 'inr';
 
 const PLAN_LABEL: Record<Plan, string> = {
   free: 'Free', solo: 'Solo', builder: 'Builder', studio: 'Studio',
@@ -52,26 +52,21 @@ const PLAN_FEATURES: Record<Plan, { text: string; yes: boolean }[]> = {
   ],
 };
 
-const TOP_UPS: { tokens: string; usd: string; inr: string; featured: boolean }[] = [
-  { tokens: '500', usd: '$9', inr: '₹749', featured: false },
-  { tokens: '1,500', usd: '$19', inr: '₹1,499', featured: true },
-  { tokens: '5,000', usd: '$49', inr: '₹3,999', featured: false },
+const TOP_UPS: { tokens: string; usd: string; inr: string; featured: boolean; packSize: number }[] = [
+  { tokens: '500',   usd: '$9',  inr: '₹749',   featured: false, packSize: 500 },
+  { tokens: '1,500', usd: '$19', inr: '₹1,499', featured: true,  packSize: 1500 },
+  { tokens: '5,000', usd: '$49', inr: '₹3,999', featured: false, packSize: 5000 },
 ];
-
-const TOKEN_AMOUNTS: Record<string, number> = { '500': 500, '1,500': 1500, '5,000': 5000 };
-const TOKEN_PRICES_USD: Record<string, string> = { '500': '$9', '1,500': '$19', '5,000': '$49' };
-const TOKEN_PRICES_INR: Record<string, string> = { '500': '₹749', '1,500': '₹1,499', '5,000': '₹3,999' };
 
 export default function BillingPage() {
   const supabase = createClient();
   const [sub, setSub] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currency, setCurrency] = useState<Currency>('usd');
   const [checkoutBusy, setCheckoutBusy] = useState<Plan | null>(null);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
-  const [topUpBusy, setTopUpBusy] = useState<string | null>(null);
+  const [topUpBusy, setTopUpBusy] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,11 +91,11 @@ export default function BillingPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const result = await api.billing.checkout({ plan: plan as 'solo' | 'builder' | 'studio', currency }, session.access_token);
+      // Default to USD for Stripe; user can switch via Razorpay on the checkout page
+      const result = await api.billing.checkout({ plan: plan as 'solo' | 'builder' | 'studio', currency: 'usd' }, session.access_token);
       if ('url' in result) {
         window.location.href = result.url;
       } else {
-        // Razorpay — open checkout in a new tab for now
         window.open(`https://checkout.razorpay.com/v1/checkout.js?order_id=${result.orderId}`, '_blank');
       }
     } catch {
@@ -126,13 +121,12 @@ export default function BillingPage() {
     }
   }
 
-  async function handleTopUp(tokens: string) {
-    setTopUpBusy(tokens);
+  async function handleTopUp(packSize: number) {
+    setTopUpBusy(packSize);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const packSize = TOKEN_AMOUNTS[tokens] as TokenTopupBody['packSize'];
-      const result = await api.billing.topup({ packSize, currency }, session.access_token);
+      const result = await api.billing.topup({ packSize: packSize as TokenTopupBody['packSize'], currency: 'usd' }, session.access_token);
       if ('url' in result) {
         window.location.href = result.url;
       } else {
@@ -156,29 +150,15 @@ export default function BillingPage() {
     <div style={{ padding: '0 0 48px' }}>
       {/* Topbar */}
       <div style={{
-        display: 'flex', alignItems: 'center', height: 56, padding: '0 32px',
+        display: 'flex', alignItems: 'center', height: 56, padding: '0 clamp(16px, 4vw, 32px)',
         background: 'var(--surface)', borderBottom: '1px solid var(--border)', marginBottom: 32,
       }}>
         <span className="font-display font-bold" style={{ fontSize: 18, color: 'var(--ink)' }}>
           Billing &amp; plan
         </span>
-        {/* Currency toggle */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {(['usd', 'inr'] as Currency[]).map((c) => (
-            <button key={c} onClick={() => setCurrency(c)}
-              style={{
-                fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 6, cursor: 'pointer',
-                background: currency === c ? 'var(--sage)' : 'var(--raised)',
-                color: currency === c ? '#fff' : 'var(--ink2)',
-                border: currency === c ? 'none' : '1px solid var(--border2)',
-              }}>
-              {c === 'usd' ? '🇺🇸 USD' : '🇮🇳 INR'}
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div style={{ padding: '0 32px', maxWidth: 900 }}>
+      <div style={{ padding: '0 clamp(16px, 4vw, 32px)' }}>
         {error && (
           <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
             {error}
@@ -204,9 +184,13 @@ export default function BillingPage() {
                 <div className="font-display font-semibold" style={{ fontSize: 20, color: 'var(--ink)' }}>
                   {PLAN_LABEL[currentPlan]}{' '}
                   <span style={{ color: 'var(--indigo)' }}>
-                    {currency === 'usd' ? PLAN_PRICE_USD[currentPlan] : PLAN_PRICE_INR[currentPlan]}
-                    {currentPlan !== 'free' ? '/mo' : ''}
+                    {PLAN_PRICE_USD[currentPlan]}{currentPlan !== 'free' ? '/mo' : ''}
                   </span>
+                  {currentPlan !== 'free' && (
+                    <span style={{ fontSize: 13, color: 'var(--ink3)', fontWeight: 400 }}>
+                      {' '}· {PLAN_PRICE_INR[currentPlan]}/mo
+                    </span>
+                  )}
                 </div>
                 {sub?.renewalNote && (
                   <div style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 3 }}>{sub.renewalNote}</div>
@@ -255,7 +239,7 @@ export default function BillingPage() {
             </div>
 
             {/* Plan comparison grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3" style={{ marginBottom: 24 }}>
               {(['free', 'solo', 'builder', 'studio'] as Plan[]).map((plan) => {
                 const isCurrent = plan === currentPlan;
                 return (
@@ -278,11 +262,13 @@ export default function BillingPage() {
                     <div className="font-display font-bold" style={{ fontSize: 15, color: 'var(--ink)', marginBottom: 4 }}>
                       {PLAN_LABEL[plan]}
                     </div>
-                    <div className="font-mono" style={{ fontSize: 22, fontWeight: 500, color: isCurrent ? 'var(--indigo)' : 'var(--ink)', marginBottom: 2 }}>
-                      {currency === 'usd' ? PLAN_PRICE_USD[plan] : PLAN_PRICE_INR[plan]}
+                    <div className="font-mono" style={{ fontSize: 22, fontWeight: 500, color: isCurrent ? 'var(--indigo)' : 'var(--ink)', marginBottom: 0 }}>
+                      {PLAN_PRICE_USD[plan]}
                     </div>
-                    <div style={{ fontSize: 10, color: 'var(--ink3)', marginBottom: 14 }}>/ month</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 2 }}>
+                      {PLAN_PRICE_INR[plan]} / month
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16, marginTop: 10 }}>
                       {PLAN_FEATURES[plan].map(({ text, yes }) => (
                         <div key={text} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                           <span style={{ color: yes ? 'var(--sage)' : 'var(--ink3)', fontWeight: 700, flexShrink: 0 }}>{yes ? '✓' : '✗'}</span>
@@ -327,20 +313,18 @@ export default function BillingPage() {
               <p style={{ fontSize: 12, color: 'var(--ink3)', marginBottom: 16 }}>
                 Use tokens for AI strategy generation, weekly briefs, and content assets.
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                {TOP_UPS.map(({ tokens, featured }) => (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {TOP_UPS.map(({ tokens, usd, inr, featured, packSize }) => (
                   <div key={tokens} style={{
                     background: 'var(--raised)', borderRadius: 6, padding: 16, textAlign: 'center',
-                    border: featured ? '1px solid var(--sage-b)' : 'none',
+                    border: featured ? '1px solid var(--sage-b)' : '1px solid transparent',
                   }}>
                     <div className="font-mono" style={{ fontSize: 22, fontWeight: 500, color: 'var(--ink)', marginBottom: 2 }}>{tokens}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 10 }}>tokens</div>
-                    <div style={{ fontSize: 16, fontWeight: 500, color: 'var(--sage)', marginBottom: 2 }}>
-                      {currency === 'usd' ? TOKEN_PRICES_USD[tokens] : TOKEN_PRICES_INR[tokens]}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--ink3)', marginBottom: 12 }}>one-time</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 8 }}>tokens</div>
+                    <div style={{ fontSize: 16, fontWeight: 500, color: 'var(--sage)', marginBottom: 1 }}>{usd}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 12 }}>{inr} · one-time</div>
                     <button
-                      onClick={() => handleTopUp(tokens)}
+                      onClick={() => handleTopUp(packSize)}
                       disabled={topUpBusy !== null}
                       style={{
                         width: '100%', fontSize: 12, fontWeight: 500, padding: '7px 0', borderRadius: 6,
@@ -350,7 +334,7 @@ export default function BillingPage() {
                         color: featured ? '#fff' : 'var(--ink2)',
                         opacity: topUpBusy ? 0.6 : 1,
                       }}>
-                      {topUpBusy === tokens ? 'Redirecting…' : 'Buy'}
+                      {topUpBusy === packSize ? 'Redirecting…' : 'Buy'}
                     </button>
                   </div>
                 ))}

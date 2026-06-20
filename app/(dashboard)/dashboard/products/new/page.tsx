@@ -148,9 +148,13 @@ export default function NewProductPage() {
               fontSize: 13,
             }}
           />
-          <p style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 6 }}>
-            Adds SEO keywords, existing testimonials, and pricing signals to the analysis
-          </p>
+          {detectPlatform(websiteUrl) === 'website' && websiteUrl ? (
+            <p style={{ fontSize: 12, color: 'var(--sage)', marginTop: 6 }}>✓ Website added — SEO, testimonials &amp; pricing signals included</p>
+          ) : (
+            <p style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 6 }}>
+              Adds SEO keywords, existing testimonials, and pricing signals to the analysis
+            </p>
+          )}
         </div>
 
         {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}

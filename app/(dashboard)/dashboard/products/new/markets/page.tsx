@@ -9,7 +9,7 @@
  * @dependencies lib/types/intake, next/navigation
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { IntakeSteps } from '@/components/launchmind/IntakeSteps';
 import { INTAKE_STORAGE, type FounderContext } from '@/lib/types/intake';
@@ -111,6 +111,7 @@ export default function MarketsPage() {
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>(['usa']);
   const [primaryChannel, setPrimaryChannel]   = useState('');
   const [excludedChannels, setExcludedChannels] = useState<string[]>([]);
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     const pid = sessionStorage.getItem(INTAKE_STORAGE.productId);
@@ -122,7 +123,7 @@ export default function MarketsPage() {
       try { setContext(JSON.parse(ctxRaw)); } catch { /* ignore */ }
     }
 
-    // Restore if navigating back
+    // Restore selections (saved either on Continue or by the auto-save effect below)
     const mktRaw = sessionStorage.getItem(INTAKE_STORAGE.markets);
     if (mktRaw) {
       try {
@@ -132,7 +133,17 @@ export default function MarketsPage() {
         if (saved.excludedChannels) setExcludedChannels(saved.excludedChannels);
       } catch { /* ignore */ }
     }
+    loadedRef.current = true;
   }, [router]);
+
+  // Auto-save whenever selections change (after initial load), so refresh restores state
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    sessionStorage.setItem(
+      INTAKE_STORAGE.markets,
+      JSON.stringify({ selectedMarkets, primaryChannel, excludedChannels })
+    );
+  }, [selectedMarkets, primaryChannel, excludedChannels]);
 
   function toggleMarket(id: string) {
     setSelectedMarkets((prev) =>

@@ -382,7 +382,7 @@ export default function IcpPage() {
       <div className="flex justify-between">
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push('/dashboard/products/new/analysis')}
           style={{ fontSize: 13, color: 'var(--ink3)' }}
           className="hover:opacity-70 transition-opacity"
         >

@@ -266,7 +266,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
   const marketData = strategy?.[market] as MarketStrategy | undefined;
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Insufficient tokens dialog */}
       {showTopUpDialog && (
         <div style={{

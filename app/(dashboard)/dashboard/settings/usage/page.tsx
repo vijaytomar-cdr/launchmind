@@ -92,7 +92,7 @@ export default function TokenUsagePage() {
         </Link>
       </div>
 
-      <div style={{ padding: '0 32px', maxWidth: 720 }}>
+      <div style={{ padding: '0 clamp(16px, 4vw, 32px)' }}>
         {error && (
           <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
             {error}

@@ -8,7 +8,7 @@
 
 export default function IntakeLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="p-8" style={{ maxWidth: 780, width: '100%' }}>
+    <div className="p-4 sm:p-6 lg:p-8">
       {children}
     </div>
   );

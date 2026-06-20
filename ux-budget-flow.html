@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Budget Tier Flow — UX Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --page:#f2f3f6; --surface:#ffffff; --raised:#eceef3;
+    --sidebar:#28304a; --border:rgba(0,0,0,0.07); --border2:rgba(0,0,0,0.12);
+    --s-text:rgba(255,255,255,0.88); --s-text2:rgba(255,255,255,0.42); --s-text3:rgba(255,255,255,0.22);
+    --s-border:rgba(255,255,255,0.07);
+    --ink:#1b1f2e; --ink2:#626880; --ink3:#9ca4be;
+    --sage:#059669; --sage-l:#34d399; --sage-d:rgba(5,150,105,0.12); --sage-b:rgba(5,150,105,0.28);
+    --indigo:#4f46e5; --indigo-d:rgba(79,70,229,0.10); --indigo-b:rgba(79,70,229,0.22);
+    --amber:#d97706; --amber-d:rgba(217,119,6,0.10); --amber-b:rgba(217,119,6,0.22);
+    --red:#dc2626; --red-d:rgba(220,38,38,0.09); --red-b:rgba(220,38,38,0.22);
+  }
+  body { font-family:'DM Sans',sans-serif; font-size:13px; background:var(--page); color:var(--ink); line-height:1.5; }
+  .layout { display:flex; min-height:100vh; }
+
+  /* Sidebar */
+  .sidebar { width:196px; background:var(--sidebar); flex-shrink:0; padding:20px 0; }
+  .sidebar-logo { padding:0 16px 20px; border-bottom:1px solid var(--s-border); margin-bottom:20px; }
+  .logo-title { font-family:'Syne',sans-serif; font-size:16px; font-weight:700; color:var(--s-text); }
+  .logo-sub { font-size:10px; color:var(--s-text3); margin-top:1px; }
+  .nav-section { padding:0 8px; margin-bottom:16px; }
+  .nav-label { font-size:9px; font-weight:600; color:var(--s-text3); letter-spacing:.08em; text-transform:uppercase; padding:0 8px; margin-bottom:4px; }
+  .nav-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:6px; color:var(--s-text2); font-size:12.5px; margin-bottom:1px; }
+  .nav-item.active { background:var(--sage-d); border:1px solid var(--sage-b); color:var(--sage-l); }
+  .nav-item svg { width:15px; height:15px; flex-shrink:0; }
+
+  /* Main */
+  .main { flex:1; padding:32px 40px; }
+  .breadcrumb { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink3); margin-bottom:24px; }
+  .breadcrumb a { color:var(--ink2); text-decoration:none; }
+  .page-title { font-family:'Syne',sans-serif; font-size:22px; font-weight:700; color:var(--ink); margin-bottom:4px; }
+  .page-sub { font-size:13px; color:var(--ink2); margin-bottom:24px; }
+
+  /* State indicator */
+  .state-bar { display:flex; align-items:center; gap:0; margin-bottom:28px; }
+  .state-step { display:flex; align-items:center; gap:8px; padding:6px 14px; border-radius:20px; font-size:12px; font-weight:500; color:var(--ink3); background:var(--raised); border:1px solid var(--border2); }
+  .state-step.active { background:var(--sage-d); border-color:var(--sage-b); color:var(--sage); }
+  .state-step.done { background:var(--raised); border-color:var(--border2); color:var(--ink3); text-decoration:line-through; }
+  .state-arrow { width:24px; height:1px; background:var(--border2); margin:0 4px; flex-shrink:0; }
+
+  /* Cards */
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  .card-label { font-size:11px; color:var(--ink3); margin-bottom:6px; }
+
+  /* Budget reality card */
+  .budget-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+  .budget-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px 12px; border-bottom:1px solid var(--border); }
+  .budget-icon { width:28px; height:28px; border-radius:6px; background:var(--amber-d); border:1px solid var(--amber-b); display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .budget-title { font-family:'Syne',sans-serif; font-size:13px; font-weight:600; color:var(--ink); }
+  .budget-subtitle { font-size:11px; color:var(--ink3); margin-top:1px; }
+  .budget-badge { display:flex; align-items:center; gap:5px; background:var(--amber-d); border:1px solid var(--amber-b); border-radius:20px; padding:3px 10px; font-size:11px; font-weight:500; color:var(--amber); font-family:'DM Mono',monospace; }
+  .budget-badge-dot { width:6px; height:6px; border-radius:50%; background:var(--amber); }
+  .budget-assessment { padding:12px 18px; background:var(--amber-d); border-bottom:1px solid var(--amber-b); display:flex; align-items:flex-start; gap:10px; }
+  .budget-assessment-text { font-size:12.5px; color:#92400e; line-height:1.55; }
+  .tier-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; padding:14px 18px 18px; }
+  .tier-card { border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:8px; }
+  .tier-card.current { border:1.5px solid var(--sage-b); background:var(--sage-d); }
+  .tier-card.inactive { border:1px solid var(--border2); background:var(--surface); }
+  .tier-amount { font-family:'DM Mono',monospace; font-size:15px; font-weight:500; }
+  .tier-name { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; margin-top:2px; }
+  .tier-divider { height:1px; background:var(--border); width:100%; }
+  .tier-divider.sage { background:var(--sage-b); }
+  .tier-channels-label { font-size:11px; font-weight:600; margin-bottom:4px; }
+  .tier-channels { font-size:12px; line-height:1.6; }
+  .tier-outcome { border-radius:6px; padding:8px 10px; margin-top:auto; }
+  .tier-outcome-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; margin-bottom:2px; }
+  .tier-outcome-value { font-size:12px; font-weight:500; }
+  .tier-outcome-sub { font-size:11px; margin-top:1px; }
+  .tier-cta { display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--border2); border-radius:6px; padding:8px 12px; font-size:12px; font-weight:500; color:var(--ink2); background:transparent; cursor:pointer; font-family:'DM Sans',sans-serif; margin-top:4px; transition:background .15s; }
+  .tier-cta:hover { background:var(--raised); }
+  .you-are-here { display:inline-block; font-size:9px; font-weight:700; background:var(--sage); color:#fff; border-radius:4px; padding:1px 6px; margin-bottom:6px; }
+
+  /* ── MODAL OVERLAY ── */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .modal { background:var(--surface); border-radius:12px; width:100%; max-width:520px; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,0.18); }
+  .modal-header { padding:20px 24px 16px; border-bottom:1px solid var(--border); }
+  .modal-title { font-family:'Syne',sans-serif; font-size:15px; font-weight:700; color:var(--ink); }
+  .modal-sub { font-size:12px; color:var(--ink2); margin-top:3px; }
+  .modal-body { padding:16px 24px; display:flex; flex-direction:column; gap:10px; }
+  .modal-option { border:1.5px solid var(--border2); border-radius:8px; padding:14px 16px; cursor:pointer; transition:all .15s; }
+  .modal-option:hover { border-color:var(--sage-b); background:var(--sage-d); }
+  .modal-option.selected { border-color:var(--sage-b); background:var(--sage-d); }
+  .modal-option-header { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+  .modal-radio { width:16px; height:16px; border-radius:50%; border:2px solid var(--border2); flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+  .modal-option.selected .modal-radio { border-color:var(--sage); background:var(--sage); }
+  .modal-radio-dot { width:6px; height:6px; border-radius:50%; background:#fff; }
+  .modal-option-title { font-size:13px; font-weight:600; color:var(--ink); }
+  .modal-option-desc { font-size:12px; color:var(--ink2); padding-left:26px; line-height:1.55; }
+  .modal-option-tag { display:inline-block; font-size:10px; font-weight:500; border-radius:20px; padding:2px 8px; margin-left:auto; }
+  .tag-free { background:var(--sage-d); border:1px solid var(--sage-b); color:var(--sage); }
+  .tag-paid { background:var(--indigo-d); border:1px solid var(--indigo-b); color:var(--indigo); }
+  .modal-footer { padding:14px 24px 20px; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--border); }
+  .btn-ghost { background:transparent; border:1px solid var(--border2); border-radius:6px; padding:8px 16px; font-size:13px; color:var(--ink2); cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-sage { background:var(--sage); border:none; border-radius:6px; padding:8px 20px; font-size:13px; font-weight:500; color:#fff; cursor:pointer; font-family:'DM Sans',sans-serif; display:flex; align-items:center; gap:6px; }
+  .btn-sage:disabled { opacity:.4; cursor:not-allowed; }
+
+  /* ── SIDE-BY-SIDE PREVIEW ── */
+  .preview-wrapper { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:16px; }
+  .preview-header { display:grid; grid-template-columns:1fr 1fr; }
+  .preview-col-header { padding:14px 18px; border-bottom:1px solid var(--border); }
+  .preview-col-header.current-col { background:var(--raised); }
+  .preview-col-header.new-col { background:var(--sage-d); border-left:1px solid var(--border); }
+  .preview-col-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--ink3); margin-bottom:3px; }
+  .preview-col-header.new-col .preview-col-label { color:var(--sage); }
+  .preview-col-title { font-family:'DM Mono',monospace; font-size:14px; font-weight:500; color:var(--ink2); }
+  .preview-col-header.new-col .preview-col-title { color:var(--sage); }
+  .preview-body { display:grid; grid-template-columns:1fr 1fr; }
+  .preview-section { padding:14px 18px; border-bottom:1px solid var(--border); }
+  .preview-section.right { border-left:1px solid var(--border); background:rgba(5,150,105,0.03); }
+  .preview-section-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--ink3); margin-bottom:8px; }
+  .preview-channel-row { display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .preview-channel-row:last-child { border-bottom:none; }
+  .preview-channel-name { display:flex; align-items:center; gap:6px; color:var(--ink); }
+  .preview-channel-budget { font-family:'DM Mono',monospace; font-size:11px; color:var(--ink2); }
+  .preview-channel-budget.new { color:var(--sage); font-weight:500; }
+  .lock-badge { display:inline-flex; align-items:center; gap:3px; font-size:10px; background:var(--indigo-d); border:1px solid var(--indigo-b); color:var(--indigo); border-radius:4px; padding:1px 6px; }
+  .new-badge-green { display:inline-flex; align-items:center; gap:3px; font-size:10px; background:var(--sage-d); border:1px solid var(--sage-b); color:var(--sage); border-radius:4px; padding:1px 6px; }
+  .preview-outcome { padding:12px 18px; }
+  .preview-outcome.right { border-left:1px solid var(--border); background:rgba(5,150,105,0.03); }
+  .outcome-number { font-family:'DM Mono',monospace; font-size:20px; font-weight:500; color:var(--ink2); }
+  .outcome-number.new { color:var(--sage); }
+  .outcome-label { font-size:11px; color:var(--ink3); margin-top:2px; }
+  .preview-apply-bar { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:var(--sage-d); border-top:1.5px solid var(--sage-b); }
+  .apply-note { font-size:12px; color:#065f46; display:flex; align-items:center; gap:6px; }
+  .btn-apply { background:var(--sage); border:none; border-radius:6px; padding:9px 22px; font-size:13px; font-weight:500; color:#fff; cursor:pointer; font-family:'DM Sans',sans-serif; display:flex; align-items:center; gap:6px; }
+
+  /* ── SUCCESS STATE ── */
+  .success-toast { background:var(--sage-d); border:1.5px solid var(--sage-b); border-radius:8px; padding:12px 16px; display:flex; align-items:center; gap:10px; margin-bottom:16px; font-size:13px; color:var(--sage); font-weight:500; }
+
+  /* Annotation */
+  .annotation { background:#fffbf0; border:1.5px dashed var(--amber-b); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:12px; color:#92400e; display:flex; gap:8px; align-items:flex-start; }
+
+  /* Playbook card */
+  .playbook-card { background:var(--indigo-d); border:1.5px solid var(--indigo-b); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+  .playbook-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .playbook-title { font-size:13px; font-weight:600; color:var(--indigo); }
+  .playbook-from { font-size:11px; color:var(--indigo); opacity:.7; background:var(--indigo-d); border:1px solid var(--indigo-b); border-radius:20px; padding:2px 8px; }
+  .playbook-item { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink2); margin-bottom:6px; }
+  .playbook-dot { width:4px; height:4px; border-radius:50%; background:var(--indigo); flex-shrink:0; }
+  .perf-high { background:var(--sage-d); color:var(--sage); border:1px solid var(--sage-b); border-radius:20px; padding:1px 8px; font-size:11px; font-weight:500; }
+  .perf-medium { background:var(--amber-d); color:var(--amber); border:1px solid var(--amber-b); border-radius:20px; padding:1px 8px; font-size:11px; font-weight:500; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-title">LaunchMind</div>
+      <div class="logo-sub">AI marketing OS</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Products</div>
+      <div class="nav-item active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Products
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="breadcrumb">
+      <a href="#">Products</a> / <a href="#">AllignX · Home Services</a> / <span>Strategy</span>
+    </div>
+    <div class="page-title">Marketing Strategy</div>
+    <div class="page-sub">30/60/90-day plan for USA + India</div>
+
+    <!-- Flow step indicator -->
+    <div class="state-bar">
+      <div class="state-step" id="step1" style="cursor:pointer" onclick="goToState(1)">1 · Strategy page</div>
+      <div class="state-arrow"></div>
+      <div class="state-step" id="step2" style="cursor:pointer" onclick="goToState(2)">2 · Decision modal</div>
+      <div class="state-arrow"></div>
+      <div class="state-step" id="step3" style="cursor:pointer" onclick="goToState(3)">3 · Side-by-side preview</div>
+      <div class="state-arrow"></div>
+      <div class="state-step" id="step4" style="cursor:pointer" onclick="goToState(4)">4 · Applied ✓</div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!-- STATE 1 — Strategy page with Budget Reality Check       -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <div id="state1">
+      <div class="annotation">📍 <div><strong>State 1</strong> — Strategy page. Budget Reality Check shows "Grow to this tier →" on Growth and Scale cards. Click the button on the Growth card to continue.</div></div>
+
+      <div class="card">
+        <div class="card-label">Executive summary</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.65;">AllignX faces a classic marketplace chicken-and-egg problem. The 90-day strategy prioritises supply-side density first (30 days), then demand activation with social proof creative (60 days), then scaled referral and paid growth (90 days). With a $50–200/mo budget, zero-cost channels — WhatsApp community seeding and provider email outreach — are the highest-ROI moves.</div>
+      </div>
+
+      <div class="budget-card">
+        <div class="budget-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="budget-icon">💰</div>
+            <div>
+              <div class="budget-title">Budget reality check</div>
+              <div class="budget-subtitle">What your $50–200/mo can realistically achieve — and what unlocks at higher tiers</div>
+            </div>
+          </div>
+          <div class="budget-badge"><div class="budget-badge-dot"></div>$50–200 / mo · Seed tier</div>
+        </div>
+        <div class="budget-assessment">
+          <div style="font-size:15px;flex-shrink:0;">⚠</div>
+          <div class="budget-assessment-text"><strong>Honest assessment:</strong> $50–200/mo is a learning budget, not a growth budget. Focus on zero-cost channels first. Every paid dollar should go to Meta tight-radius in 1 pilot city only — not for volume, only for creative learning.</div>
+        </div>
+        <div class="tier-grid">
+
+          <!-- Seed — current -->
+          <div class="tier-card current">
+            <div><span class="you-are-here">← You are here</span>
+              <div class="tier-amount" style="color:var(--sage);">$50–200<span style="font-size:11px;font-weight:400;opacity:.7;"> /mo</span></div>
+              <div class="tier-name" style="color:var(--sage);">Seed tier</div>
+            </div>
+            <div class="tier-divider sage"></div>
+            <div>
+              <div class="tier-channels-label" style="color:#065f46;">Channels</div>
+              <div class="tier-channels" style="color:#065f46;">✓ WhatsApp organic<br>✓ Provider email outreach<br>✓ Meta creative test (1 city)<br>✗ Google UAC (too broad)</div>
+            </div>
+            <div class="tier-outcome" style="background:rgba(5,150,105,0.18);">
+              <div class="tier-outcome-label" style="color:#065f46;">Realistic outcome</div>
+              <div class="tier-outcome-value" style="color:#065f46;">20–40 installs/mo</div>
+              <div class="tier-outcome-sub" style="color:#065f46;opacity:.8;">Provider density in 1 pilot city</div>
+            </div>
+          </div>
+
+          <!-- Growth -->
+          <div class="tier-card inactive">
+            <div>
+              <div class="tier-amount" style="color:var(--amber);">$500–1k<span style="font-size:11px;font-weight:400;color:var(--amber);opacity:.7;"> /mo</span></div>
+              <div class="tier-name" style="color:var(--amber);">Growth tier</div>
+            </div>
+            <div class="tier-divider"></div>
+            <div>
+              <div class="tier-channels-label" style="color:var(--ink2);">Channels unlocked</div>
+              <div class="tier-channels" style="color:var(--ink2);">✓ Meta 3-city radius testing<br>✓ Google exact-match UAC<br>✓ Email automation sequences<br>✓ WhatsApp broadcast lists</div>
+            </div>
+            <div class="tier-outcome" style="background:var(--raised);">
+              <div class="tier-outcome-label" style="color:var(--ink3);">Realistic outcome</div>
+              <div class="tier-outcome-value" style="color:var(--ink);">200–400 installs/mo</div>
+              <div class="tier-outcome-sub" style="color:var(--ink3);">Retargeting + A/B creative rotation</div>
+            </div>
+            <button class="tier-cta" onclick="goToState(2)">
+              Grow to this tier
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+
+          <!-- Scale -->
+          <div class="tier-card inactive">
+            <div>
+              <div class="tier-amount" style="color:var(--ink3);">$2k+<span style="font-size:11px;font-weight:400;color:var(--ink3);opacity:.7;"> /mo</span></div>
+              <div class="tier-name" style="color:var(--ink3);">Scale tier</div>
+            </div>
+            <div class="tier-divider"></div>
+            <div>
+              <div class="tier-channels-label" style="color:var(--ink2);">Channels unlocked</div>
+              <div class="tier-channels" style="color:var(--ink2);">✓ Full multi-channel stack<br>✓ India + USA simultaneously<br>✓ Lookalike audiences<br>✓ LinkedIn for provider growth</div>
+            </div>
+            <div class="tier-outcome" style="background:var(--raised);">
+              <div class="tier-outcome-label" style="color:var(--ink3);">Realistic outcome</div>
+              <div class="tier-outcome-value" style="color:var(--ink);">1,000+ installs/mo</div>
+              <div class="tier-outcome-sub" style="color:var(--ink3);">ROAS tracking + weekly optimisation</div>
+            </div>
+            <button class="tier-cta" onclick="goToState(2)">
+              Grow to this tier
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="playbook-card">
+        <div class="playbook-header">
+          <div class="playbook-title">✦ Playbook insights</div>
+          <div class="playbook-from">From 52 similar apps</div>
+        </div>
+        <div class="playbook-item"><div class="playbook-dot"></div> WhatsApp pain-first hooks — <span class="perf-high">high potential</span> · suggested $0/wk</div>
+        <div class="playbook-item"><div class="playbook-dot"></div> Email pain-first hooks — <span class="perf-high">high potential</span> · suggested $0/wk</div>
+        <div class="playbook-item"><div class="playbook-dot"></div> Meta pain-first hooks — <span class="perf-medium">medium potential</span> · suggested $25/wk</div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!-- STATE 2 — Decision modal                                -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <div id="state2" style="display:none;">
+      <div class="annotation">📍 <div><strong>State 2</strong> — Decision modal. Founder chooses their intent before anything happens. Select an option then click Continue.</div></div>
+
+      <!-- Background content (dimmed) -->
+      <div style="opacity:.35;pointer-events:none;">
+        <div class="card"><div class="card-label">Executive summary</div><div style="font-size:13px;color:var(--ink);line-height:1.65;">AllignX faces a classic marketplace chicken-and-egg problem…</div></div>
+        <div style="height:100px;background:var(--surface);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--ink3);font-size:13px;">Budget Reality Check card</div>
+      </div>
+
+      <!-- Modal -->
+      <div style="position:relative;z-index:10;margin-top:-60px;">
+        <div style="background:rgba(0,0,0,0.45);border-radius:16px;padding:40px 20px;display:flex;align-items:center;justify-content:center;">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title">Growing to $500–1k/mo — what's your goal?</div>
+              <div class="modal-sub">Choose your path. You can change this any time.</div>
+            </div>
+            <div class="modal-body">
+
+              <div class="modal-option" id="optionA" onclick="selectOption('A')">
+                <div class="modal-option-header">
+                  <div class="modal-radio" id="radioA"><div class="modal-radio-dot" style="display:none;"></div></div>
+                  <div class="modal-option-title">Spend more on my current channels</div>
+                  <span class="modal-option-tag tag-free">No plan change</span>
+                </div>
+                <div class="modal-option-desc">
+                  Keep WhatsApp, Email, and Meta — but with more budget behind them. I'll show you a side-by-side preview of what your strategy looks like at $500–1k/mo before you commit.
+                </div>
+              </div>
+
+              <div class="modal-option" id="optionB" onclick="selectOption('B')">
+                <div class="modal-option-header">
+                  <div class="modal-radio" id="radioB"><div class="modal-radio-dot" style="display:none;"></div></div>
+                  <div class="modal-option-title">Unlock Growth channels too</div>
+                  <span class="modal-option-tag tag-paid">Builder plan — $49/mo</span>
+                </div>
+                <div class="modal-option-desc">
+                  Add Meta multi-city radius, Google exact-match UAC, and retargeting loops on top of your existing channels. Requires upgrading to the Builder plan.
+                </div>
+              </div>
+
+            </div>
+            <div class="modal-footer">
+              <button class="btn-ghost" onclick="goToState(1)">← Cancel</button>
+              <button class="btn-sage" id="continueBtn" disabled onclick="handleModalContinue()">
+                Continue
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!-- STATE 3 — Side-by-side strategy preview (Path A)       -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <div id="state3" style="display:none;">
+      <div class="annotation">📍 <div><strong>State 3</strong> — Side-by-side preview. Founder sees exactly what changes at $500–1k/mo before committing. Locked rows (🔒) reveal the natural Builder upsell. Click "Apply this strategy" to confirm.</div></div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div class="page-title" style="font-size:18px;">Strategy preview — Growth tier ($500–1k/mo)</div>
+          <div style="font-size:12px;color:var(--ink2);margin-top:3px;">Compare your current strategy with what's possible at higher budget. Nothing changes until you apply.</div>
+        </div>
+        <button class="btn-ghost" onclick="goToState(2)" style="flex-shrink:0;">← Back</button>
+      </div>
+
+      <div class="preview-wrapper">
+
+        <!-- Column headers -->
+        <div class="preview-header">
+          <div class="preview-col-header current-col">
+            <div class="preview-col-label">Current</div>
+            <div class="preview-col-title">$50–200 / mo · Seed tier</div>
+          </div>
+          <div class="preview-col-header new-col">
+            <div class="preview-col-label">With Growth budget</div>
+            <div class="preview-col-title">$500–1k / mo · Growth tier ✦</div>
+          </div>
+        </div>
+
+        <!-- Executive summary row -->
+        <div class="preview-body">
+          <div class="preview-section">
+            <div class="preview-section-label">Executive summary</div>
+            <div style="font-size:12px;color:var(--ink2);line-height:1.6;">Focus on zero-cost supply seeding. WhatsApp community seeding in 2–3 housing societies. 1 Meta creative test in Bangalore with $50 test budget. Goal: first 20 paying customers.</div>
+          </div>
+          <div class="preview-section right">
+            <div class="preview-section-label" style="color:var(--sage);">Executive summary</div>
+            <div style="font-size:12px;color:var(--ink);line-height:1.6;">Scale proven WhatsApp and email channels 5×. Add Meta 3-city radius with creative rotation. Run Google exact-match UAC for high-intent "home repair near me" searches. Target 200 installs/mo by Day 30.</div>
+          </div>
+        </div>
+
+        <!-- Week 1 channel plan -->
+        <div class="preview-body" style="border-top:1px solid var(--border);">
+          <div class="preview-section">
+            <div class="preview-section-label">Week 1 channel plan</div>
+            <div class="preview-channel-row">
+              <div class="preview-channel-name">💬 WhatsApp</div>
+              <div class="preview-channel-budget">$0/wk · organic</div>
+            </div>
+            <div class="preview-channel-row">
+              <div class="preview-channel-name">📧 Email outreach</div>
+              <div class="preview-channel-budget">$0/wk · organic</div>
+            </div>
+            <div class="preview-channel-row">
+              <div class="preview-channel-name">📘 Meta (1 city)</div>
+              <div class="preview-channel-budget">$50/wk · test only</div>
+            </div>
+          </div>
+          <div class="preview-section right">
+            <div class="preview-section-label" style="color:var(--sage);">Week 1 channel plan</div>
+            <div class="preview-channel-row">
+              <div class="preview-channel-name">💬 WhatsApp</div>
+              <div class="preview-channel-budget new">$0/wk · 5× more groups</div>
+            </div>
+            <div class="preview-channel-row">
+              <div class="preview-channel-name">📧 Email sequences</div>
+              <div class="preview-channel-budget new">$0/wk · automated 3-step</div>
+            </div>
+            <div class="preview-channel-row">
+              <div class="preview-channel-name">
+                📘 Meta (3 cities)
+                <span class="new-badge-green">↑ scaled</span>
+              </div>
+              <div class="preview-channel-budget new">$200/wk</div>
+            </div>
+            <div class="preview-channel-row" style="opacity:.6;">
+              <div class="preview-channel-name">
+                🔍 Google UAC
+                <span class="lock-badge">🔒 Builder plan</span>
+              </div>
+              <div class="preview-channel-budget">$150/wk</div>
+            </div>
+            <div class="preview-channel-row" style="opacity:.6;">
+              <div class="preview-channel-name">
+                🔁 Retargeting
+                <span class="lock-badge">🔒 Builder plan</span>
+              </div>
+              <div class="preview-channel-budget">$100/wk</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Realistic outcomes -->
+        <div class="preview-body" style="border-top:1px solid var(--border);">
+          <div class="preview-outcome">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);margin-bottom:6px;">Projected outcome (30 days)</div>
+            <div class="outcome-number">20–40</div>
+            <div class="outcome-label">installs / mo</div>
+            <div style="margin-top:10px;font-size:12px;color:var(--ink2);">Provider density in 1 city · 3–5% D7 retention</div>
+          </div>
+          <div class="preview-outcome right">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sage);margin-bottom:6px;">Projected outcome (30 days)</div>
+            <div class="outcome-number new">150–250</div>
+            <div class="outcome-label" style="color:var(--sage);">installs / mo <span style="font-size:11px;color:var(--ink3);">(on current plan)</span></div>
+            <div style="margin-top:6px;font-size:11px;color:var(--ink3);background:var(--indigo-d);border:1px solid var(--indigo-b);border-radius:6px;padding:7px 10px;">
+              🔒 <strong style="color:var(--indigo);">Upgrade to Builder</strong> to unlock Google UAC + retargeting and reach <strong style="color:var(--indigo);">400+ installs/mo</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Apply bar -->
+        <div class="preview-apply-bar">
+          <div class="apply-note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            Your strategy will regenerate with $500–1k/mo budget. Current strategy is saved and can be restored.
+          </div>
+          <button class="btn-apply" onclick="goToState(4)">
+            Apply this strategy
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Upsell nudge -->
+      <div style="background:var(--indigo-d);border:1.5px solid var(--indigo-b);border-radius:10px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--indigo);margin-bottom:3px;">🔒 Want the full 400+ installs/mo picture?</div>
+          <div style="font-size:12px;color:var(--ink2);">Upgrade to Builder to unlock Google UAC, retargeting, and A/B creative rotation — and regenerate with all channels included.</div>
+        </div>
+        <button style="flex-shrink:0;background:var(--indigo);border:none;border-radius:6px;padding:9px 18px;font-size:12px;font-weight:500;color:#fff;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;">
+          Upgrade to Builder — $49/mo →
+        </button>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!-- STATE 4 — Strategy applied                             -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <div id="state4" style="display:none;">
+      <div class="annotation">📍 <div><strong>State 4</strong> — Applied. Strategy regenerated for Growth budget. Budget Reality Check now shows Growth tier as "You are here". The locked channels remain visible as an ongoing upsell.</div></div>
+
+      <div class="success-toast">
+        ✓ Growth budget strategy applied — regenerating your 30/60/90-day plan with $500–1k/mo…
+      </div>
+
+      <div class="card">
+        <div class="card-label">Executive summary</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.65;">Scale proven WhatsApp and email channels 5×. Add Meta 3-city radius with creative rotation across Bangalore, Mumbai, and Delhi. Run Google exact-match UAC for high-intent "home repair near me" searches. Target 150–250 installs/mo by Day 30, scaling to 400+ once Builder plan channels are unlocked.</div>
+      </div>
+
+      <!-- Updated Budget Reality Check -->
+      <div class="budget-card">
+        <div class="budget-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="budget-icon">💰</div>
+            <div>
+              <div class="budget-title">Budget reality check</div>
+              <div class="budget-subtitle">Your strategy is now optimised for $500–1k/mo</div>
+            </div>
+          </div>
+          <div class="budget-badge" style="background:var(--sage-d);border-color:var(--sage-b);color:var(--sage);">
+            <div class="budget-badge-dot" style="background:var(--sage);"></div>$500–1k / mo · Growth tier
+          </div>
+        </div>
+        <div class="tier-grid">
+
+          <!-- Seed — done -->
+          <div class="tier-card inactive" style="opacity:.5;">
+            <div>
+              <div class="tier-amount" style="color:var(--ink3);">$50–200<span style="font-size:11px;font-weight:400;opacity:.7;"> /mo</span></div>
+              <div class="tier-name" style="color:var(--ink3);">Seed tier · completed</div>
+            </div>
+            <div class="tier-divider"></div>
+            <div style="font-size:12px;color:var(--ink3);">WhatsApp organic · Email outreach · Meta 1-city test</div>
+          </div>
+
+          <!-- Growth — current -->
+          <div class="tier-card" style="border:1.5px solid var(--amber-b);background:var(--amber-d);">
+            <div>
+              <span style="display:inline-block;font-size:9px;font-weight:700;background:var(--amber);color:#fff;border-radius:4px;padding:1px 6px;margin-bottom:6px;">← You are here</span>
+              <div class="tier-amount" style="color:var(--amber);">$500–1k<span style="font-size:11px;font-weight:400;opacity:.7;"> /mo</span></div>
+              <div class="tier-name" style="color:var(--amber);">Growth tier</div>
+            </div>
+            <div class="tier-divider" style="background:var(--amber-b);"></div>
+            <div>
+              <div class="tier-channels-label" style="color:#92400e;">Active channels</div>
+              <div class="tier-channels" style="color:#92400e;">✓ WhatsApp broadcast (5× groups)<br>✓ Email automation (3-step)<br>✓ Meta 3-city radius ($200/wk)<br>🔒 Google UAC — Builder plan<br>🔒 Retargeting — Builder plan</div>
+            </div>
+            <div class="tier-outcome" style="background:rgba(217,119,6,0.15);">
+              <div class="tier-outcome-label" style="color:#92400e;">Current projection</div>
+              <div class="tier-outcome-value" style="color:#92400e;">150–250 installs/mo</div>
+              <div class="tier-outcome-sub" style="color:#92400e;opacity:.8;">400+ with Builder plan unlocked</div>
+            </div>
+          </div>
+
+          <!-- Scale -->
+          <div class="tier-card inactive">
+            <div>
+              <div class="tier-amount" style="color:var(--ink3);">$2k+<span style="font-size:11px;font-weight:400;color:var(--ink3);opacity:.7;"> /mo</span></div>
+              <div class="tier-name" style="color:var(--ink3);">Scale tier</div>
+            </div>
+            <div class="tier-divider"></div>
+            <div style="font-size:12px;color:var(--ink2);">Full multi-channel · India + USA simultaneously · Lookalike audiences</div>
+            <div class="tier-outcome" style="background:var(--raised);">
+              <div class="tier-outcome-label" style="color:var(--ink3);">Potential outcome</div>
+              <div class="tier-outcome-value" style="color:var(--ink);">1,000+ installs/mo</div>
+            </div>
+            <button class="tier-cta">Grow to this tier <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="playbook-card">
+        <div class="playbook-header">
+          <div class="playbook-title">✦ Playbook insights</div>
+          <div class="playbook-from">From 52 similar apps</div>
+        </div>
+        <div class="playbook-item"><div class="playbook-dot"></div> WhatsApp pain-first hooks — <span class="perf-high">high potential</span> · $0/wk</div>
+        <div class="playbook-item"><div class="playbook-dot"></div> Meta 3-city radius — <span class="perf-high">high potential</span> · $200/wk</div>
+        <div class="playbook-item"><div class="playbook-dot"></div> Email 3-step sequence — <span class="perf-medium">medium potential</span> · $0/wk</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  let selectedOption = null;
+
+  function goToState(n) {
+    [1,2,3,4].forEach(i => {
+      document.getElementById('state'+i).style.display = i===n ? 'block' : 'none';
+      const s = document.getElementById('step'+i);
+      s.classList.remove('active','done');
+      if (i===n) s.classList.add('active');
+      else if (i<n) s.classList.add('done');
+    });
+    selectedOption = null;
+    document.getElementById('continueBtn').disabled = true;
+    ['A','B'].forEach(o => {
+      document.getElementById('option'+o).classList.remove('selected');
+      document.getElementById('radio'+o).style.borderColor = 'var(--border2)';
+      document.getElementById('radio'+o).style.background = 'transparent';
+      document.getElementById('radio'+o).querySelector('.modal-radio-dot').style.display = 'none';
+    });
+  }
+
+  function selectOption(opt) {
+    selectedOption = opt;
+    ['A','B'].forEach(o => {
+      const el = document.getElementById('option'+o);
+      const radio = document.getElementById('radio'+o);
+      const dot = radio.querySelector('.modal-radio-dot');
+      if (o===opt) {
+        el.classList.add('selected');
+        radio.style.borderColor = 'var(--sage)';
+        radio.style.background = 'var(--sage)';
+        dot.style.display = 'block';
+      } else {
+        el.classList.remove('selected');
+        radio.style.borderColor = 'var(--border2)';
+        radio.style.background = 'transparent';
+        dot.style.display = 'none';
+      }
+    });
+    document.getElementById('continueBtn').disabled = false;
+  }
+
+  function handleModalContinue() {
+    if (selectedOption === 'A') goToState(3);
+    else window.alert('→ Navigates to /dashboard/billing with Builder plan pre-highlighted');
+  }
+
+  // Start on state 1
+  goToState(1);
+</script>
+</body>
+</html>

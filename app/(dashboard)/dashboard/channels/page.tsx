@@ -20,46 +20,83 @@ import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import type { ConnectedChannel, SupportedPlatform } from '@/lib/api';
 import { trackOnboarding } from '@/lib/analytics';
+import {
+  IconBrandWhatsapp,
+  IconBrandFacebook,
+  IconBrandGoogle,
+  IconBrandLinkedin,
+  IconMail,
+  IconLock,
+  IconCheck,
+} from '@tabler/icons-react';
+
+type ChannelIconComp = React.ComponentType<{ size?: number | string; color?: string; stroke?: number | string }>;
 
 const PLATFORM_META: Record<
   string,
-  { label: string; icon: string; description: string; minPlan: 'solo' | 'builder' }
+  { label: string; Icon: ChannelIconComp; iconColor: string; iconBg: string; iconBorder: string; description: string; scopeLabel: string; minPlan: 'solo' | 'builder' }
 > = {
   whatsapp: {
     label: 'WhatsApp Business',
-    icon: '💬',
+    Icon: IconBrandWhatsapp,
+    iconColor: 'var(--sage)',
+    iconBg: 'var(--sage-d)',
+    iconBorder: 'var(--sage-b)',
     description: 'Send broadcast messages and receive read receipts via Meta Cloud API.',
+    scopeLabel: 'messaging scope',
     minPlan: 'solo',
   },
   meta: {
     label: 'Meta Ads',
-    icon: '📘',
+    Icon: IconBrandFacebook,
+    iconColor: 'var(--indigo)',
+    iconBg: 'var(--indigo-d)',
+    iconBorder: 'var(--indigo-b)',
     description: 'Run Facebook and Instagram ad campaigns.',
+    scopeLabel: 'ads_management scope',
     minPlan: 'builder',
   },
   google: {
-    label: 'Google Ads',
-    icon: '🔍',
+    label: 'Google Ads (UAC)',
+    Icon: IconBrandGoogle,
+    iconColor: 'var(--indigo)',
+    iconBg: 'var(--indigo-d)',
+    iconBorder: 'var(--indigo-b)',
     description: 'Run Google Search and App Install campaigns.',
+    scopeLabel: 'campaign scope',
     minPlan: 'builder',
   },
   linkedin: {
-    label: 'LinkedIn Ads',
-    icon: '💼',
+    label: 'LinkedIn',
+    Icon: IconBrandLinkedin,
+    iconColor: 'var(--indigo)',
+    iconBg: 'var(--indigo-d)',
+    iconBorder: 'var(--indigo-b)',
     description: 'Reach B2B audiences with LinkedIn campaigns.',
+    scopeLabel: 'ads scope',
     minPlan: 'builder',
   },
   email: {
     label: 'Email (Resend)',
-    icon: '✉️',
+    Icon: IconMail,
+    iconColor: 'var(--ink2)',
+    iconBg: 'var(--raised)',
+    iconBorder: 'var(--border2)',
     description: 'Send transactional and campaign emails via Resend.',
+    scopeLabel: 'send scope',
     minPlan: 'solo',
   },
 };
 
 const PLAN_RANK: Record<string, number> = { free: 0, solo: 1, builder: 2, studio: 3 };
-
 const ALL_PLATFORMS: SupportedPlatform[] = ['whatsapp', 'meta', 'google', 'linkedin', 'email'];
+
+const SECURITY_FEATURES = [
+  'OAuth only — no passwords stored ever',
+  'AES-256 token encryption at rest',
+  'Campaign scope only — no billing access',
+  'Spend cap enforced server-side',
+];
 
 export default function ChannelsPage() {
   const searchParams = useSearchParams();
@@ -73,7 +110,6 @@ export default function ChannelsPage() {
   const [disconnectConfirm, setDisconnectConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [comingSoonPlatform, setComingSoonPlatform] = useState<string | null>(null);
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -85,7 +121,6 @@ export default function ChannelsPage() {
       const token = await getToken();
       const { channels: data } = await api.channels.list(token);
       setChannels(data);
-      // Fetch plan
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/billing/subscription`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -101,9 +136,7 @@ export default function ChannelsPage() {
     }
   }, [getToken]);
 
-  useEffect(() => {
-    loadChannels();
-  }, [loadChannels]);
+  useEffect(() => { loadChannels(); }, [loadChannels]);
 
   useEffect(() => {
     const connected = searchParams.get('connected');
@@ -119,7 +152,7 @@ export default function ChannelsPage() {
 
   async function handleConnect(platform: SupportedPlatform) {
     if (platform !== 'whatsapp') {
-      setComingSoonPlatform(platform);
+      setSuccessMsg(`${PLATFORM_META[platform]?.label ?? platform} integration is coming soon — you're on the early access list.`);
       return;
     }
     setConnecting(platform);
@@ -165,49 +198,12 @@ export default function ChannelsPage() {
   }
 
   return (
-    <div className="p-6 max-w-3xl">
-      {/* Coming soon modal */}
-      {comingSoonPlatform && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-          }}
-          onClick={() => setComingSoonPlatform(null)}
-        >
-          <div
-            style={{
-              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
-              padding: '28px 32px', maxWidth: 380, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="text-2xl mb-3">{PLATFORM_META[comingSoonPlatform]?.icon}</div>
-            <h3 className="font-display font-bold" style={{ fontSize: 16, color: 'var(--ink)', marginBottom: 8 }}>
-              {PLATFORM_META[comingSoonPlatform]?.label} — coming soon
-            </h3>
-            <p style={{ fontSize: 13, color: 'var(--ink2)', lineHeight: 1.6, marginBottom: 20 }}>
-              Full OAuth integration for {PLATFORM_META[comingSoonPlatform]?.label} is launching in Phase 6.
-              You&apos;re on the early access list.
-            </p>
-            <button
-              onClick={() => setComingSoonPlatform(null)}
-              style={{
-                width: '100%', fontSize: 13, fontWeight: 500, padding: '9px 16px', borderRadius: 6,
-                cursor: 'pointer', background: 'var(--sage)', color: '#fff', border: 'none',
-              }}
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
-
+    <div className="p-4 sm:p-6">
       <h1 className="font-display font-bold mb-1" style={{ fontSize: 22, color: 'var(--ink)' }}>
-        Channels
+        Connected channels
       </h1>
-      <p className="mb-6" style={{ fontSize: 13, color: 'var(--ink2)' }}>
-        Connect marketing channels to send campaigns directly from LaunchMind.
+      <p className="mb-5" style={{ fontSize: 12, color: 'var(--ink2)' }}>
+        LaunchMind uses OAuth — we never store your passwords. Revoke access anytime from this page.
       </p>
 
       {error && (
@@ -230,11 +226,9 @@ export default function ChannelsPage() {
       )}
 
       {loading ? (
-        <div className="py-8 text-center" style={{ fontSize: 13, color: 'var(--ink3)' }}>
-          Loading channels…
-        </div>
+        <div className="py-8 text-center" style={{ fontSize: 13, color: 'var(--ink3)' }}>Loading channels…</div>
       ) : (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           {ALL_PLATFORMS.map((platform) => {
             const meta = PLATFORM_META[platform];
             const connected = getChannelStatus(platform);
@@ -244,79 +238,82 @@ export default function ChannelsPage() {
             const awaitingConfirm = disconnectConfirm === platform;
             const requiredPlan = meta.minPlan === 'builder' ? 'Builder' : 'Solo';
 
+            const iconColor = connected ? meta.iconColor : allowed ? meta.iconColor : 'var(--ink3)';
+            const iconBg = connected ? meta.iconBg : allowed ? meta.iconBg : 'var(--raised)';
+            const iconBorder = connected ? meta.iconBorder : allowed ? meta.iconBorder : 'var(--border2)';
+
             return (
               <div
                 key={platform}
-                className="rounded-[10px] p-5 flex items-start justify-between gap-4"
-                style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+                style={{
+                  background: 'var(--surface)',
+                  border: connected ? '1.5px solid var(--sage-b)' : '1px solid var(--border)',
+                  borderRadius: 10,
+                  padding: '14px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
               >
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <span className="text-2xl mt-0.5">{meta.icon}</span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium" style={{ fontSize: 13, color: 'var(--ink)' }}>
-                        {meta.label}
-                      </span>
-                      {connected ? (
-                        <span
-                          className="rounded-full px-2 py-0.5 font-medium"
-                          style={{ fontSize: 11, background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' }}
-                        >
-                          Connected
-                        </span>
-                      ) : !allowed ? (
-                        <span
-                          className="rounded-full px-2 py-0.5 font-medium"
-                          style={{ fontSize: 11, background: 'var(--indigo-d)', color: 'var(--indigo)', border: '1px solid var(--indigo-b)' }}
-                        >
-                          {requiredPlan}+ required
-                        </span>
-                      ) : (
-                        <span
-                          className="rounded-full px-2 py-0.5"
-                          style={{ fontSize: 11, background: 'var(--raised)', color: 'var(--ink3)' }}
-                        >
-                          Not connected
-                        </span>
-                      )}
-                    </div>
-                    <p style={{ fontSize: 12, color: 'var(--ink2)', marginTop: 3 }}>{meta.description}</p>
-                    {connected && (
-                      <p style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 2 }}>
-                        Connected {new Date(connected.createdAt).toLocaleDateString()}
-                        {connected.expiresAt &&
-                          ` · Expires ${new Date(connected.expiresAt).toLocaleDateString()}`}
-                      </p>
-                    )}
-                  </div>
+                {/* Platform icon */}
+                <div style={{
+                  width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: iconBg, border: `1px solid ${iconBorder}`,
+                }}>
+                  <meta.Icon size={18} color={iconColor} />
                 </div>
 
-                <div className="flex flex-col items-end gap-2 shrink-0">
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>{meta.label}</span>
+                    {connected ? (
+                      <span style={{ fontSize: 11, background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)', borderRadius: 9999, padding: '1px 8px', fontWeight: 500 }}>
+                        Active
+                      </span>
+                    ) : !allowed ? (
+                      <span style={{ fontSize: 11, background: 'var(--indigo-d)', color: 'var(--indigo)', border: '1px solid var(--indigo-b)', borderRadius: 9999, padding: '1px 8px' }}>
+                        {requiredPlan}+ required
+                      </span>
+                    ) : null}
+                  </div>
+                  <p style={{ fontSize: 12, color: connected ? 'var(--sage)' : 'var(--ink2)', margin: '2px 0 0' }}>
+                    {connected
+                      ? `Connected · ${meta.scopeLabel}`
+                      : meta.description}
+                  </p>
+                  {connected && (
+                    <p style={{ fontSize: 11, color: 'var(--ink3)', margin: '1px 0 0' }}>
+                      Since {new Date(connected.createdAt).toLocaleDateString()}
+                      {connected.expiresAt && ` · Expires ${new Date(connected.expiresAt).toLocaleDateString()}`}
+                    </p>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div style={{ flexShrink: 0 }}>
                   {connected ? (
                     awaitingConfirm ? (
-                      <div className="flex gap-2">
+                      <div style={{ display: 'flex', gap: 6 }}>
                         <button
                           onClick={() => setDisconnectConfirm(null)}
-                          className="rounded-[6px] px-3 py-1.5 transition-opacity hover:opacity-80"
-                          style={{ fontSize: 12, border: '1px solid var(--border2)', color: 'var(--ink2)' }}
+                          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border2)', color: 'var(--ink2)', background: 'var(--surface)', cursor: 'pointer' }}
                         >
                           Cancel
                         </button>
                         <button
                           onClick={() => handleDisconnect(platform)}
                           disabled={isDisconnecting}
-                          className="rounded-[6px] px-3 py-1.5 font-medium disabled:opacity-50 transition-opacity hover:opacity-90"
-                          style={{ fontSize: 12, background: 'var(--red)', color: '#fff' }}
+                          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer', opacity: isDisconnecting ? 0.6 : 1 }}
                         >
-                          {isDisconnecting ? 'Disconnecting…' : 'Confirm disconnect'}
+                          {isDisconnecting ? '…' : 'Confirm'}
                         </button>
                       </div>
                     ) : (
                       <button
                         onClick={() => handleDisconnect(platform)}
-                        disabled={isDisconnecting}
-                        className="rounded-[6px] px-3 py-1.5 disabled:opacity-50 transition-opacity hover:opacity-80"
-                        style={{ fontSize: 12, border: '1px solid var(--border2)', color: 'var(--ink2)' }}
+                        style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border2)', color: 'var(--ink2)', background: 'var(--surface)', cursor: 'pointer' }}
                       >
                         Disconnect
                       </button>
@@ -325,22 +322,14 @@ export default function ChannelsPage() {
                     <button
                       onClick={() => handleConnect(platform)}
                       disabled={isConnecting}
-                      className="rounded-[6px] px-3 py-1.5 font-medium disabled:opacity-50 transition-opacity hover:opacity-90"
-                      style={{ fontSize: 12, background: 'var(--sage)', color: '#fff' }}
+                      style={{ fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 6, background: 'var(--sage)', color: '#fff', border: 'none', cursor: isConnecting ? 'not-allowed' : 'pointer', opacity: isConnecting ? 0.6 : 1 }}
                     >
                       {isConnecting ? 'Redirecting…' : 'Connect'}
                     </button>
                   ) : (
                     <a
                       href="/dashboard/billing"
-                      className="rounded-[6px] px-3 py-1.5 font-medium transition-opacity hover:opacity-90"
-                      style={{
-                        fontSize: 12,
-                        background: 'var(--indigo-d)',
-                        border: '1px solid var(--indigo-b)',
-                        color: 'var(--indigo)',
-                        textDecoration: 'none',
-                      }}
+                      style={{ fontSize: 12, fontWeight: 500, padding: '5px 12px', borderRadius: 6, background: 'var(--indigo-d)', border: '1px solid var(--indigo-b)', color: 'var(--indigo)', textDecoration: 'none', display: 'inline-block' }}
                     >
                       Upgrade to {requiredPlan}
                     </a>
@@ -352,22 +341,24 @@ export default function ChannelsPage() {
         </div>
       )}
 
-      {/* Security trust callout */}
+      {/* Security features 2×2 grid */}
       <div
-        className="mt-6 rounded-[10px] p-5 flex items-start gap-3"
-        style={{ background: 'var(--sage-d)', border: '1px solid var(--sage-b)' }}
+        className="mt-5 rounded-[10px] p-4"
+        style={{ background: 'var(--raised)', border: '1px solid transparent' }}
       >
-        <svg style={{ width: 18, height: 18, color: 'var(--sage)', flexShrink: 0, marginTop: 1 }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-        </svg>
-        <div>
-          <p className="font-semibold" style={{ fontSize: 12, color: 'var(--sage)', marginBottom: 3 }}>
-            Your tokens are encrypted at rest
-          </p>
-          <p style={{ fontSize: 12, color: 'var(--ink2)', lineHeight: 1.6 }}>
-            All OAuth tokens are AES-256 encrypted using AWS KMS. LaunchMind never stores plaintext credentials.
-            Disconnect at any time — your token is immediately revoked and removed.
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          <IconLock size={13} color="var(--sage)" />
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--ink2)' }}>
+            How we protect your credentials
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 6 }}>
+          {SECURITY_FEATURES.map((feature) => (
+            <div key={feature} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <IconCheck size={12} color="var(--sage)" />
+              <span style={{ fontSize: 12, color: 'var(--ink2)' }}>{feature}</span>
+            </div>
+          ))}
         </div>
       </div>
 

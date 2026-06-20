@@ -203,7 +203,7 @@ export default function MetricsPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4 space-y-8">
+    <div className="py-4 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8 space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="font-display font-semibold" style={{ fontSize: 22, color: 'var(--ink)' }}>

@@ -44,6 +44,7 @@ export interface FounderContext {
   moat?: string;
   peakSeason?: string;
   bestCustomerQuote?: string;
+  contentFormats?: string[];
 }
 
 export interface ScrapeJobStatus {
