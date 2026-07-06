@@ -102,6 +102,13 @@ export interface ScrapedProduct {
     competitorGaps: string[];
     suggestedMarkets: string[];
   };
+  websiteMeta?: {
+    title?: string;
+    description?: string;
+    keywords?: string[];
+    ogImage?: string;
+    logoUrl?: string;
+  };
 }
 
 export interface Competitor {
@@ -136,4 +143,5 @@ export const INTAKE_STORAGE = {
   editedIcp:    'lm_intake_editedIcp',
   competitors:  'lm_intake_competitors',
   markets:      'lm_intake_markets',
+  logoUrl:      'lm_intake_logoUrl',
 } as const;

@@ -159,6 +159,9 @@ export default function AnalysisPage() {
           // Store scrape result for later steps
           if (result.result) {
             sessionStorage.setItem(INTAKE_STORAGE.scrapeResult, JSON.stringify(result.result));
+            // Persist auto-detected logo URL so Step 7 (Confirm) can pre-fill it
+            const detectedLogo = result.result?.websiteMeta?.logoUrl as string | undefined;
+            if (detectedLogo) sessionStorage.setItem(INTAKE_STORAGE.logoUrl, detectedLogo);
           }
           router.push('/dashboard/products/new/icp');
         }

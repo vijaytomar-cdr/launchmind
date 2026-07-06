@@ -81,6 +81,8 @@ export default function ConfirmPage() {
   const [markets, setMarkets]     = useState<MarketData | null>(null);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
+  const [logoUrl, setLogoUrl]     = useState('');
+  const [includeLogo, setIncludeLogo] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -115,6 +117,10 @@ export default function ConfirmPage() {
     if (mktRaw) {
       try { setMarkets(JSON.parse(mktRaw)); } catch { /* ignore */ }
     }
+
+    // Auto-detected logo from website scraping — pre-fill if found
+    const detectedLogo = sessionStorage.getItem(INTAKE_STORAGE.logoUrl);
+    if (detectedLogo) setLogoUrl(detectedLogo);
   }, [router]);
 
   async function handleGenerate() {
@@ -143,6 +149,8 @@ export default function ConfirmPage() {
           selectedMarkets: markets?.selectedMarkets,
           primaryChannel:  markets?.primaryChannel,
           excludedChannels: markets?.excludedChannels,
+          logoUrl: includeLogo && logoUrl ? logoUrl : undefined,
+          includeLogo,
         },
         freshToken
       );
@@ -338,6 +346,71 @@ export default function ConfirmPage() {
           </div>
         </div>
       )}
+
+      {/* Brand assets — logo for AI images & videos */}
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, padding: '14px 16px', marginBottom: 16,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>
+              Brand logo
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink3)' }}>
+              {logoUrl ? 'We found your logo — it will be composited onto AI-generated images and videos.' : 'Paste your app icon URL to include it in AI-generated marketing images and videos.'}
+            </div>
+          </div>
+          {/* Include logo toggle */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={includeLogo}
+            onClick={() => setIncludeLogo(v => !v)}
+            style={{
+              width: 32, height: 18, borderRadius: 9999, padding: 2, flexShrink: 0,
+              cursor: 'pointer', border: 'none', marginLeft: 16,
+              background: includeLogo ? 'var(--sage)' : 'rgba(0,0,0,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: includeLogo ? 'flex-end' : 'flex-start',
+              transition: 'background 0.15s',
+            }}
+          >
+            <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', display: 'block' }} />
+          </button>
+        </div>
+
+        {includeLogo && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Logo preview */}
+            {logoUrl && (
+              <div style={{
+                width: 48, height: 48, borderRadius: 10, overflow: 'hidden', flexShrink: 0,
+                border: '1px solid var(--border2)', background: 'var(--raised)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <img
+                  src={logoUrl}
+                  alt="App logo"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  onError={() => setLogoUrl('')}
+                />
+              </div>
+            )}
+            <input
+              type="url"
+              value={logoUrl}
+              onChange={e => setLogoUrl(e.target.value)}
+              placeholder="https://yourapp.com/logo.png (PNG with transparent background)"
+              style={{
+                flex: 1, padding: '7px 10px',
+                background: 'var(--raised)', border: '1px solid var(--border2)',
+                borderRadius: 6, fontSize: 11, color: 'var(--ink)',
+                outline: 'none', fontFamily: 'inherit',
+              }}
+            />
+          </div>
+        )}
+      </div>
 
       {error && (
         <p style={{ fontSize: 13, color: 'var(--red)', marginBottom: 12 }}>{error}</p>

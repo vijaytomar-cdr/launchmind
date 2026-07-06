@@ -3,7 +3,7 @@
  * @description TypeScript types for content assets, preferences, and approval flow.
  */
 
-export type AssetStatus = 'pending' | 'approved' | 'rejected' | 'auto_approved' | 'held'
+export type AssetStatus = 'pending' | 'approved' | 'rejected' | 'auto_approved' | 'held' | 'concept'
 export type ApprovalMode = 'manual' | 'one_tap' | 'auto'
 
 export type AssetType =
@@ -45,6 +45,7 @@ export interface ContentAsset {
   installs: number | null
   impressions: number | null
   cpi: number | null
+  render_started_at: string | null
   created_at: string
   updated_at: string
 }
@@ -65,6 +66,8 @@ export interface ContentPreferences {
   visual: {
     metaImageBrief: boolean
     carouselBrief: boolean
+    logoUrl?: string
+    imageStyle?: 'photorealistic' | 'graphic' | 'mockup'
   }
   community: {
     whatsappGroupPost: boolean

@@ -24,6 +24,8 @@ import { consumeTokens } from '../lib/tokens';
 import { callSonnet, callHaiku } from '../lib/aiClient';
 import { textToSpeech } from '../lib/elevenLabsClient';
 import { renderVideo, pollRender } from '../lib/creatomateClient';
+import { generateImage, buildMarketingImagePrompt, ImageStyle } from '../lib/replicateClient';
+import sharp from 'sharp';
 import { buildPlaybookContext } from './playbookService';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -469,11 +471,12 @@ interface VideoJobParams {
   language: string;
   voiceCloneId: string | null;
   assetType: string;
+  existingAssetId?: string; // when set, update this row instead of inserting
 }
 
 async function generateVideo(params: VideoJobParams): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const { productId, founderId, briefId, scenes, videoType, language, voiceCloneId, assetType } = params;
+  const { productId, founderId, briefId, scenes, videoType, language, voiceCloneId, assetType, existingAssetId } = params;
 
   const audioBuffers: Buffer[] = [];
   for (const scene of scenes) {
@@ -509,31 +512,33 @@ async function generateVideo(params: VideoJobParams): Promise<void> {
 
   const renderId = await renderVideo({ scenes: creatomateScenes, outputFormat: 'mp4', ...dimensions, frameRate: 30, captionsEnabled: true });
   const videoUrl = await pollRender(renderId);
+  const totalDuration = scenes.reduce((s, sc) => s + sc.durationSeconds, 0);
+  const channel = videoType === 'appStorePreview' ? 'aso' : 'video';
 
-  // Save to content_assets — video always status='pending'
-  await supabase.from('content_assets').insert({
-    product_id: productId,
-    founder_id: founderId,
-    brief_id: briefId,
-    asset_type: assetType,
-    channel: videoType === 'appStorePreview' ? 'aso' : 'video',
-    market: 'both',
-    media_url: videoUrl,
-    media_type: 'mp4',
-    duration_seconds: scenes.reduce((s, sc) => s + sc.durationSeconds, 0),
-    model_used: 'sonnet',
-    status: 'pending',
-    auto_approved: false,
-    generation_week: 1,
-  });
+  if (existingAssetId) {
+    // Update the concept row in place — it becomes the rendered asset
+    await supabase.from('content_assets').update({
+      media_url: videoUrl, media_type: 'mp4',
+      duration_seconds: totalDuration, status: 'pending', model_used: 'sonnet+creatomate',
+    }).eq('id', existingAssetId);
+  } else {
+    await supabase.from('content_assets').insert({
+      product_id: productId, founder_id: founderId, brief_id: briefId,
+      asset_type: assetType, channel, market: 'both',
+      media_url: videoUrl, media_type: 'mp4',
+      duration_seconds: totalDuration, model_used: 'sonnet',
+      status: 'pending', auto_approved: false, generation_week: 1,
+    });
+  }
 }
 
 async function generateVoiceNote(params: {
   productId: string; founderId: string; briefId: string | null;
   script: string; language: string; voiceCloneId: string | null;
+  existingAssetId?: string; // when set, update this row instead of inserting
 }): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const { productId, founderId, briefId, script, language, voiceCloneId } = params;
+  const { productId, founderId, briefId, script, language, voiceCloneId, existingAssetId } = params;
 
   const mp3 = await textToSpeech(script, language, voiceCloneId);
   if (mp3.length === 0) return;
@@ -541,14 +546,21 @@ async function generateVoiceNote(params: {
   const path = `${founderId}/${productId}/audio/voice_note_${Date.now()}.mp3`;
   await supabase.storage.from('content-assets').upload(path, mp3);
   const { data } = supabase.storage.from('content-assets').getPublicUrl(path);
+  const duration = Math.ceil(script.split(' ').length / 2.5);
 
-  await supabase.from('content_assets').insert({
-    product_id: productId, founder_id: founderId, brief_id: briefId,
-    asset_type: 'whatsapp_voice_note', channel: 'whatsapp', market: 'india',
-    media_url: data.publicUrl, media_type: 'mp3',
-    duration_seconds: Math.ceil(script.split(' ').length / 2.5),
-    model_used: 'sonnet', status: 'pending', auto_approved: false,
-  });
+  if (existingAssetId) {
+    await supabase.from('content_assets').update({
+      media_url: data.publicUrl, media_type: 'mp3',
+      duration_seconds: duration, status: 'pending', model_used: 'sonnet+elevenlabs',
+    }).eq('id', existingAssetId);
+  } else {
+    await supabase.from('content_assets').insert({
+      product_id: productId, founder_id: founderId, brief_id: briefId,
+      asset_type: 'whatsapp_voice_note', channel: 'whatsapp', market: 'india',
+      media_url: data.publicUrl, media_type: 'mp3',
+      duration_seconds: duration, model_used: 'sonnet', status: 'pending', auto_approved: false,
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -562,7 +574,32 @@ function determineInitialStatus(channel: string, approvalMode: string, weeksLive
   return 'pending';
 }
 
-async function saveAssets(
+type AssetRow = {
+  product_id: string; founder_id: string; brief_id: string | null;
+  asset_type: string; channel: string; market: string; language: string;
+  text_content?: string; structured_data?: unknown; hook_angle: string;
+  model_used: string; status: string; auto_approved: boolean; generation_week: number;
+};
+
+function makeRowBuilder(
+  productId: string, founderId: string, briefId: string | null,
+  lang: string, approvalMode: string, weeksLive: number
+) {
+  return (type: string, channel: string, market: string, textContent: string, hookAngle: string): AssetRow => ({
+    product_id: productId, founder_id: founderId, brief_id: briefId,
+    asset_type: type, channel, market, language: lang,
+    text_content: textContent, hook_angle: hookAngle,
+    model_used: 'sonnet',
+    status: determineInitialStatus(channel, approvalMode, weeksLive),
+    auto_approved: false, generation_week: weeksLive,
+  });
+}
+
+/**
+ * Saves core text assets (WhatsApp, Meta, Google, ASO, Email, LinkedIn) to DB.
+ * Called first so the checklist "Ad copy & messaging" stage marks done immediately.
+ */
+async function saveCoreAssets(
   content: ContentOutput,
   ctx: Awaited<ReturnType<typeof assembleContext>>,
   briefId: string | null
@@ -573,81 +610,407 @@ async function saveAssets(
   const productId = (product as Record<string, unknown>).id as string;
   const founderId = (product as Record<string, unknown>).founder_id as string;
   const lang = ((founderContext.language as string[]) ?? ['english'])[0] ?? 'english';
+  const row = makeRowBuilder(productId, founderId, briefId, lang, ctx.approvalMode, weeksLive);
 
-  type AssetRow = {
+  const rows: AssetRow[] = [
+    row('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.painFirst, 'pain_first'),
+    row('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.socialProof, 'social_proof'),
+    row('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.reEngagement, 're_engagement'),
+  ];
+  if (content.whatsapp.hinglish) {
+    rows.push(row('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.hinglish, 'pain_first_hinglish'));
+  }
+  if (prefs?.text?.adCopy !== false) {
+    rows.push(row('meta_headline', 'meta', 'both', JSON.stringify({ a: content.meta.headlineA, b: content.meta.headlineB }), 'pain_first'));
+    rows.push(row('meta_body', 'meta', 'india', content.meta.bodyIndia, 'pain_first'));
+    rows.push(row('meta_body', 'meta', 'usa', content.meta.bodyUSA, 'pain_first'));
+    rows.push(row('google_uac_variants', 'google', 'both', JSON.stringify(content.googleUAC), 'mixed'));
+  }
+  rows.push(row('aso_subtitle', 'aso', 'both', content.aso.subtitle, 'pain_first'));
+  rows.push(row('aso_description', 'aso', 'both', content.aso.descriptionOpening, 'pain_first'));
+  rows.push(row('aso_keywords', 'aso', 'india', JSON.stringify(content.aso.keywordsIndia), 'keywords'));
+  rows.push(row('aso_keywords', 'aso', 'usa', JSON.stringify(content.aso.keywordsUSA), 'keywords'));
+  if (prefs?.text?.email !== false) {
+    rows.push(row('email_day1', 'email', 'both', JSON.stringify({ subject: content.email.day1Subject, body: content.email.day1Body }), 'onboarding'));
+    rows.push(row('email_day5', 'email', 'both', JSON.stringify({ subject: content.email.day5Subject, body: content.email.day5Body }), 're_engagement'));
+    rows.push(row('email_day14', 'email', 'both', JSON.stringify({ subject: content.email.day14Subject, body: content.email.day14Body }), 'review_request'));
+  }
+  if (prefs?.text?.linkedin !== false) {
+    rows.push(row('linkedin_founder_story', 'linkedin', 'both', content.linkedin.founderStoryFull, 'founder_story'));
+    rows.push(row('linkedin_data_post', 'linkedin', 'both', content.linkedin.buildInPublicFull, 'data_post'));
+  }
+
+  if (rows.length > 0) await supabase.from('content_assets').insert(rows);
+}
+
+/**
+ * Saves community and social proof assets to DB.
+ * Called after saveCoreAssets so the checklist "Community & social proof" stage marks done separately.
+ */
+async function saveCommunityAssets(
+  content: ContentOutput,
+  ctx: Awaited<ReturnType<typeof assembleContext>>,
+  briefId: string | null
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { product, founderContext, contentPreferences, weeksLive } = ctx;
+  const prefs = contentPreferences as Record<string, Record<string, boolean>>;
+  const productId = (product as Record<string, unknown>).id as string;
+  const founderId = (product as Record<string, unknown>).founder_id as string;
+  const lang = ((founderContext.language as string[]) ?? ['english'])[0] ?? 'english';
+  const row = makeRowBuilder(productId, founderId, briefId, lang, ctx.approvalMode, weeksLive);
+
+  const rows: AssetRow[] = [];
+  if (content.community) {
+    if (prefs?.community?.whatsappGroupPost) rows.push(row('community_whatsapp_group', 'whatsapp', 'india', content.community.whatsappGroupPost, 'warm_network'));
+    if (prefs?.community?.facebookGroupPost) rows.push(row('community_facebook', 'meta', 'both', content.community.facebookGroupPost, 'discussion'));
+    if (prefs?.community?.indieHackersPost)  rows.push(row('community_indiehackers', 'other', 'both', content.community.indieHackersPost, 'build_in_public'));
+    if (prefs?.community?.twitterThread)     rows.push(row('community_twitter_thread', 'other', 'both', JSON.stringify(content.community.twitterThread), 'thread'));
+  }
+  if (content.socialProof) {
+    if (prefs?.socialProof?.caseStudy)        rows.push(row('social_proof_case_study', 'other', 'both', JSON.stringify(content.socialProof.caseStudy), 'metrics_based'));
+    if (prefs?.socialProof?.testimonialBrief) rows.push(row('social_proof_testimonial', 'other', 'both', JSON.stringify(content.socialProof.testimonialCardBrief), 'quote'));
+    rows.push(row('social_proof_review_response', 'other', 'both', JSON.stringify({ positive: content.socialProof.reviewResponsePositive, negative: content.socialProof.reviewResponseNegative }), 'response'));
+  }
+
+  if (rows.length > 0) await supabase.from('content_assets').insert(rows);
+}
+
+/**
+ * Saves visual brief assets to DB.
+ * Called after saveCommunityAssets so the checklist "Visual assets" stage marks done separately.
+ */
+async function saveVisualAssets(
+  content: ContentOutput,
+  ctx: Awaited<ReturnType<typeof assembleContext>>,
+  briefId: string | null
+): Promise<void> {
+  if (!content.visualBriefs) return;
+  const supabase = getSupabaseAdmin();
+  const { product, founderContext, weeksLive } = ctx;
+  const productId = (product as Record<string, unknown>).id as string;
+  const founderId = (product as Record<string, unknown>).founder_id as string;
+  const lang = ((founderContext.language as string[]) ?? ['english'])[0] ?? 'english';
+  const row = makeRowBuilder(productId, founderId, briefId, lang, ctx.approvalMode, weeksLive);
+
+  const rows: AssetRow[] = [
+    row('meta_image_brief', 'meta', 'both', JSON.stringify(content.visualBriefs.metaImageBrief), 'visual'),
+    row('carousel_brief', 'meta', 'both', JSON.stringify(content.visualBriefs.carousel), 'visual'),
+  ];
+
+  await supabase.from('content_assets').insert(rows);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 5b: VIDEO CONCEPT ROWS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Saves video scripts as 'concept' rows so the owner can pick which one to render.
+ * No Creatomate or ElevenLabs calls — just the script stored in structured_data.
+ */
+async function saveVideoConcepts(
+  videoScripts: NonNullable<ContentOutput['videoScripts']>,
+  ctx: Awaited<ReturnType<typeof assembleContext>>,
+  briefId: string | null
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const product = ctx.product as Record<string, unknown>;
+  const productId = product.id as string;
+  const founderId = product.founder_id as string;
+  const lang = ((ctx.founderContext.language as string[]) ?? ['english'])[0] ?? 'english';
+  const prefs = ctx.contentPreferences as Record<string, Record<string, boolean>>;
+  const videoPrefs = (prefs?.video ?? {}) as Record<string, boolean>;
+
+  type ConceptRow = {
     product_id: string; founder_id: string; brief_id: string | null;
     asset_type: string; channel: string; market: string; language: string;
-    text_content?: string; structured_data?: unknown; hook_angle: string;
+    text_content: string; structured_data: unknown; hook_angle: string;
     model_used: string; status: string; auto_approved: boolean; generation_week: number;
   };
 
-  const rows: AssetRow[] = [];
+  const rows: ConceptRow[] = [];
 
-  const addTextAsset = (type: string, channel: string, market: string, textContent: string, hookAngle: string) => {
-    rows.push({
-      product_id: productId, founder_id: founderId, brief_id: briefId,
-      asset_type: type, channel, market, language: lang,
-      text_content: textContent, hook_angle: hookAngle,
-      model_used: 'sonnet',
-      status: determineInitialStatus(channel, ctx.approvalMode, weeksLive),
-      auto_approved: false, generation_week: weeksLive,
-    });
-  };
+  const makeRow = (
+    assetType: string, channel: string, openingLine: string, data: unknown
+  ): ConceptRow => ({
+    product_id: productId, founder_id: founderId, brief_id: briefId,
+    asset_type: assetType, channel, market: 'both', language: lang,
+    text_content: openingLine, structured_data: data,
+    hook_angle: 'pain_first', model_used: 'sonnet',
+    status: 'concept', auto_approved: false, generation_week: ctx.weeksLive,
+  });
 
-  // WhatsApp
-  addTextAsset('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.painFirst, 'pain_first');
-  addTextAsset('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.socialProof, 'social_proof');
-  addTextAsset('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.reEngagement, 're_engagement');
-  if (content.whatsapp.hinglish) {
-    addTextAsset('whatsapp_broadcast', 'whatsapp', 'india', content.whatsapp.hinglish, 'pain_first_hinglish');
+  if (videoPrefs.reels30s && videoScripts.reels30s) {
+    const scenes = videoScripts.reels30s.scenes;
+    rows.push(makeRow('video_reels_30s', 'meta',
+      scenes[0]?.voiceScript?.slice(0, 120) ?? '',
+      { videoType: 'reels30s', language: lang, voiceCloneId: ctx.voiceCloneId, scenes }
+    ));
   }
-
-  // Meta
-  if (prefs?.text?.adCopy !== false) {
-    addTextAsset('meta_headline', 'meta', 'both', JSON.stringify({ a: content.meta.headlineA, b: content.meta.headlineB }), 'pain_first');
-    addTextAsset('meta_body', 'meta', 'india', content.meta.bodyIndia, 'pain_first');
-    addTextAsset('meta_body', 'meta', 'usa', content.meta.bodyUSA, 'pain_first');
+  if (videoPrefs.shorts60s && videoScripts.shorts60s) {
+    const scenes = videoScripts.shorts60s.scenes;
+    rows.push(makeRow('video_shorts_60s', 'meta',
+      scenes[0]?.voiceScript?.slice(0, 120) ?? '',
+      { videoType: 'shorts60s', language: lang, voiceCloneId: ctx.voiceCloneId, scenes }
+    ));
   }
-
-  // Google UAC
-  if (prefs?.text?.adCopy !== false) {
-    addTextAsset('google_uac_variants', 'google', 'both', JSON.stringify(content.googleUAC), 'mixed');
+  if (videoPrefs.appStorePreview && videoScripts.appStorePreview) {
+    const scenes = videoScripts.appStorePreview.scenes;
+    rows.push(makeRow('video_app_preview', 'aso',
+      scenes[0]?.voiceScript?.slice(0, 120) ?? '',
+      { videoType: 'appStorePreview', language: lang, voiceCloneId: ctx.voiceCloneId, scenes }
+    ));
   }
-
-  // ASO
-  addTextAsset('aso_subtitle', 'aso', 'both', content.aso.subtitle, 'pain_first');
-  addTextAsset('aso_description', 'aso', 'both', content.aso.descriptionOpening, 'pain_first');
-
-  // Email
-  if (prefs?.text?.email !== false) {
-    addTextAsset('email_day1', 'email', 'both', JSON.stringify({ subject: content.email.day1Subject, body: content.email.day1Body }), 'onboarding');
-    addTextAsset('email_day5', 'email', 'both', JSON.stringify({ subject: content.email.day5Subject, body: content.email.day5Body }), 're_engagement');
-    addTextAsset('email_day14', 'email', 'both', JSON.stringify({ subject: content.email.day14Subject, body: content.email.day14Body }), 'review_request');
-  }
-
-  // LinkedIn
-  if (prefs?.text?.linkedin !== false) {
-    addTextAsset('linkedin_founder_story', 'linkedin', 'both', content.linkedin.founderStoryFull, 'founder_story');
-    addTextAsset('linkedin_data_post', 'linkedin', 'both', content.linkedin.buildInPublicFull, 'data_post');
-  }
-
-  // Community
-  if (content.community) {
-    if (prefs?.community?.whatsappGroupPost) addTextAsset('community_whatsapp_group', 'whatsapp', 'india', content.community.whatsappGroupPost, 'warm_network');
-    if (prefs?.community?.facebookGroupPost) addTextAsset('community_facebook', 'meta', 'both', content.community.facebookGroupPost, 'discussion');
-    if (prefs?.community?.indieHackersPost)  addTextAsset('community_indiehackers', 'other', 'both', content.community.indieHackersPost, 'build_in_public');
-    if (prefs?.community?.twitterThread)     addTextAsset('community_twitter_thread', 'other', 'both', JSON.stringify(content.community.twitterThread), 'thread');
-  }
-
-  // Social proof
-  if (content.socialProof) {
-    if (prefs?.socialProof?.caseStudy)           addTextAsset('social_proof_case_study', 'other', 'both', JSON.stringify(content.socialProof.caseStudy), 'metrics_based');
-    if (prefs?.socialProof?.testimonialBrief)    addTextAsset('social_proof_testimonial', 'other', 'both', JSON.stringify(content.socialProof.testimonialCardBrief), 'quote');
-    addTextAsset('social_proof_review_response', 'other', 'both', JSON.stringify({ positive: content.socialProof.reviewResponsePositive, negative: content.socialProof.reviewResponseNegative }), 'response');
+  if (videoPrefs.whatsappVoiceNote && videoScripts.whatsappVoiceNote) {
+    rows.push(makeRow('whatsapp_voice_note', 'whatsapp',
+      videoScripts.whatsappVoiceNote.script.slice(0, 120),
+      { videoType: 'voiceNote', language: videoScripts.whatsappVoiceNote.language, voiceCloneId: ctx.voiceCloneId, script: videoScripts.whatsappVoiceNote.script }
+    ));
   }
 
   if (rows.length > 0) {
     await supabase.from('content_assets').insert(rows);
+  }
+}
+
+/**
+ * Triggers actual Creatomate / ElevenLabs render for a video concept the owner selected.
+ * Updates the concept row in place: concept → pending (rendering) → pending (done, awaits approval).
+ * @param assetId   - UUID of the content_assets row with status='concept'
+ * @param founderId - Must match asset.founder_id
+ * @throws {Error} If asset not found or not a concept
+ * @security founderId verified against asset.founder_id before write.
+ */
+export async function renderConceptAsset(assetId: string, founderId: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  const { data: asset, error } = await supabase
+    .from('content_assets')
+    .select('*')
+    .eq('id', assetId)
+    .eq('founder_id', founderId)
+    .eq('status', 'concept')
+    .single();
+
+  if (error || !asset) throw new Error('Concept asset not found or already rendering');
+
+  // Mark as rendering immediately so the frontend can show progress
+  await supabase
+    .from('content_assets')
+    .update({ status: 'pending', render_started_at: new Date().toISOString() })
+    .eq('id', assetId);
+
+  const data = asset.structured_data as Record<string, unknown>;
+  const productId = asset.product_id as string;
+  const briefId = (asset.brief_id as string | null) ?? null;
+  const language = (data.language as string) ?? 'english_india';
+  const voiceCloneId = (data.voiceCloneId as string | null) ?? null;
+  const videoType = data.videoType as string;
+
+  if (videoType === 'voiceNote') {
+    const script = data.script as string;
+    await generateVoiceNote({ productId, founderId, briefId, script, language, voiceCloneId, existingAssetId: assetId });
+  } else {
+    const scenes = data.scenes as VideoJobParams['scenes'];
+    const validType = videoType as 'reels30s' | 'shorts60s' | 'appStorePreview';
+    const assetTypeMap: Record<string, string> = {
+      reels30s: 'video_reels_30s', shorts60s: 'video_shorts_60s', appStorePreview: 'video_app_preview',
+    };
+    await generateVideo({
+      productId, founderId, briefId, scenes, videoType: validType,
+      language, voiceCloneId, assetType: assetTypeMap[videoType] ?? (asset.asset_type as string),
+      existingAssetId: assetId,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IMAGE GENERATION FROM BRIEF (Replicate Flux.1 Schnell)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generates an actual AI image from a meta_image_brief or carousel_brief asset
+ * using Replicate Flux.1 Schnell. Uploads the result to Supabase Storage and
+ * updates the asset's media_url field.
+ * @param assetId   - UUID of the content_assets row (meta_image_brief or carousel_brief)
+ * @param founderId - Must match asset.founder_id
+ * @throws {Error}  If asset not found, wrong type, or generation fails
+ * @security founderId verified against asset.founder_id before write.
+ */
+export async function generateImageFromBrief(
+  assetId: string,
+  founderId: string,
+  opts: { style?: ImageStyle } = {},
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  const { data: asset, error } = await supabase
+    .from('content_assets')
+    .select('*')
+    .eq('id', assetId)
+    .eq('founder_id', founderId)
+    .single();
+
+  if (error || !asset) throw new Error('Asset not found or access denied');
+
+  const assetType = asset.asset_type as string;
+  if (!['meta_image_brief', 'carousel_brief'].includes(assetType)) {
+    throw new Error(`Image generation not supported for asset type: ${assetType}`);
+  }
+
+  // Fetch product's content_preferences + scraped_meta (for real screenshots)
+  const { data: product } = await supabase
+    .from('products')
+    .select('content_preferences, scraped_meta')
+    .eq('id', asset.product_id as string)
+    .single();
+
+  const prefs = product?.content_preferences as Record<string, Record<string, string>> | null;
+  const logoUrl: string | undefined = prefs?.visual?.logoUrl ?? undefined;
+  const style: ImageStyle = opts.style ?? (prefs?.visual?.imageStyle as ImageStyle | undefined) ?? 'photorealistic';
+
+  // Real marketing images collected during intake (permanent Storage URLs)
+  const scrapedMeta = product?.scraped_meta as Record<string, unknown> | null;
+  const marketingImages: string[] = (scrapedMeta?.marketingImages as string[] | undefined) ?? [];
+
+  // Mark as rendering so the frontend can show progress immediately
+  await supabase
+    .from('content_assets')
+    .update({ render_started_at: new Date().toISOString() })
+    .eq('id', assetId);
+
+  console.log(`[contentService] generateImageFromBrief — asset ${assetId}, type ${assetType}, style ${style}, logo ${logoUrl ? 'yes' : 'none'}`);
+
+  const briefRaw = asset.text_content as string;
+  let briefFields: Record<string, string> = {};
+  try {
+    const parsed = JSON.parse(briefRaw) as Record<string, unknown>;
+    // carousel_brief: use first slide's visual direction as the main visual
+    if (assetType === 'carousel_brief') {
+      const slides = (parsed.slides as Array<Record<string, string>> | undefined) ?? [];
+      const s1 = slides[0] ?? {};
+      briefFields = {
+        mainVisual: s1.visual ?? 'clean modern professional mobile app screenshot',
+        emotionToConvey: 'trust',
+        backgroundColor: '#1a1a2e',
+      };
+    } else {
+      briefFields = parsed as Record<string, string>;
+    }
+  } catch {
+    throw new Error('Invalid brief JSON in asset text_content');
+  }
+
+  let imgBuffer: Buffer;
+
+  // ── Real screenshot fast-path ──────────────────────────────────────────────
+  // For "mockup" style, use the first real app screenshot collected during intake
+  // instead of asking Flux.1 to hallucinate app UI (which always produces fake text).
+  // For other styles, still use Flux.1 but mention the real UI exists in the prompt.
+  const useRealScreenshot = style === 'mockup' && marketingImages.length > 0;
+
+  if (useRealScreenshot) {
+    const realImageUrl = marketingImages[0];
+    console.log(`[contentService] generateImageFromBrief — using real screenshot: ${realImageUrl.slice(0, 80)}`);
+    const imgResponse = await fetch(realImageUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!imgResponse.ok) throw new Error(`Failed to download real screenshot: ${imgResponse.status}`);
+    imgBuffer = Buffer.from(await imgResponse.arrayBuffer() as ArrayBuffer);
+  } else {
+    // ── Flux.1 AI generation path ────────────────────────────────────────────
+    // For photorealistic/graphic styles, or when no real screenshots are available.
+    // If screenshots exist, mention them in the prompt so the model understands the context.
+    const mainVisual = briefFields.mainVisual ?? 'professional marketing image for a mobile app';
+    const enrichedMainVisual = marketingImages.length > 0 && style === 'photorealistic'
+      ? `${mainVisual} — the app has been photographed with real screenshots showing the booking interface`
+      : mainVisual;
+
+    const prompt = buildMarketingImagePrompt({
+      mainVisual:      enrichedMainVisual,
+      emotionToConvey: briefFields.emotionToConvey,
+      backgroundColor: briefFields.backgroundColor,
+      doNotInclude:    briefFields.doNotInclude,
+      canvaTemplate:   briefFields.canvaTemplate,
+    }, style);
+
+    console.log(`[contentService] generateImageFromBrief — Flux.1 prompt: ${prompt.slice(0, 120)}...`);
+    const imageUrl = await generateImage({ prompt });
+    console.log(`[contentService] generateImageFromBrief — Replicate returned: ${imageUrl.slice(0, 80)}...`);
+
+    const imgResponse = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!imgResponse.ok) throw new Error(`Failed to download Replicate image: ${imgResponse.status}`);
+    imgBuffer = Buffer.from(await imgResponse.arrayBuffer() as ArrayBuffer);
+  }
+
+  // Composite logo if configured — bottom-right corner at 14% image width
+  if (logoUrl) {
+    imgBuffer = await _compositeLogoOntoImage(imgBuffer, logoUrl);
+  }
+
+  const productId = asset.product_id as string;
+  const storagePath = `${founderId}/${productId}/images/${assetType}_${assetId.slice(0, 8)}_${style}.png`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('content-assets')
+    .upload(storagePath, imgBuffer, { contentType: 'image/png', upsert: true });
+
+  const modelUsed = useRealScreenshot
+    ? `real-screenshot+${style}${logoUrl ? '+logo' : ''}`
+    : `sonnet+replicate-flux-schnell+${style}`;
+
+  if (uploadError) {
+    console.warn(`[contentService] Storage upload failed, using direct URL: ${uploadError.message}`);
+    // For real-screenshot path, imgBuffer holds the data — no fallback URL available
+    // For Flux.1 path, we no longer have imageUrl in scope here, so just log and fail cleanly
+    if (!useRealScreenshot) {
+      await supabase.from('content_assets').update({
+        media_url: '',
+        media_type: 'png',
+        model_used: modelUsed,
+        updated_at: new Date().toISOString(),
+      }).eq('id', assetId);
+    }
+    return;
+  }
+
+  const { data: urlData } = supabase.storage.from('content-assets').getPublicUrl(storagePath);
+
+  await supabase.from('content_assets').update({
+    media_url: urlData.publicUrl,
+    media_type: 'png',
+    model_used: modelUsed,
+    updated_at: new Date().toISOString(),
+  }).eq('id', assetId);
+
+  console.log(`[contentService] generateImageFromBrief — done, style=${style}, source=${useRealScreenshot ? 'real-screenshot' : 'flux1'}, logo=${logoUrl ? 'composited' : 'none'}`);
+}
+
+async function _compositeLogoOntoImage(imageBuffer: Buffer, logoUrl: string): Promise<Buffer> {
+  try {
+    const logoRes = await fetch(logoUrl, { signal: AbortSignal.timeout(10_000) });
+    if (!logoRes.ok) {
+      console.warn(`[contentService] Logo fetch failed (${logoRes.status}), skipping composite`);
+      return imageBuffer;
+    }
+    const logoRaw = Buffer.from(await logoRes.arrayBuffer());
+    const { width = 1080, height = 1080 } = await sharp(imageBuffer).metadata();
+    const logoSize = Math.round(width * 0.14);
+    const padding  = Math.round(width * 0.04);
+
+    const resizedLogo = await sharp(logoRaw)
+      .resize(logoSize, logoSize, { fit: 'inside', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+
+    const { width: logoW = logoSize, height: logoH = logoSize } = await sharp(resizedLogo).metadata();
+
+    return sharp(imageBuffer)
+      .composite([{ input: resizedLogo, left: width - logoW - padding, top: height - logoH - padding }])
+      .png()
+      .toBuffer();
+  } catch (err) {
+    console.warn('[contentService] Logo composite failed, returning original image:', err);
+    return imageBuffer;
   }
 }
 
@@ -733,81 +1096,358 @@ export async function extractAndSaveLearnings(productId: string, founderId: stri
 export async function generateContentAssets(
   productId: string,
   founderId: string,
-  briefId: string | null = null
+  briefId: string | null = null,
+  force = false
 ): Promise<ContentOutput> {
+  console.log(`[contentService] generateContentAssets starting for product ${productId} (force=${force})`);
+  const supabase = getSupabaseAdmin();
+
+  // When force=true, delete all existing assets so we start fresh
+  if (force) {
+    await supabase.from('content_assets').delete().eq('product_id', productId).eq('founder_id', founderId);
+    console.log(`[contentService] force=true — existing assets deleted`);
+  }
+
+  // Check which sections already have assets (only relevant when force=false)
+  const { data: existingAssets } = await supabase
+    .from('content_assets')
+    .select('asset_type')
+    .eq('product_id', productId)
+    .eq('founder_id', founderId);
+
+  const existingTypes = new Set((existingAssets ?? []).map((a: { asset_type: string }) => a.asset_type));
+  const hasCopy      = existingTypes.has('whatsapp_broadcast');
+  const hasCommunity = existingTypes.has('community_whatsapp_group') || existingTypes.has('social_proof_case_study');
+  const hasVisual    = existingTypes.has('meta_image_brief');
+  const hasVideo     = existingTypes.has('video_reels_30s');
+
   const ctx = await assembleContext(productId, founderId);
+  console.log(`[contentService] context assembled, calling Sonnet...`);
 
   await consumeTokens(founderId, 'content_generation_sonnet', 30);
 
+  // Default all section prefs to true if not configured — generate everything unless explicitly disabled
   const prefs = ctx.contentPreferences as Record<string, Record<string, boolean>>;
-  const wantsVideo = prefs?.video && Object.values(prefs.video).some(Boolean);
-  const wantsCommunity = prefs?.community && Object.values(prefs.community).some(Boolean);
-  const wantsSocialProof = prefs?.socialProof && Object.values(prefs.socialProof).some(Boolean);
-  const wantsVisual = prefs?.visual && Object.values(prefs.visual).some(Boolean);
+  const wantsVideo      = prefs?.video      ? Object.values(prefs.video).some(Boolean)      : true;
+  const wantsCommunity  = prefs?.community  ? Object.values(prefs.community).some(Boolean)  : true;
+  const wantsSocialProof= prefs?.socialProof? Object.values(prefs.socialProof).some(Boolean): true;
+  const wantsVisual     = prefs?.visual     ? Object.values(prefs.visual).some(Boolean)     : true;
+
+  // Determine which sections to generate.
+  // For "generate remaining" (force=false): ignore preferences — only check DB existence.
+  // Preferences only gate the initial auto-generation, not user-triggered "fill missing" runs.
+  const needsCopy      = force || !hasCopy;
+  const needsCommunity = force || !hasCommunity;
+  const needsVisual    = force || !hasVisual;
+  const needsVideo     = force || !hasVideo;
+
+
+  if (!needsCopy && !needsCommunity && !needsVisual && !needsVideo) {
+    console.log(`[contentService] all sections already generated — nothing to do`);
+    // Return a minimal stub so callers don't crash; real content is in DB
+    return {} as ContentOutput;
+  }
+
+  console.log(`[contentService] sections to generate: copy=${needsCopy} community=${needsCommunity} visual=${needsVisual} video=${needsVideo}`);
 
   const productName = ((ctx.product as Record<string, unknown>).name as string);
 
-  const userPrompt = `Generate complete marketing content for ${productName}.
+  // Build prompt sections dynamically — only include what needs to be generated
+  const promptSections: string[] = [];
 
-Include:
-- All text assets (whatsapp, meta, googleUAC, aso, email, linkedin)
-- strategy (30/60/90 day plan)
-${wantsVideo ? '- videoScripts (reels30s, shorts60s, appStorePreview, whatsappVoiceNote)' : ''}
-${wantsVisual ? '- visualBriefs (metaImageBrief, carousel)' : ''}
-${wantsCommunity ? '- community (all 5 post types)' : ''}
-${wantsSocialProof ? `- socialProof (case study based on metrics: ${JSON.stringify(ctx.channelPerformance)})` : ''}
+  if (needsCopy) {
+    promptSections.push(`  "whatsapp": {
+    "painFirst": "REQUIRED — max 160 chars. Open with the customer's pain. Embed their exact quote.",
+    "socialProof": "REQUIRED — max 160 chars. Lead with a result or number.",
+    "reEngagement": "REQUIRED — max 160 chars. For lapsed users — remind them of the drop-off they'll regret.",
+    "hinglish": "max 160 chars — ONLY include if founder language includes hinglish, else omit this key"
+  }`);
+    promptSections.push(`  "meta": {
+    "headlineA": "REQUIRED — max 40 chars. Pain-first hook.",
+    "headlineB": "REQUIRED — max 40 chars. Different angle — outcome-first.",
+    "bodyIndia": "REQUIRED — max 125 chars. India copy — embed MOAT.",
+    "bodyUSA": "REQUIRED — max 125 chars. USA copy — embed MOAT.",
+    "linkDesc": "REQUIRED — max 30 chars."
+  }`);
+    promptSections.push(`  "googleUAC": {"v1": "REQUIRED — max 30 chars", "v2": "REQUIRED — max 30 chars", "v3": "REQUIRED — max 30 chars", "v4": "REQUIRED — max 30 chars", "v5": "REQUIRED — max 30 chars"}`);
+    promptSections.push(`  "aso": {
+    "subtitle": "REQUIRED — max 30 chars",
+    "descriptionOpening": "REQUIRED — max 250 chars. First 2 sentences of App Store description.",
+    "keywordsIndia": ["keyword1","keyword2","keyword3","keyword4","keyword5","keyword6","keyword7","keyword8","keyword9","keyword10"],
+    "keywordsUSA": ["keyword1","keyword2","keyword3","keyword4","keyword5","keyword6","keyword7","keyword8","keyword9","keyword10"]
+  }`);
+    promptSections.push(`  "email": {
+    "day1Subject": "REQUIRED — max 50 chars", "day1Body": "REQUIRED — max 800 chars. Onboarding. Warm, direct.",
+    "day5Subject": "REQUIRED — max 50 chars", "day5Body": "REQUIRED — max 400 chars. Re-engagement.",
+    "day14Subject": "REQUIRED — max 50 chars", "day14Body": "REQUIRED — max 300 chars. Review request."
+  }`);
+    promptSections.push(`  "linkedin": {
+    "founderStoryHook": "REQUIRED — max 120 chars. First line that stops the scroll.",
+    "founderStoryFull": "REQUIRED — max 3000 chars. Full founder story post.",
+    "buildInPublicHook": "REQUIRED — max 120 chars.",
+    "buildInPublicFull": "REQUIRED — max 2000 chars. Build-in-public post with data."
+  }`);
+    promptSections.push(`  "strategy": {
+    "day30": [{"week":1,"channel":"whatsapp","action":"what to do this week","budget":"$0"},{"week":2,"channel":"meta","action":"what to do week 2","budget":"$25"},{"week":3,"channel":"email","action":"what to do week 3","budget":"$0"},{"week":4,"channel":"google","action":"what to do week 4","budget":"$50"}],
+    "day60": [{"week":5,"channel":"whatsapp","action":"scale what worked","budget":"$0"},{"week":6,"channel":"meta","action":"new creative","budget":"$75"},{"week":7,"channel":"linkedin","action":"founder story post","budget":"$0"},{"week":8,"channel":"google","action":"expand UAC","budget":"$100"}],
+    "day90": [{"week":9,"channel":"meta","action":"retargeting","budget":"$150"},{"week":10,"channel":"whatsapp","action":"referral campaign","budget":"$0"},{"week":11,"channel":"google","action":"scale winning channel","budget":"$200"},{"week":12,"channel":"email","action":"lifecycle automation","budget":"$0"}],
+    "primaryChannel": "whatsapp",
+    "weekOneFocus": "One sentence: the single most important action in week 1 and why.",
+    "budgetAllocation": {"whatsapp":0,"meta":40,"google":40,"email":0,"linkedin":0,"aso":20},
+    "excludedChannels": []
+  }`);
+  }
 
-Performance prediction: predict which hook angle will outperform and explain why in strategy.weekOneFocus.
+  if (needsVisual) {
+    promptSections.push(`  "visualBriefs": {
+    "metaImageBrief": {
+      "backgroundColor": "#hexcolor — choose a warm or vibrant brand colour",
+      "mainVisual": "SINGLE SCENE ONLY — describe ONE positive moment showing the resolved outcome (e.g. 'smiling homeowner in bright modern kitchen shaking hands with uniformed technician'). NEVER use split panels, before/after, left/right compositions, or dark moody scenes. Focus on the happy resolution: customer + service provider together, bright warm space.",
+      "headline": "REQUIRED — max 40 chars",
+      "subtext": "REQUIRED — max 80 chars",
+      "textColors": {"headline": "#ffffff", "subtext": "#eeeeee"},
+      "emotionToConvey": "single word: trust / relief / confidence / warmth",
+      "doNotInclude": "split panels, dark rooms, silhouettes, anxious expressions, before-after compositions, text overlays",
+      "canvaTemplate": "clean white or bold gradient — warm tones, never dark cinematic"
+    },
+    "carousel": {"slides": [
+      {"slideNumber":1,"type":"hook","headline":"max 60 chars — stop-the-scroll opener","body":"max 120 chars","visual":"describe image"},
+      {"slideNumber":2,"type":"problem","headline":"max 60 chars","body":"max 120 chars","visual":"describe image"},
+      {"slideNumber":3,"type":"solution","headline":"max 60 chars","body":"max 120 chars","visual":"describe image"},
+      {"slideNumber":4,"type":"feature","headline":"max 60 chars","body":"max 120 chars","visual":"describe image"},
+      {"slideNumber":5,"type":"proof","headline":"max 60 chars","body":"max 120 chars","visual":"describe image"},
+      {"slideNumber":6,"type":"objection","headline":"max 60 chars","body":"max 120 chars","visual":"describe image"},
+      {"slideNumber":7,"type":"cta","headline":"max 60 chars","body":"max 120 chars","visual":"describe image"}
+    ]}
+  }`);
+  }
 
-Creative fatigue: ${ctx.staleCampaigns.length > 0 ? `Flag for refresh in 30-day plan: ${ctx.staleCampaigns.map((c) => (c as Record<string, unknown>).channel).join(', ')}` : 'None.'}
+  if (needsVideo) {
+    promptSections.push(`  "videoScripts": {
+    "reels30s": {"scenes": [
+      {"sceneNumber":1,"durationSeconds":6,"label":"Hook","voiceScript":"opening line spoken aloud","textOverlay":"max 60 chars on screen","visualDirection":"what the camera shows","backgroundColor":"#hexcolor"},
+      {"sceneNumber":2,"durationSeconds":8,"label":"Problem","voiceScript":"problem statement","textOverlay":"max 60 chars","visualDirection":"visual of the pain point","backgroundColor":"#hexcolor"},
+      {"sceneNumber":3,"durationSeconds":10,"label":"Solution","voiceScript":"how the app solves it","textOverlay":"max 60 chars","visualDirection":"show the app feature","backgroundColor":"#hexcolor"},
+      {"sceneNumber":4,"durationSeconds":6,"label":"CTA","voiceScript":"download now line","textOverlay":"max 60 chars","visualDirection":"app icon + store badge","backgroundColor":"#hexcolor"}
+    ]},
+    "shorts60s": {"scenes": [
+      {"sceneNumber":1,"durationSeconds":8,"label":"Hook","voiceScript":"opening","textOverlay":"max 60 chars","visualDirection":"describe shot","backgroundColor":"#hexcolor"},
+      {"sceneNumber":2,"durationSeconds":12,"label":"Problem","voiceScript":"problem","textOverlay":"max 60 chars","visualDirection":"describe shot","backgroundColor":"#hexcolor"},
+      {"sceneNumber":3,"durationSeconds":15,"label":"Demo","voiceScript":"walkthrough","textOverlay":"max 60 chars","visualDirection":"screen recording style","backgroundColor":"#hexcolor"},
+      {"sceneNumber":4,"durationSeconds":15,"label":"Social proof","voiceScript":"testimonial or stat","textOverlay":"max 60 chars","visualDirection":"review card or metric","backgroundColor":"#hexcolor"},
+      {"sceneNumber":5,"durationSeconds":10,"label":"CTA","voiceScript":"close with urgency","textOverlay":"max 60 chars","visualDirection":"app download screen","backgroundColor":"#hexcolor"}
+    ]},
+    "appStorePreview": {"scenes": [
+      {"sceneNumber":1,"durationSeconds":6,"voiceScript":"opening benefit","textOverlay":"max 60 chars","useScreenshot":true},
+      {"sceneNumber":2,"durationSeconds":6,"voiceScript":"key feature 1","textOverlay":"max 60 chars","useScreenshot":true},
+      {"sceneNumber":3,"durationSeconds":6,"voiceScript":"key feature 2","textOverlay":"max 60 chars","useScreenshot":true},
+      {"sceneNumber":4,"durationSeconds":6,"voiceScript":"social proof","textOverlay":"max 60 chars","useScreenshot":false},
+      {"sceneNumber":5,"durationSeconds":6,"voiceScript":"CTA","textOverlay":"max 60 chars","useScreenshot":false}
+    ]},
+    "whatsappVoiceNote": {"script": "max 400 chars — casual voicemail-style, sounds like a friend recommending the app", "language": "en"}
+  }`);
+  }
 
-Return ONLY valid JSON matching the schema. No other text.`;
+  if (needsCommunity && wantsCommunity) {
+    promptSections.push(`  "community": {
+    "whatsappGroupPost": "max 600 chars — sounds like a real person, not an ad",
+    "facebookGroupPost": "max 1500 chars",
+    "indieHackersPost": "max 3000 chars — build in public style",
+    "twitterThread": ["tweet 1 max 280","tweet 2 max 280","tweet 3 max 280","tweet 4 max 280","tweet 5 max 280"],
+    "productHuntComment": "max 500 chars"
+  }`);
+  }
 
-  const rawOutput = await callSonnet(buildSystemPrompt(ctx), userPrompt, 4096);
+  if (needsCommunity && wantsSocialProof) {
+    promptSections.push(`  "socialProof": {
+    "caseStudy": {"headline":"max 80 chars","situation":"max 300 chars","recommendation":"max 200 chars","whatHappened":"max 400 chars","insight":"max 200 chars","currentPosition":"max 200 chars"},
+    "testimonialCardBrief": {"quoteToUse":"the exact quote to display","attribution":"name, role","backgroundColor":"#hex","quoteStyle":"large or pull"},
+    "reviewResponsePositive": "max 300 chars — response to a 5-star review",
+    "reviewResponseNegative": "max 300 chars — empathetic response to a 1-star review"
+  }`);
+  }
+
+  const userPrompt = `Generate marketing content for ${productName}. Use the product context from the system prompt.
+
+Return ONLY a JSON object with EXACTLY these keys (no others):
+
+{
+${promptSections.join(',\n')}
+}
+
+DO NOT wrap in markdown. Return raw JSON only. Every REQUIRED field must be present.
+Creative fatigue: ${ctx.staleCampaigns.length > 0 ? `Flag for refresh in day30 plan: ${ctx.staleCampaigns.map((c) => (c as Record<string, unknown>).channel).join(', ')}` : 'None.'}`;
+
+  const rawOutput = await callSonnet(buildSystemPrompt(ctx), userPrompt, 12000);
+  console.log(`[contentService] Sonnet response received (${rawOutput.length} chars)`);
 
   let content: ContentOutput;
   try {
-    const cleaned = rawOutput.replace(/```json|```/g, '').trim();
-    content = ContentOutputSchema.parse(JSON.parse(cleaned));
+    // Extract JSON from markdown code fence if Claude wraps its response
+    let cleaned = rawOutput.trim();
+    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
+    if (fenceMatch) cleaned = fenceMatch[1].trim();
+    const parsed = JSON.parse(cleaned);
+
+    // Use partial schema — only the sections we asked for will be present
+    const PartialSchema = ContentOutputSchema.partial();
+    const strictResult = PartialSchema.safeParse(parsed);
+    if (strictResult.success) {
+      content = strictResult.data as ContentOutput;
+    } else {
+      // Log which fields failed, then attempt lenient extraction
+      const failedPaths = strictResult.error.errors.map((e) => e.path.join('.')).join(', ');
+      console.warn(`[contentService] Validation warnings (lenient mode): ${failedPaths}`);
+
+      // Fix common structural issues Claude sometimes returns
+      if (parsed.strategy) {
+        // strategy.day30/60/90 sometimes returned as object — convert to array
+        for (const key of ['day30', 'day60', 'day90'] as const) {
+          if (parsed.strategy[key] && !Array.isArray(parsed.strategy[key])) {
+            parsed.strategy[key] = Object.values(parsed.strategy[key] as Record<string, unknown>);
+          }
+        }
+        // weekOneFocus sometimes returned as object
+        if (typeof parsed.strategy.weekOneFocus === 'object') {
+          parsed.strategy.weekOneFocus = JSON.stringify(parsed.strategy.weekOneFocus);
+        }
+      }
+      // Truncate any fields that exceed char limits
+      if (parsed.whatsapp?.painFirst?.length > 160) parsed.whatsapp.painFirst = (parsed.whatsapp.painFirst as string).slice(0, 160);
+      if (parsed.whatsapp?.socialProof?.length > 160) parsed.whatsapp.socialProof = (parsed.whatsapp.socialProof as string).slice(0, 160);
+      if (parsed.whatsapp?.reEngagement?.length > 160) parsed.whatsapp.reEngagement = (parsed.whatsapp.reEngagement as string).slice(0, 160);
+      if (parsed.meta?.headlineA?.length > 40) parsed.meta.headlineA = (parsed.meta.headlineA as string).slice(0, 40);
+      if (parsed.meta?.headlineB?.length > 40) parsed.meta.headlineB = (parsed.meta.headlineB as string).slice(0, 40);
+      if (parsed.meta?.bodyIndia?.length > 125) parsed.meta.bodyIndia = (parsed.meta.bodyIndia as string).slice(0, 125);
+      if (parsed.meta?.bodyUSA?.length > 125) parsed.meta.bodyUSA = (parsed.meta.bodyUSA as string).slice(0, 125);
+      if (parsed.meta?.linkDesc?.length > 30) parsed.meta.linkDesc = (parsed.meta.linkDesc as string).slice(0, 30);
+      if (parsed.aso?.subtitle?.length > 30) parsed.aso.subtitle = (parsed.aso.subtitle as string).slice(0, 30);
+      if (parsed.aso?.descriptionOpening?.length > 250) parsed.aso.descriptionOpening = (parsed.aso.descriptionOpening as string).slice(0, 250);
+      // email body fields — Claude often writes more than the limit
+      if (parsed.email?.day1Body?.length > 800) parsed.email.day1Body = (parsed.email.day1Body as string).slice(0, 800);
+      if (parsed.email?.day5Body?.length > 400) parsed.email.day5Body = (parsed.email.day5Body as string).slice(0, 400);
+      if (parsed.email?.day14Body?.length > 300) parsed.email.day14Body = (parsed.email.day14Body as string).slice(0, 300);
+      if (parsed.email?.day1Subject?.length > 50) parsed.email.day1Subject = (parsed.email.day1Subject as string).slice(0, 50);
+      if (parsed.email?.day5Subject?.length > 50) parsed.email.day5Subject = (parsed.email.day5Subject as string).slice(0, 50);
+      if (parsed.email?.day14Subject?.length > 50) parsed.email.day14Subject = (parsed.email.day14Subject as string).slice(0, 50);
+      // socialProof subfields
+      if (parsed.socialProof?.caseStudy?.headline?.length > 80) parsed.socialProof.caseStudy.headline = (parsed.socialProof.caseStudy.headline as string).slice(0, 80);
+      if (parsed.socialProof?.caseStudy?.situation?.length > 300) parsed.socialProof.caseStudy.situation = (parsed.socialProof.caseStudy.situation as string).slice(0, 300);
+      if (parsed.socialProof?.caseStudy?.recommendation?.length > 200) parsed.socialProof.caseStudy.recommendation = (parsed.socialProof.caseStudy.recommendation as string).slice(0, 200);
+      if (parsed.socialProof?.caseStudy?.whatHappened?.length > 400) parsed.socialProof.caseStudy.whatHappened = (parsed.socialProof.caseStudy.whatHappened as string).slice(0, 400);
+      if (parsed.socialProof?.caseStudy?.insight?.length > 200) parsed.socialProof.caseStudy.insight = (parsed.socialProof.caseStudy.insight as string).slice(0, 200);
+      if (parsed.socialProof?.caseStudy?.currentPosition?.length > 200) parsed.socialProof.caseStudy.currentPosition = (parsed.socialProof.caseStudy.currentPosition as string).slice(0, 200);
+      if (parsed.socialProof?.reviewResponsePositive?.length > 300) parsed.socialProof.reviewResponsePositive = (parsed.socialProof.reviewResponsePositive as string).slice(0, 300);
+      if (parsed.socialProof?.reviewResponseNegative?.length > 300) parsed.socialProof.reviewResponseNegative = (parsed.socialProof.reviewResponseNegative as string).slice(0, 300);
+      // linkedin fields
+      if (parsed.linkedin?.founderStoryHook?.length > 120) parsed.linkedin.founderStoryHook = (parsed.linkedin.founderStoryHook as string).slice(0, 120);
+      if (parsed.linkedin?.founderStoryFull?.length > 3000) parsed.linkedin.founderStoryFull = (parsed.linkedin.founderStoryFull as string).slice(0, 3000);
+      if (parsed.linkedin?.buildInPublicHook?.length > 120) parsed.linkedin.buildInPublicHook = (parsed.linkedin.buildInPublicHook as string).slice(0, 120);
+      if (parsed.linkedin?.buildInPublicFull?.length > 2000) parsed.linkedin.buildInPublicFull = (parsed.linkedin.buildInPublicFull as string).slice(0, 2000);
+      // aso keywords must be EXACTLY 10 items
+      if (parsed.aso?.keywordsIndia && Array.isArray(parsed.aso.keywordsIndia)) {
+        while (parsed.aso.keywordsIndia.length < 10) parsed.aso.keywordsIndia.push('app');
+        if (parsed.aso.keywordsIndia.length > 10) parsed.aso.keywordsIndia = parsed.aso.keywordsIndia.slice(0, 10);
+      }
+      if (parsed.aso?.keywordsUSA && Array.isArray(parsed.aso.keywordsUSA)) {
+        while (parsed.aso.keywordsUSA.length < 10) parsed.aso.keywordsUSA.push('app');
+        if (parsed.aso.keywordsUSA.length > 10) parsed.aso.keywordsUSA = parsed.aso.keywordsUSA.slice(0, 10);
+      }
+      // twitter thread must be EXACTLY 5 tweets
+      if (parsed.community?.twitterThread && Array.isArray(parsed.community.twitterThread)) {
+        while (parsed.community.twitterThread.length < 5) parsed.community.twitterThread.push('Follow for more updates.');
+        if (parsed.community.twitterThread.length > 5) parsed.community.twitterThread = parsed.community.twitterThread.slice(0, 5);
+      }
+      // carousel must be EXACTLY 7 slides
+      if (parsed.visualBriefs?.carousel?.slides && Array.isArray(parsed.visualBriefs.carousel.slides)) {
+        const fallbackTypes = ['hook','problem','solution','feature','proof','objection','cta'];
+        while (parsed.visualBriefs.carousel.slides.length < 7) {
+          const n = parsed.visualBriefs.carousel.slides.length + 1;
+          parsed.visualBriefs.carousel.slides.push({ slideNumber: n, type: fallbackTypes[n-1] ?? 'feature', headline: `Slide ${n}`, body: '', visual: '' });
+        }
+        if (parsed.visualBriefs.carousel.slides.length > 7) parsed.visualBriefs.carousel.slides = parsed.visualBriefs.carousel.slides.slice(0, 7);
+      }
+      // video scene counts: reels30s=4, shorts60s=5, appStorePreview=5
+      if (parsed.videoScripts?.reels30s?.scenes && Array.isArray(parsed.videoScripts.reels30s.scenes)) {
+        while (parsed.videoScripts.reels30s.scenes.length < 4) parsed.videoScripts.reels30s.scenes.push({ sceneNumber: parsed.videoScripts.reels30s.scenes.length + 1, durationSeconds: 6, label: 'CTA', voiceScript: '', textOverlay: '', visualDirection: '', backgroundColor: '#000000' });
+        if (parsed.videoScripts.reels30s.scenes.length > 4) parsed.videoScripts.reels30s.scenes = parsed.videoScripts.reels30s.scenes.slice(0, 4);
+      }
+      if (parsed.videoScripts?.shorts60s?.scenes && Array.isArray(parsed.videoScripts.shorts60s.scenes)) {
+        while (parsed.videoScripts.shorts60s.scenes.length < 5) parsed.videoScripts.shorts60s.scenes.push({ sceneNumber: parsed.videoScripts.shorts60s.scenes.length + 1, durationSeconds: 8, label: 'CTA', voiceScript: '', textOverlay: '', visualDirection: '', backgroundColor: '#000000' });
+        if (parsed.videoScripts.shorts60s.scenes.length > 5) parsed.videoScripts.shorts60s.scenes = parsed.videoScripts.shorts60s.scenes.slice(0, 5);
+      }
+      if (parsed.videoScripts?.appStorePreview?.scenes && Array.isArray(parsed.videoScripts.appStorePreview.scenes)) {
+        while (parsed.videoScripts.appStorePreview.scenes.length < 5) parsed.videoScripts.appStorePreview.scenes.push({ sceneNumber: parsed.videoScripts.appStorePreview.scenes.length + 1, durationSeconds: 6, voiceScript: '', textOverlay: '', useScreenshot: false });
+        if (parsed.videoScripts.appStorePreview.scenes.length > 5) parsed.videoScripts.appStorePreview.scenes = parsed.videoScripts.appStorePreview.scenes.slice(0, 5);
+      }
+      // textOverlay max 60 chars per scene
+      for (const scriptKey of ['reels30s', 'shorts60s'] as const) {
+        if (parsed.videoScripts?.[scriptKey]?.scenes) {
+          for (const scene of parsed.videoScripts[scriptKey].scenes as Array<Record<string, unknown>>) {
+            if (typeof scene.textOverlay === 'string' && scene.textOverlay.length > 60) scene.textOverlay = scene.textOverlay.slice(0, 60);
+          }
+        }
+      }
+      if (parsed.videoScripts?.whatsappVoiceNote?.script?.length > 400) {
+        parsed.videoScripts.whatsappVoiceNote.script = (parsed.videoScripts.whatsappVoiceNote.script as string).slice(0, 400);
+      }
+
+      // Retry parse after structural fixes
+      const lenientResult = ContentOutputSchema.partial().safeParse(parsed);
+      if (lenientResult.success) {
+        content = lenientResult.data as ContentOutput;
+        console.log(`[contentService] Lenient parse succeeded after structural fixes`);
+      } else {
+        const remaining = lenientResult.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ');
+        console.error(`[contentService] Lenient parse still failed: ${remaining}`);
+        Sentry.captureException(lenientResult.error, { tags: { service: 'contentService', productId } });
+        throw new Error(`Content JSON still invalid after fixes: ${remaining}`);
+      }
+    }
   } catch (e) {
+    if (e instanceof SyntaxError) {
+      console.error(`[contentService] JSON.parse failed — raw response:`, rawOutput.slice(0, 500));
+    }
     Sentry.captureException(e, { tags: { service: 'contentService', productId } });
-    throw new Error(`Content generation JSON validation failed: ${e instanceof Error ? e.message : String(e)}`);
+    throw e;
   }
 
-  // Haiku: char-limit enforcement + quality gate on WhatsApp painFirst
+  console.log(`[contentService] content validated, enforcing char limits...`);
   await consumeTokens(founderId, 'content_generation_haiku', 15);
   content = await enforceCharLimits(content, founderId);
 
-  const { score: waScore, flags: waFlags } = await scoreAsset('whatsapp_broadcast', content.whatsapp.painFirst, ctx.founderContext);
-  if (waScore < 0.7) {
-    await consumeTokens(founderId, 'content_regen_quality', 5);
-    const regenWa = await callHaiku(
-      `Rewrite this WhatsApp broadcast to score higher on quality.\nCurrent: "${content.whatsapp.painFirst}"\nIssues: ${JSON.stringify(waFlags)}\nRules: Max 160 chars. Pain-first opening. Clear CTA. Use customer quote if available: "${ctx.founderContext.bestCustomerQuote ?? ''}"\nReturn ONLY the rewritten text, no quotes.`
-    );
-    content = { ...content, whatsapp: { ...content.whatsapp, painFirst: regenWa.trim().substring(0, 160) } };
+  // Quality gate on WhatsApp only when copy was generated this run
+  if (needsCopy && content.whatsapp?.painFirst) {
+    const { score: waScore, flags: waFlags } = await scoreAsset('whatsapp_broadcast', content.whatsapp.painFirst, ctx.founderContext);
+    if (waScore < 0.7) {
+      await consumeTokens(founderId, 'content_regen_quality', 5);
+      const regenWa = await callHaiku(
+        `Rewrite this WhatsApp broadcast to score higher on quality.\nCurrent: "${content.whatsapp.painFirst}"\nIssues: ${JSON.stringify(waFlags)}\nRules: Max 160 chars. Pain-first opening. Clear CTA. Use customer quote if available: "${ctx.founderContext.bestCustomerQuote ?? ''}"\nReturn ONLY the rewritten text, no quotes.`
+      );
+      content = { ...content, whatsapp: { ...content.whatsapp, painFirst: regenWa.trim().substring(0, 160) } };
+    }
   }
 
-  // Save text assets
-  await saveAssets(content, ctx, briefId);
+  // Save each stage group sequentially so the frontend checklist updates progressively.
+  if (needsCopy) {
+    console.log(`[contentService] saving core assets...`);
+    await saveCoreAssets(content, ctx, briefId);
+    console.log(`[contentService] core assets saved — checklist "Ad copy" stage done`);
+  }
 
-  // Video pipeline — async, non-blocking
-  if (wantsVideo && content.videoScripts) {
-    const videoPrefs = (prefs.video ?? {}) as Record<string, boolean>;
-    const language = ((ctx.founderContext.language as string[]) ?? ['english_india'])[0] ?? 'english_india';
-    const { voiceCloneId } = ctx;
+  if (needsCommunity && (content.community || content.socialProof)) {
+    await saveCommunityAssets(content, ctx, briefId);
+    console.log(`[contentService] community assets saved — checklist "Community" stage done`);
+  }
 
-    if (videoPrefs.reels30s && content.videoScripts.reels30s) {
-      void generateVideo({ productId, founderId, briefId, scenes: content.videoScripts.reels30s.scenes, videoType: 'reels30s', language, voiceCloneId, assetType: 'video_reels_30s' }).catch((err) => Sentry.captureException(err));
-    }
-    if (videoPrefs.shorts60s && content.videoScripts.shorts60s) {
-      void generateVideo({ productId, founderId, briefId, scenes: content.videoScripts.shorts60s.scenes, videoType: 'shorts60s', language, voiceCloneId, assetType: 'video_shorts_60s' }).catch((err) => Sentry.captureException(err));
-    }
-    if (videoPrefs.appStorePreview && content.videoScripts.appStorePreview) {
-      void generateVideo({ productId, founderId, briefId, scenes: content.videoScripts.appStorePreview.scenes, videoType: 'appStorePreview', language, voiceCloneId, assetType: 'video_app_preview' }).catch((err) => Sentry.captureException(err));
-    }
-    if (videoPrefs.whatsappVoiceNote && content.videoScripts.whatsappVoiceNote) {
-      void generateVoiceNote({ productId, founderId, briefId, script: content.videoScripts.whatsappVoiceNote.script, language: content.videoScripts.whatsappVoiceNote.language, voiceCloneId }).catch((err) => Sentry.captureException(err));
-    }
+  if (needsVisual && content.visualBriefs) {
+    await saveVisualAssets(content, ctx, briefId);
+    console.log(`[contentService] visual assets saved — checklist "Visual assets" stage done`);
+  }
+
+  if (needsVideo && content.videoScripts) {
+    await saveVideoConcepts(content.videoScripts, ctx, briefId);
+    console.log(`[contentService] video concepts saved — checklist "Video ads" stage done`);
   }
 
   // Learning loop — async

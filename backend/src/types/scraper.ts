@@ -28,6 +28,8 @@ export const ScrapedAppDataSchema = z.object({
   reviews: z.array(ReviewSchema).max(50),
   platform: z.enum(['app_store', 'play_store']),
   storeUrl: z.string().url(),
+  // Permanent Supabase Storage URLs added by intakeWorker after scraping
+  marketingImages: z.array(z.string().url()).optional(),
 });
 
 export const CompetitorAppSchema = z.object({
@@ -84,6 +86,9 @@ export const ConfirmProductBodySchema = z.object({
   selectedMarkets: z.array(z.string()).optional(),
   primaryChannel: z.string().optional(),
   excludedChannels: z.array(z.string()).optional(),
+  // Brand assets — saved to content_preferences.visual on confirm
+  logoUrl: z.string().url().optional(),
+  includeLogo: z.boolean().optional().default(true),
 });
 
 export const FounderContextSchema = z.object({
@@ -114,6 +119,8 @@ export const WebsiteMetaSchema = z.object({
   description: z.string(),
   keywords: z.array(z.string()),
   ogImage: z.string().optional(),
+  logoUrl: z.string().optional(),
+  heroImages: z.array(z.string()).optional(),
 });
 
 export const ScreenshotAnalysisSchema = z.object({

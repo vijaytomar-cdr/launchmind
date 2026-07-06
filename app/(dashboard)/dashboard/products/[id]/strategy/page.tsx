@@ -21,10 +21,252 @@ import type { Product } from '@/lib/api';
 import type { ContentAsset } from '@/lib/types/content';
 import { CHANNEL_ORDER, groupAssetsByChannel } from '@/lib/types/content';
 import { AssetBlock } from '@/components/launchmind/AssetBlock';
+import { BudgetRealityCard } from '@/components/launchmind/BudgetRealityCard';
+import { VideoConceptPicker } from '@/components/launchmind/VideoConceptPicker';
 import { trackOnboarding } from '@/lib/analytics';
 
 type Phase = '30d' | '60d' | '90d';
 type Market = 'usa' | 'india';
+
+// ── Content generation checklist ──────────────────────────────────────────────
+
+interface ContentStage {
+  key: string;
+  icon: string;
+  label: string;
+  detail: string;
+  etaLabel: string;
+  warning?: boolean;
+  types: string[];
+}
+
+const CONTENT_STAGES: ContentStage[] = [
+  {
+    key: 'copy',
+    icon: '📝',
+    label: 'Ad copy & messaging',
+    detail: 'WhatsApp, Meta, Email, Google, LinkedIn, ASO',
+    etaLabel: '~60–90s',
+    types: ['whatsapp_broadcast', 'meta_headline', 'meta_body', 'google_uac_variants',
+            'email_day1', 'email_day5', 'email_day14', 'linkedin_founder_story',
+            'linkedin_data_post', 'aso_subtitle', 'aso_description', 'aso_keywords'],
+  },
+  {
+    key: 'community',
+    icon: '🤝',
+    label: 'Community & social proof',
+    detail: 'WhatsApp group, Facebook, IndieHackers, Twitter/X, review templates',
+    etaLabel: '~45–60s',
+    types: ['community_whatsapp_group', 'community_facebook', 'community_indiehackers',
+            'community_twitter_thread', 'social_proof_case_study', 'social_proof_testimonial',
+            'social_proof_review_response', 'social_proof_producthunt'],
+  },
+  {
+    key: 'voice',
+    icon: '🎙️',
+    label: 'Voice note',
+    detail: 'WhatsApp voice message via ElevenLabs',
+    etaLabel: '~60–90s',
+    types: ['whatsapp_voice_note'],
+  },
+  {
+    key: 'visual',
+    icon: '🖼️',
+    label: 'Visual assets',
+    detail: 'Meta image brief, carousel brief',
+    etaLabel: '~60–90s',
+    types: ['meta_image_brief', 'carousel_brief'],
+  },
+  {
+    key: 'video',
+    icon: '🎬',
+    label: 'Video ads',
+    detail: 'Reels 30s, Shorts 60s, App Store preview — rendered by Creatomate',
+    etaLabel: '2–4 min',
+    warning: true,
+    types: ['video_reels_30s', 'video_shorts_60s', 'video_app_preview'],
+  },
+];
+
+function useElapsedTimer(isActive: boolean) {
+  const startedAt = useRef(Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    startedAt.current = Date.now();
+    setElapsed(0);
+    if (!isActive) return;
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)), 1000);
+    return () => clearInterval(id); // cleanup freezes elapsed at last value
+  }, [isActive]);
+  return elapsed;
+}
+
+function formatElapsed(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
+
+function ContentGeneratingChecklist({ contentAssets, isActive }: { contentAssets: ContentAsset[]; isActive: boolean }) {
+  const elapsed = useElapsedTimer(isActive);
+
+  // Concepts = scripts generated, waiting for owner to select/render — count as "done" for checklist
+  const doneTypes = new Set(contentAssets.map((a) => a.asset_type));
+
+  // A stage is "done" if ANY of its types has appeared in the DB
+  const stageDone = (types: readonly string[]) => types.some((t) => doneTypes.has(t as ContentAsset['asset_type']));
+
+  // First non-done stage = currently active
+  const activeIdx = CONTENT_STAGES.findIndex((s) => !stageDone(s.types));
+  const allDone = activeIdx === -1;
+
+  return (
+    <div
+      className="rounded-[10px] overflow-hidden"
+      style={{ background: 'var(--surface)', border: `1.5px solid ${allDone && !isActive ? 'var(--border)' : 'var(--sage-b)'}` }}
+    >
+      {/* Header */}
+      <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        {isActive ? (
+          <div
+            className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin flex-shrink-0"
+            style={{ borderColor: 'var(--sage)', borderTopColor: 'transparent' }}
+          />
+        ) : (
+          <span style={{ fontSize: 15, color: allDone ? 'var(--sage)' : 'var(--ink3)', flexShrink: 0 }}>
+            {allDone ? '✓' : '○'}
+          </span>
+        )}
+        <div style={{ flex: 1 }}>
+          <p className="font-semibold" style={{ fontSize: 13, color: isActive ? 'var(--ink)' : allDone ? 'var(--sage)' : 'var(--ink2)' }}>
+            {isActive ? 'Generating your content…' : allDone ? 'Content ready' : 'Generation stages'}
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 1 }}>
+            {isActive
+              ? 'Assets appear as each stage completes — text first, video last'
+              : allDone
+                ? 'All stages complete — see content below'
+                : 'Click Generate content to start'}
+          </p>
+        </div>
+        {/* Timer: live when active, frozen when just finished, hidden when loaded from existing */}
+        {(isActive || elapsed > 0) && (
+          <span style={{
+            fontFamily: 'DM Mono, monospace',
+            fontSize: 12,
+            color: isActive && elapsed > 120 ? 'var(--amber)' : allDone && !isActive ? 'var(--sage)' : 'var(--ink3)',
+            background: 'var(--raised)',
+            border: '1px solid var(--border2)',
+            borderRadius: 4,
+            padding: '2px 8px',
+            flexShrink: 0,
+          }}>
+            {!isActive && allDone ? `✓ ${formatElapsed(elapsed)}` : formatElapsed(elapsed)}
+          </span>
+        )}
+      </div>
+
+      {/* Stage rows */}
+      <div style={{ padding: '8px 0' }}>
+        {CONTENT_STAGES.map((stage, idx) => {
+          const done = stageDone(stage.types);
+          const active = !done && idx === activeIdx;
+          const pending = !done && !active;
+
+          return (
+            <div
+              key={stage.key}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 18px',
+                opacity: pending ? 0.45 : 1,
+                borderBottom: idx < CONTENT_STAGES.length - 1 ? '1px solid var(--border)' : undefined,
+              }}
+            >
+              {/* Status icon */}
+              <div style={{ flexShrink: 0, width: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {done ? (
+                  <span style={{ fontSize: 15, color: 'var(--sage)' }}>✓</span>
+                ) : active && isActive ? (
+                  <div
+                    className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
+                    style={{ borderColor: stage.warning ? 'var(--amber)' : 'var(--sage)', borderTopColor: 'transparent' }}
+                  />
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--ink3)' }}>○</span>
+                )}
+              </div>
+
+              {/* Asset icon + label */}
+              <span style={{ fontSize: 16, flexShrink: 0 }}>{stage.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: done ? 500 : 400, color: done ? 'var(--sage)' : active ? 'var(--ink)' : 'var(--ink3)' }}>
+                  {stage.label}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {stage.detail}
+                </p>
+              </div>
+
+              {/* Status badge */}
+              <div style={{ flexShrink: 0 }}>
+                {done ? (
+                  <span style={{
+                    fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+                    background: 'var(--sage-d)', border: '1px solid var(--sage-b)', color: 'var(--sage)',
+                  }}>
+                    Ready
+                  </span>
+                ) : active ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+                      background: stage.warning ? 'var(--amber-d)' : 'var(--raised)',
+                      border: `1px solid ${stage.warning ? 'var(--amber-b)' : 'var(--border2)'}`,
+                      color: stage.warning ? 'var(--amber)' : 'var(--ink3)',
+                      fontFamily: 'DM Mono, monospace',
+                    }}>
+                      ETA {stage.etaLabel}
+                    </span>
+                    {isActive && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+                        background: elapsed > 90 ? 'var(--amber-d)' : 'var(--raised)',
+                        border: `1px solid ${elapsed > 90 ? 'var(--amber-b)' : 'var(--border2)'}`,
+                        color: elapsed > 90 ? 'var(--amber)' : 'var(--ink2)',
+                        fontFamily: 'DM Mono, monospace',
+                      }}>
+                        ⏱ {formatElapsed(elapsed)}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span style={{
+                    fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+                    background: stage.warning ? 'var(--amber-d)' : 'var(--raised)',
+                    border: `1px solid ${stage.warning ? 'var(--amber-b)' : 'var(--border2)'}`,
+                    color: stage.warning ? 'var(--amber)' : 'var(--ink3)',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    fontFamily: 'DM Mono, monospace',
+                  }}>
+                    {stage.warning && <span>⏱</span>}
+                    {stage.etaLabel}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer tip */}
+      <div style={{ padding: '10px 18px', borderTop: '1px solid var(--border)', background: 'var(--raised)' }}>
+        <p style={{ fontSize: 11, color: 'var(--ink3)', lineHeight: 1.5 }}>
+          💡 You can review and edit each asset as it appears. Video renders run in the background — the page will update automatically.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 interface ChannelPlan {
   channel: string;
@@ -45,6 +287,25 @@ interface MarketStrategy {
   objectiveFocus: string;
 }
 
+interface BudgetTierCard {
+  rangeLabel: string;
+  name: string;
+  channels: string[];
+  lockedChannels?: string[];
+  planRequiredForLocked?: string;
+  projectedInstalls: string;
+  projectedInstallsWithPlan?: string;
+}
+
+interface BudgetReality {
+  currentTier: 'seed' | 'growth' | 'scale';
+  currentMonthlyUSD: number;
+  assessment: string;
+  seed: BudgetTierCard;
+  growth: BudgetTierCard;
+  scale: BudgetTierCard;
+}
+
 interface Strategy {
   thirtyDay: ChannelPlan[];
   sixtyDay: ChannelPlan[];
@@ -53,6 +314,7 @@ interface Strategy {
   india: MarketStrategy;
   executiveSummary: string;
   generatedAt: string;
+  budgetReality?: BudgetReality;
 }
 
 interface ContentAssets {
@@ -92,6 +354,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
   const [assets, setAssets] = useState<ContentAssets | null>(null);
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [applyingBudget, setApplyingBudget] = useState(false);
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [error, setError] = useState('');
   const [isPremium, setIsPremium] = useState(false);
@@ -105,6 +368,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
   const [generatingContent, setGeneratingContent] = useState(false);
   const tokenRef = useRef('');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoContentPolled = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -119,10 +383,11 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
   }, []);
 
   useEffect(() => {
-    if (plan !== 'builder' && plan !== 'studio' && market === 'india') {
+    const indiaEnabled = (plan === 'builder' || plan === 'studio') && (product?.markets ?? []).includes('india');
+    if (!indiaEnabled && market === 'india') {
       setMarket('usa');
     }
-  }, [plan, market]);
+  }, [plan, product, market]);
 
   useEffect(() => {
     if (!token) return;
@@ -160,11 +425,31 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
         ...((data.ninetyDay as unknown[]) ?? []),
       ].length;
       trackOnboarding('strategy_generated', { channel_count: channelCount });
+      // Backend fire-and-forget content pipeline started — auto-poll so the UI updates when done
+      startContentPolling();
     } catch (err) {
       if (err instanceof ApiError && err.status === 402) { setShowTopUpDialog(true); return; }
       setError(err instanceof ApiError ? err.message : 'Strategy generation failed');
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleApplyBudget(budgetOverride: string) {
+    setError('');
+    setApplyingBudget(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const freshToken = session?.access_token;
+      if (!freshToken) { setError('Session expired — please refresh'); return; }
+      const data = await api.products.generateStrategy(params.id, freshToken, { budgetOverride });
+      setStrategy(data as unknown as Strategy);
+      startContentPolling();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 402) { setShowTopUpDialog(true); return; }
+      setError(err instanceof ApiError ? err.message : 'Failed to apply budget — please retry');
+    } finally {
+      setApplyingBudget(false);
     }
   }
 
@@ -205,14 +490,51 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
     loadContentAssets(token);
   }, [token, loadContentAssets]);
 
-  // Poll every 15 s for video render completion
+  // Silent background poll — checks every 6s if a BullMQ content job completed while
+  // the user had the page open. Does NOT set generatingContent=true, so the checklist
+  // spinner and timer never appear for background work the user didn't explicitly trigger.
+  // The checklist only shows when the user clicks "Regenerate strategy" or "Generate content".
+  useEffect(() => {
+    if (!strategy || !token || autoContentPolled.current) return;
+    if (contentAssets.length > 0 || contentAssetsLoading || generatingContent) return;
+    autoContentPolled.current = true;
+
+    const check = setInterval(async () => {
+      const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+      const tok = session?.access_token ?? tokenRef.current;
+      if (session?.access_token) tokenRef.current = session.access_token;
+      const { assets: data } = await api.contentAssets.list(params.id, tok, { limit: 1 }).catch(() => ({ assets: [] as ContentAsset[] }));
+      if (data.length > 0) {
+        clearInterval(check);
+        loadContentAssets(tok);
+      }
+    }, 6000);
+
+    // Stop after 10 minutes — if nothing appeared, user can click "Generate content"
+    const cap = setTimeout(() => clearInterval(check), 600_000);
+    return () => { clearInterval(check); clearTimeout(cap); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strategy, contentAssets.length, contentAssetsLoading, generatingContent, token]);
+
+  // Poll every 15 s while a video/voice render is in progress
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
-    const hasPending = contentAssets.some((a) => a.asset_type.startsWith('video_') && !a.media_url);
-    if (!hasPending) return;
+    const hasRendering = contentAssets.some(
+      (a) => a.status === 'pending' && a.render_started_at && !a.media_url
+    );
+    if (!hasRendering) return;
     pollRef.current = setInterval(() => loadContentAssets(), 15_000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [contentAssets, loadContentAssets]);
+
+  // Called when the owner clicks "Render this →" on a concept card
+  function handleRenderStarted(assetId: string) {
+    setContentAssets((prev) => prev.map((a) =>
+      a.id === assetId
+        ? { ...a, status: 'pending' as const, render_started_at: new Date().toISOString() }
+        : a
+    ));
+  }
 
   async function handleApproveAsset(id: string) {
     await api.contentAssets.approve(id, tokenRef.current);
@@ -230,24 +552,77 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
     setTimeout(() => loadContentAssets(), 3000);
   }
 
-  async function handleGenerateContent() {
+  async function handleGenerateImage(assetId: string, style?: 'photorealistic' | 'graphic' | 'mockup') {
+    const { data: { session } } = await supabase.auth.getSession();
+    const tok = session?.access_token ?? tokenRef.current;
+    await api.contentAssets.generateImage(assetId, tok, style);
+    // Mark render started locally for immediate UI feedback
+    setContentAssets((prev) => prev.map((a) =>
+      a.id === assetId ? { ...a, render_started_at: new Date().toISOString() } : a
+    ));
+    // Poll every 5s for up to 2 min until media_url appears
+    const imageCheck = setInterval(async () => {
+      const { data: { session: s } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+      const t = s?.access_token ?? tokenRef.current;
+      const result = await api.contentAssets.list(params.id, t, { limit: 50 }).catch(() => null);
+      if (result) {
+        const updated = result.assets.find((a) => a.id === assetId);
+        if (updated?.media_url) {
+          clearInterval(imageCheck);
+          setContentAssets((prev) => prev.map((a) => a.id === assetId ? updated : a));
+        }
+      }
+    }, 5000);
+    setTimeout(() => clearInterval(imageCheck), 120_000);
+  }
+
+  // Polls every 6 s until at least one content asset appears, then loads all assets.
+  // Called both after manual "Generate all content" and automatically after strategy generation
+  // (since the backend fire-and-forget content pipeline starts immediately after strategy returns).
+  // Each tick refreshes the session token so polls don't fail after JWT expiry (15 min).
+  // baseline = number of assets already in DB before this generation run.
+  // Poll stops only when total exceeds baseline — prevents stopping early on pre-existing assets.
+  function startContentPolling(baseline = 0) {
+    setGeneratingContent(true);
+    const check = setInterval(async () => {
+      // Always get a fresh token — tokenRef.current expires after 15 min
+      const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+      const tok = session?.access_token ?? tokenRef.current;
+      if (session?.access_token) tokenRef.current = session.access_token;
+      const result = await api.contentAssets.list(params.id, tok, { limit: 1 }).catch(() => ({ assets: [] as ContentAsset[], total: baseline }));
+      if ((result.total ?? result.assets.length) > baseline) {
+        clearInterval(check);
+        setGeneratingContent(false);
+        loadContentAssets(tok);
+      }
+    }, 6000);
+    // Safety cap — stop after 6 minutes (videos can take 3–4 min to render)
+    setTimeout(() => { clearInterval(check); setGeneratingContent(false); }, 360_000);
+  }
+
+  async function handleGenerateContent(force = false) {
     setGeneratingContent(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const tok = session?.access_token ?? tokenRef.current;
-      await api.contentAssets.generate(params.id, tok);
-      // Poll every 6 s until at least one asset appears, then stop forcing the loading state
-      const check = setInterval(async () => {
-        const { assets: data } = await api.contentAssets.list(params.id, tokenRef.current, { limit: 1 }).catch(() => ({ assets: [] as ContentAsset[] }));
-        if (data.length > 0) {
-          clearInterval(check);
-          setGeneratingContent(false);
-          loadContentAssets();
-        }
-      }, 6000);
-      // Safety cap — stop after 3 minutes regardless
-      setTimeout(() => { clearInterval(check); setGeneratingContent(false); }, 180_000);
-    } catch { setGeneratingContent(false); }
+      const baseline = force ? 0 : contentAssets.length;
+      if (force) setContentAssets([]);
+      const result = await api.contentAssets.generate(params.id, tok, force);
+      // 200 all_done = nothing was missing, no background work started — stop immediately
+      if (result.message === 'all_done') {
+        setGeneratingContent(false);
+        loadContentAssets(tok);
+        return;
+      }
+      // 202 = generation in progress — start polling for new assets
+      startContentPolling(baseline);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        startContentPolling(0);
+      } else {
+        setGeneratingContent(false);
+      }
+    }
   }
 
   async function copy(text: string, key: string) {
@@ -323,16 +698,28 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
           </h1>
           <p style={{ fontSize: 13, color: 'var(--ink2)', marginTop: 4 }}>30/60/90-day plan for USA + India</p>
         </div>
-        {!strategy && (
-          <button
-            onClick={handleGenerate}
-            disabled={generating || !token}
-            className="rounded-[6px] px-5 py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-opacity hover:opacity-90"
-            style={{ background: 'var(--sage)', color: '#fff', fontSize: 13 }}
-          >
-            {generating ? 'Generating…' : 'Generate strategy'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {strategy && (
+            <button
+              onClick={handleGenerate}
+              disabled={generating || applyingBudget || !token}
+              className="rounded-[6px] px-4 py-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-opacity hover:opacity-90"
+              style={{ border: '1px solid var(--border2)', background: 'var(--surface)', color: 'var(--ink2)', fontSize: 13 }}
+            >
+              {generating ? 'Regenerating…' : 'Regenerate'}
+            </button>
+          )}
+          {!strategy && (
+            <button
+              onClick={handleGenerate}
+              disabled={generating || !token}
+              className="rounded-[6px] px-5 py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-opacity hover:opacity-90"
+              style={{ background: 'var(--sage)', color: '#fff', fontSize: 13 }}
+            >
+              {generating ? 'Generating…' : 'Generate strategy'}
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <p style={{ fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>{error}</p>}
@@ -374,6 +761,16 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
             <p style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 4 }}>Executive summary</p>
             <p style={{ fontSize: 13, color: 'var(--ink)' }}>{strategy.executiveSummary}</p>
           </div>
+
+          {/* Budget Reality Check */}
+          {strategy.budgetReality && (
+            <BudgetRealityCard
+              budgetReality={strategy.budgetReality}
+              plan={plan}
+              onApplyBudget={handleApplyBudget}
+              applying={applyingBudget}
+            />
+          )}
 
           {/* Playbook insights */}
           <div style={{ background: 'var(--indigo-d)', border: '1.5px solid var(--indigo-b)', borderRadius: 10, padding: 16 }}>
@@ -440,7 +837,11 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
               className="flex rounded-[8px] p-1 gap-1"
               style={{ background: 'var(--raised)', border: '1px solid var(--border)' }}
             >
-              {(['usa', ...(plan === 'builder' || plan === 'studio' ? ['india'] : [])] as Market[]).map((m) => (
+              {(['usa', ...(
+                (plan === 'builder' || plan === 'studio') && (product?.markets ?? []).includes('india')
+                  ? ['india']
+                  : []
+              )] as Market[]).map((m) => (
                 <button
                   key={m}
                   onClick={() => { setMarket(m); setAssets(null); setActiveChannel(null); }}
@@ -600,77 +1001,106 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
               <h3 className="font-semibold" style={{ fontSize: 13, color: 'var(--ink)' }}>
                 Generated content
               </h3>
-              {!generatingContent && (
-                <button
-                  onClick={handleGenerateContent}
-                  disabled={contentAssetsLoading}
-                  className="rounded-[6px] px-3 py-1.5 font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
-                  style={{ fontSize: 12, background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' }}
-                >
-                  {contentAssets.length > 0 ? '↺ Regenerate all' : '✦ Generate all content'}
-                </button>
-              )}
+              {!generatingContent && (() => {
+                // Which stages are missing? Concepts count as done (script exists, just not rendered)
+                const doneTypes = new Set(contentAssets.map((a) => a.asset_type));
+                const missingCount = CONTENT_STAGES.filter((s) => !s.types.some((t) => doneTypes.has(t as ContentAsset['asset_type']))).length;
+                const allDone = missingCount === 0 && contentAssets.length > 0;
+                const someExist = contentAssets.length > 0 && !allDone;
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {/* Primary: generate missing or first-time */}
+                    {!allDone && (
+                      <button
+                        onClick={() => handleGenerateContent(false)}
+                        disabled={contentAssetsLoading}
+                        className="rounded-[6px] px-3 py-1.5 font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
+                        style={{ fontSize: 12, background: 'var(--sage-d)', color: 'var(--sage)', border: '1px solid var(--sage-b)' }}
+                      >
+                        {someExist ? `✦ Generate remaining (${missingCount})` : '✦ Generate content'}
+                      </button>
+                    )}
+                    {/* Secondary: regenerate everything (always available if any content exists) */}
+                    {contentAssets.length > 0 && (
+                      <button
+                        onClick={() => handleGenerateContent(true)}
+                        disabled={contentAssetsLoading}
+                        className="rounded-[6px] px-3 py-1.5 font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
+                        style={{ fontSize: 12, color: 'var(--ink2)', border: '1px solid var(--border2)' }}
+                      >
+                        ↺ Regenerate all
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
-            {generatingContent ? (
-              <div className="rounded-[10px] p-8 text-center" style={{ background: 'var(--surface)', border: '1.5px solid var(--sage-b)' }}>
-                <div
-                  className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin mx-auto mb-4"
-                  style={{ borderColor: 'var(--sage)', borderTopColor: 'transparent' }}
-                />
-                <p className="font-semibold mb-1" style={{ fontSize: 14, color: 'var(--ink)' }}>Generating content assets…</p>
-                <p style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 8 }}>
-                  Claude is writing copy · ElevenLabs is recording voice notes · Creatomate is rendering video
-                </p>
-                <p style={{ fontSize: 11, color: 'var(--ink3)' }}>
-                  Text assets appear in ~30 seconds · Video renders take 2–3 minutes
-                </p>
-              </div>
-            ) : contentAssetsLoading ? (
-              <div className="rounded-[10px] p-8 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                <p style={{ fontSize: 13, color: 'var(--ink3)' }}>Loading content assets…</p>
-              </div>
-            ) : contentAssets.length === 0 ? (
-              <div className="rounded-[10px] p-8 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            {/* Checklist — always visible when generating OR assets exist */}
+            {(generatingContent || contentAssets.length > 0) && (
+              <ContentGeneratingChecklist
+                contentAssets={contentAssets}
+                isActive={generatingContent}
+              />
+            )}
+
+            {/* Empty state — only before first generation */}
+            {!generatingContent && contentAssets.length === 0 && !contentAssetsLoading && (
+              <div className="rounded-[10px] p-6 text-center mt-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
                 <p className="font-medium mb-1" style={{ fontSize: 13, color: 'var(--ink)' }}>No content generated yet</p>
-                <p style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 14 }}>
-                  Generate video, voice notes, and copy assets across all your channels in one click.
+                <p style={{ fontSize: 12, color: 'var(--ink2)' }}>
+                  Click <strong>Generate content</strong> above to create ads, emails, videos and more across all your channels.
                 </p>
-                <button
-                  onClick={handleGenerateContent}
-                  className="rounded-[6px] px-4 py-2 font-medium transition-opacity hover:opacity-90"
-                  style={{ fontSize: 13, background: 'var(--sage)', color: '#fff' }}
-                >
-                  ✦ Generate now
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {CHANNEL_ORDER.map((channel) => {
-                  const grouped = groupAssetsByChannel(contentAssets);
-                  const channelAssets = grouped[channel];
-                  if (!channelAssets?.length) return null;
-                  return (
-                    <div key={channel}>
-                      <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
-                        {channel}
-                      </p>
-                      <div className="space-y-3">
-                        {channelAssets.map((asset) => (
-                          <AssetBlock
-                            key={asset.id}
-                            asset={asset}
-                            onApprove={handleApproveAsset}
-                            onHold={handleHoldAsset}
-                            onRegen={handleRegenAsset}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             )}
+
+            {/* Loading state */}
+            {contentAssetsLoading && contentAssets.length === 0 && (
+              <div className="rounded-[10px] p-8 text-center mt-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                <p style={{ fontSize: 13, color: 'var(--ink3)' }}>Loading content assets…</p>
+              </div>
+            )}
+
+            {/* Asset grid — shown below checklist as stages complete */}
+            {contentAssets.length > 0 && (() => {
+              const videoConcepts = contentAssets.filter((a) => a.status === 'concept');
+              const regularAssets = contentAssets.filter((a) => a.status !== 'concept');
+              return (
+                <div className="space-y-6 mt-4">
+                  {videoConcepts.length > 0 && (
+                    <VideoConceptPicker
+                      concepts={videoConcepts}
+                      token={tokenRef.current}
+                      onRenderStarted={handleRenderStarted}
+                    />
+                  )}
+                  {CHANNEL_ORDER.map((channel) => {
+                    const grouped = groupAssetsByChannel(regularAssets);
+                    const channelAssets = grouped[channel];
+                    if (!channelAssets?.length) return null;
+                    return (
+                      <div key={channel}>
+                        <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+                          {channel}
+                        </p>
+                        <div className="space-y-3">
+                          {channelAssets.map((asset) => (
+                            <AssetBlock
+                              key={asset.id}
+                              asset={asset}
+                              onApprove={handleApproveAsset}
+                              onHold={handleHoldAsset}
+                              onRegen={handleRegenAsset}
+                              onGenerateImage={handleGenerateImage}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Free tier upgrade overlay */}

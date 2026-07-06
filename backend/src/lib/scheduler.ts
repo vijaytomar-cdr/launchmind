@@ -17,6 +17,7 @@ import IORedis from 'ioredis';
 
 export const BRIEF_QUEUE_NAME = 'weekly-brief';
 export const VIDEO_QUEUE_NAME = 'video-render';
+export const CONTENT_QUEUE_NAME = 'content-generation';
 
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
@@ -46,8 +47,15 @@ export interface VideoJobData {
   renderId: string;
 }
 
+export interface ContentJobData {
+  productId: string;
+  founderId: string;
+  briefId: string | null;
+}
+
 let _queue: Queue<BriefJobData> | null = null;
 let _videoQueue: Queue<VideoJobData> | null = null;
+let _contentQueue: Queue<ContentJobData> | null = null;
 let _connection: IORedis | null = null;
 
 function getRedisConnection(): IORedis {
@@ -102,6 +110,36 @@ export function getVideoQueue(): Queue<VideoJobData> {
 export const videoQueue = {
   add: (name: string, data: VideoJobData) => getVideoQueue().add(name, data),
 };
+
+/**
+ * Returns the singleton BullMQ queue for content generation jobs.
+ * Lazy-initialised so tests can stub Redis before first call.
+ */
+export function getContentQueue(): Queue<ContentJobData> {
+  if (_contentQueue) return _contentQueue;
+  _contentQueue = new Queue<ContentJobData>(CONTENT_QUEUE_NAME, {
+    connection: getRedisConnection(),
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  });
+  return _contentQueue;
+}
+
+/**
+ * Enqueues a content generation job for a product. Survives backend restarts.
+ * @param productId - UUID of the product
+ * @param founderId - UUID of the founder
+ * @param briefId   - Weekly brief to attach assets to (null for strategy-triggered runs)
+ */
+export async function enqueueContentGeneration(
+  productId: string,
+  founderId: string,
+  briefId: string | null = null
+): Promise<{ jobId: string }> {
+  const queue = getContentQueue();
+  const job = await queue.add('content-generate', { productId, founderId, briefId }, DEFAULT_JOB_OPTIONS);
+  console.log(`[scheduler] Content generation queued jobId=${job.id} product=${productId.substring(0, 8)}…`);
+  return { jobId: job.id ?? 'unknown' };
+}
 
 /**
  * Schedules the weekly repeating brief job for all active products.

@@ -10,6 +10,29 @@ import { z } from 'zod';
 
 export const ChannelSchema = z.enum(['meta', 'google', 'whatsapp', 'linkedin', 'email']);
 
+// ── Budget Reality ────────────────────────────────────────────────────────────
+
+export const BudgetTierSchema = z.enum(['seed', 'growth', 'scale']);
+
+export const BudgetTierCardSchema = z.object({
+  rangeLabel: z.string(),                                   // "$50–200/mo"
+  name: z.string(),                                         // "Seed"
+  channels: z.array(z.string()),                            // active channels at this tier
+  lockedChannels: z.array(z.string()).optional().default([]), // channels needing plan upgrade
+  planRequiredForLocked: z.string().optional(),              // "Builder plan" | "Studio plan"
+  projectedInstalls: z.string(),                            // "20–40/mo"
+  projectedInstallsWithPlan: z.string().optional(),         // "400+/mo with Builder plan"
+});
+
+export const BudgetRealitySchema = z.object({
+  currentTier: BudgetTierSchema,
+  currentMonthlyUSD: z.number(),
+  assessment: z.string(),
+  seed: BudgetTierCardSchema,
+  growth: BudgetTierCardSchema,
+  scale: BudgetTierCardSchema,
+});
+
 export const HookTypeSchema = z.enum(['pain_first', 'social_proof', 'fomo', 'outcome', 'curiosity']);
 
 export const ChannelPlanSchema = z.object({
@@ -39,6 +62,7 @@ export const StrategySchema = z.object({
   india: MarketStrategySchema,
   executiveSummary: z.string(),
   generatedAt: z.string(),
+  budgetReality: BudgetRealitySchema.optional().catch(undefined),
 });
 
 export const WhatsAppTemplateSchema = z.object({
@@ -92,3 +116,6 @@ export type ContentAssets = z.infer<typeof ContentAssetsSchema>;
 export type AssetsRequest = z.infer<typeof AssetsRequestSchema>;
 export type WhatsAppTemplate = z.infer<typeof WhatsAppTemplateSchema>;
 export type AppStoreListing = z.infer<typeof AppStoreListingSchema>;
+export type BudgetTier = z.infer<typeof BudgetTierSchema>;
+export type BudgetTierCard = z.infer<typeof BudgetTierCardSchema>;
+export type BudgetReality = z.infer<typeof BudgetRealitySchema>;

@@ -50,6 +50,7 @@ import { InsufficientTokensError } from './types/errors';
 import { checkAnomaly, extractFounderIdFromHeader } from './middleware/auth.middleware';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
 import { startIntakeWorker } from './workers/intakeWorker';
+import { startContentWorker } from './workers/contentWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
 
 /**
@@ -182,6 +183,7 @@ async function start(): Promise<void> {
     if (redisReady) {
       startBriefWorker();
       startIntakeWorker();
+      startContentWorker();
       await scheduleWeeklyBrief();
     } else {
       console.warn('[server] REDIS_URL not configured — BullMQ workers skipped (set a real URL to enable)');

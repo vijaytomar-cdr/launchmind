@@ -211,6 +211,20 @@ export function ContentTypesTab() {
       [section]: { ...sectionPrefs, [key]: !sectionPrefs[key] },
     };
     setContentPrefs(updated);
+    scheduleSave(updated);
+  }
+
+  function updateVisualSetting(key: 'logoUrl' | 'imageStyle', value: string) {
+    if (!selectedProductId) return;
+    const updated: ContentPreferences = {
+      ...contentPrefs,
+      visual: { ...contentPrefs.visual, [key]: value },
+    };
+    setContentPrefs(updated);
+    scheduleSave(updated);
+  }
+
+  function scheduleSave(updated: ContentPreferences) {
     setPrefsSaved(false);
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(async () => {
@@ -352,6 +366,69 @@ export function ContentTypesTab() {
           </div>
         );
       })}
+
+      {/* Visual generation settings */}
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+          <IconPhoto size={13} color="var(--ink2)" stroke={1.75} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)' }}>Visual generation settings</span>
+          <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 99, background: 'var(--indigo-d)', color: 'var(--indigo)', fontWeight: 500 }}>
+            Flux.1 Schnell
+          </span>
+        </div>
+
+        {/* Default image style */}
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 10, fontWeight: 500, color: 'var(--ink2)', display: 'block', marginBottom: 5 }}>
+            Default style
+          </label>
+          <div style={{ display: 'flex', gap: 5 }}>
+            {(['photorealistic', 'graphic', 'mockup'] as const).map(s => {
+              const active = (contentPrefs.visual?.imageStyle ?? 'photorealistic') === s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => updateVisualSetting('imageStyle', s)}
+                  disabled={!selectedProductId}
+                  style={{
+                    padding: '5px 11px', borderRadius: 99, fontSize: 10, cursor: selectedProductId ? 'pointer' : 'not-allowed',
+                    border: active ? '0.5px solid var(--indigo-b)' : '0.5px solid var(--border)',
+                    background: active ? 'var(--indigo-d)' : 'var(--raised)',
+                    color: active ? 'var(--indigo)' : 'var(--ink3)',
+                    fontFamily: 'inherit', fontWeight: active ? 500 : 400,
+                  }}
+                >
+                  {s === 'photorealistic' ? '📷 Photorealistic' : s === 'graphic' ? '🎨 Graphic design' : '📱 App mockup'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* App logo URL */}
+        <div>
+          <label style={{ fontSize: 10, fontWeight: 500, color: 'var(--ink2)', display: 'block', marginBottom: 4 }}>
+            App logo URL <span style={{ fontWeight: 400, color: 'var(--ink3)' }}>(optional — composited bottom-right on every image)</span>
+          </label>
+          <input
+            type="url"
+            value={contentPrefs.visual?.logoUrl ?? ''}
+            onChange={e => updateVisualSetting('logoUrl', e.target.value)}
+            placeholder="https://example.com/logo.png"
+            disabled={!selectedProductId}
+            style={{
+              width: '100%', padding: '7px 10px',
+              background: 'var(--raised)', border: '1px solid var(--border2)',
+              borderRadius: 6, fontSize: 11, color: 'var(--ink)',
+              outline: 'none', boxSizing: 'border-box' as const,
+              fontFamily: 'inherit',
+            }}
+          />
+          <p style={{ fontSize: 9, color: 'var(--ink3)', marginTop: 3, marginBottom: 0 }}>
+            Direct link to a PNG/SVG logo with transparent background. Usually from your App Store listing or CDN.
+          </p>
+        </div>
+      </div>
 
       {/* Save state indicator */}
       <div style={{ minHeight: 20 }}>

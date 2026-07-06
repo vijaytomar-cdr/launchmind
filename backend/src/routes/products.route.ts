@@ -542,6 +542,22 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
         await consumeTokens(founderId, 'icp_structuring', 10);
 
+        // Merge logoUrl into content_preferences if the founder opted in
+        let contentPrefsUpdate: Record<string, unknown> | undefined;
+        if (body.logoUrl && body.includeLogo !== false) {
+          const { data: existing } = await supabase
+            .from('products')
+            .select('content_preferences')
+            .eq('id', body.productId)
+            .single();
+          const existingPrefs = (existing?.content_preferences as Record<string, unknown>) ?? {};
+          const existingVisual = (existingPrefs.visual as Record<string, unknown>) ?? {};
+          contentPrefsUpdate = {
+            ...existingPrefs,
+            visual: { ...existingVisual, logoUrl: body.logoUrl, metaImageBrief: true, carouselBrief: true },
+          };
+        }
+
         const { data: product, error: updateError } = await supabase
           .from('products')
           .update({
@@ -554,6 +570,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
             intake_step: 6,
             intake_completed_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
+            ...(contentPrefsUpdate ? { content_preferences: contentPrefsUpdate } : {}),
           })
           .eq('id', body.productId)
           .eq('founder_id', founderId)
@@ -1097,13 +1114,18 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
    * Generates a 30/60/90-day strategy + saves campaign draft rows.
    * Requires solo plan or higher — free tier gets 403.
    * Calls Claude Sonnet (50 tokens). Returns full strategy JSON.
+   * Optional body: { budgetOverride: string } — if provided, updates founder_context.budget
+   *   before generating so the strategy reflects the chosen budget tier.
    * @security Plan verified server-side from DB. JWT plan claim not trusted.
    */
-  server.post<{ Params: { id: string } }>(
+  server.post<{ Params: { id: string }; Body: { budgetOverride?: string } }>(
     '/products/:id/strategy',
     async (request, reply) => {
       const founderId = getFounderId(request);
       const { id } = request.params;
+      const budgetOverride = z.string().max(100).optional().parse(
+        (request.body as Record<string, unknown>)?.budgetOverride
+      );
 
       if (!z.string().uuid().safeParse(id).success) {
         return reply.status(400).send({ error: 'Invalid product ID' });
@@ -1112,7 +1134,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       if (!(await requireMinPlan(founderId, 'solo', reply))) return;
 
       try {
-        const strategy = await generateStrategy(id, founderId);
+        const strategy = await generateStrategy(id, founderId, budgetOverride);
 
         // Advance to step 2 (strategy_generated)
         await getSupabaseAdmin()

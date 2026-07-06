@@ -598,6 +598,7 @@ launchmind/
 │   ├── src/
 │   │   ├── routes/
 │   │   ├── services/
+│   │   │   └── marketingImagesService.ts ← collects + stores real marketing images at intake
 │   │   ├── repositories/
 │   │   ├── middleware/
 │   │   ├── workers/
@@ -605,6 +606,7 @@ launchmind/
 │   │       ├── tokens.ts             ← consumeTokens()
 │   │       ├── tokenVault.ts         ← AES-256 + AWS KMS
 │   │       ├── aiClient.ts           ← callSonnet() / callHaiku() (lazy init)
+│   │       ├── replicateClient.ts    ← Flux.1 Schnell image generation + style system
 │   │       ├── creatomateClient.ts   ← video render via Creatomate API
 │   │       ├── elevenLabsClient.ts   ← voice synthesis via ElevenLabs API
 │   │       └── scheduler.ts          ← BullMQ cron
@@ -636,9 +638,9 @@ launchmind/
 > Update this section at the end of every phase.
 
 ```
-Last updated: Phase 5 Week 19 — Settings refactor + product archive (2026-06-03)
+Last updated: Phase 5 Week 20 — Marketing image pipeline + visual asset generation (2026-07-06)
 
-Backend — Weeks 0–19: COMMITTED AND COMPLETE
+Backend — Weeks 0–20: COMMITTED AND COMPLETE
   Week 0:  Scaffold, Docker, CI/CD, Oracle deploy, GitHub Actions
   Week 1:  Fastify, all 9 DB migrations, RLS, token vault, consumeTokens()
   Week 2:  Scraper (Cheerio + Playwright), ICP service, product routes + tests
@@ -663,8 +665,7 @@ Backend — Weeks 0–19: COMMITTED AND COMPLETE
            Migration 026: content_assets table (type, channel, market, asset_data JSONB, status)
            Migration 027: content_preferences table (founder prefs per asset type, voice_clone_id)
            Migration 028: learning_loop table (weekly performance signals, retargeting triggers)
-           lib/aiClient.ts — callSonnet() + callHaiku() with lazy Anthropic init (reads
-             ANTHROPIC_API_KEY at call time, not module load — fixes ESM init order issue)
+           lib/aiClient.ts — callSonnet() + callHaiku() with lazy Anthropic init
            lib/creatomateClient.ts — video render via Creatomate API (graceful mock if key missing)
            lib/elevenLabsClient.ts — voice synthesis via ElevenLabs API (graceful mock if key missing)
            services/contentService.ts — 6-step pipeline:
@@ -672,23 +673,62 @@ Backend — Weeks 0–19: COMMITTED AND COMPLETE
              → ElevenLabs voice note → Creatomate video → DB insert into content_assets
            routes/contentAssets.route.ts — GET/POST content_assets per product
            routes/settings.route.ts — GET/PUT content_preferences, POST voice-clone upload
-           strategyService.ts — lazy Anthropic init (same fix as aiClient.ts); fires
-             generateContentAssets() as fire-and-forget after strategy generation
+           strategyService.ts — fires generateContentAssets() fire-and-forget after strategy
+           Migration 029: archived_at + archive_reason on products; 4 archive routes
+  Week 20: Marketing image pipeline (2026-07-06):
+           lib/replicateClient.ts — Flux.1 Schnell image generation via Replicate API
+             Style system: 'photorealistic' | 'graphic' | 'mockup' (passed as ?style= query param)
+             Anti-split negative prompts: ANTI_SPLIT + ANTI_TEXT + ANTI_DARK constants
+             _extractPositiveScene() strips "left shows X, right shows Y" patterns from briefs
+             Emotion→lighting map forces warm/bright colors (no "cinematic dark shadows")
+           services/marketingImagesService.ts (NEW) — permanent image collection pipeline:
+             Source 1: App Store / Play Store screenshots (up to 5) → downloaded to Storage
+             Source 2: Website hero/feature/banner section images → downloaded to Storage
+             Source 3: Google Custom Search Images ("appName mobile app") → downloaded to Storage
+             Storage path: content-assets/{founderId}/{productId}/source-images/
+             Returns permanent Supabase Storage public URLs (CDN URLs from stores expire)
+             All 3 sources are best-effort — individual failures never fail the intake job
+           workers/intakeWorker.ts — collectMarketingImages() wired at 75% progress step
+             Results stored in products.scraped_meta.marketingImages[] (JSONB)
+             Next DB write includes permanent storage URLs alongside existing scraped data
+           services/contentService.ts — real screenshot fast-path in generateImageFromBrief():
+             style='mockup' + marketingImages present → use real screenshot, skip Flux.1 entirely
+             style='photorealistic' + marketingImages present → Flux.1 with enriched context prompt
+             Logo compositing (_compositeLogoOntoImage) applies after real screenshot OR Flux.1
+             model_used field distinguishes: 'real-screenshot+mockup+logo' vs 'sonnet+flux-schnell+...'
+           icpService.ts scrapeWebsite() — extended to extract logoUrl:
+             Checks apple-touch-icon, icon[type=png], og:image → resolves relative→absolute URL
+             logoUrl stored in products.website_meta.logoUrl
+           types/scraper.ts — marketingImages: z.array(z.string().url()).optional() added to
+             ScrapedAppDataSchema; heroImages: z.array(z.string()).optional() added to WebsiteMetaSchema
+           routes/products.route.ts — logoUrl from ConfirmProductBodySchema saved to
+             content_preferences.visual.logoUrl on confirm (enables per-product logo in ads)
+           ConfirmProductBodySchema extended: logoUrl (z.string().url().optional()),
+             includeLogo (z.boolean().optional().default(true))
 
-Bug fixes (this session):
+  Image generation decision tree (for future reference):
+    style=mockup  + marketingImages[]  → real screenshot + logo composite  (no Flux.1 token cost)
+    style=mockup  + no marketingImages → Flux.1 photorealistic fallback
+    style=photo   + any               → Flux.1 with optional screenshot context hint
+    style=graphic + any               → Flux.1 graphic/illustration style
+
+Bug fixes (prior sessions):
   lib/api.ts — added body:'{}' to all 8 bodyless POST calls (Fastify FST_ERR_CTP_EMPTY_JSON_BODY)
   All intake wizard pages — fetch fresh supabase.auth.getSession() inside every action handler
     (prevents stale 15-min JWT from causing 401 at button-click time)
   aiClient.ts + strategyService.ts — lazy Anthropic client init (fixes "Could not resolve
     authentication method" on strategy generation)
+  content-assets Supabase Storage bucket — was missing; created via REST API; images now
+    stored permanently instead of falling back to expiring Replicate CDN URLs
 
 Env:
   .env.dev deleted. .env.local is now the single source of truth for all local dev secrets.
   backend/src/server.ts loads .env.local (updated from .env.dev).
   .env.local has all 35 keys including CREATOMATE_API_KEY, ELEVENLABS_API_KEY,
-    GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CUSTOM_SEARCH_ENGINE_ID, STABILITY_AI_KEY.
+    GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CUSTOM_SEARCH_ENGINE_ID, STABILITY_AI_KEY,
+    REPLICATE_API_TOKEN.
 
-Frontend — Weeks 9–19: COMPLETE
+Frontend — Weeks 9–20: COMPLETE
   All 12 dashboard screens implemented from launchmind-ux-slate-sage.html reference.
   Week 14: Strategy page — playbook insights box (Builder/Studio data, Solo locked)
   Week 15: Settings page — delete account (type DELETE), Studio-only API keys card
@@ -707,31 +747,28 @@ Frontend — Weeks 9–19: COMPLETE
            IntakeSteps 7-step progress bar, lib/types/intake.ts, lib/api.ts intake methods
            api.products.generateStrategy() added. tsc --noEmit: 0 errors.
            12 new E2E tests in sanity.spec.ts.
-  Week 19: Content OS frontend:
+  Week 19: Content OS frontend + Settings refactor + Product archive:
            components/launchmind/AssetBlock.tsx — renders all 9 asset types (text/video/visual),
              playback, download, regenerate, edit actions; all icons use Icon prefix (v3)
-           app/(dashboard)/dashboard/briefs/page.tsx — 2-col layout, AssetBlock grid, icon fix
-           app/(dashboard)/dashboard/settings/page.tsx — refactored to left nav (170px) + 7 tabs:
-             Profile, Security, Content types, Voice clone, Notifications, Products, Account management
-             ?tab= query param drives tab; each tab is its own component (tabs/ folder)
-             lib/types/settings.ts: SettingsTab, SETTINGS_NAV, ArchivedProduct
-             components/launchmind/SettingsLayout.tsx: left nav with @tabler/icons-react v3
-           Settings tabs: ProfileTab, SecurityTab, NotificationsTab, ContentTypesTab,
-             VoiceCloneTab, ProductsTab, AccountManagementTab
-           ProductsTab: active products (Archive), archived products (Restore + Delete permanently)
-             Archive confirmation dialog (amber); permanent delete dialog (type DELETE)
-           components/launchmind/ProductMenu.tsx: three-dot overflow menu per product card
-             Archive + navigation actions; archive confirmation dialog embedded
-           app/(dashboard)/dashboard/products/page.tsx: ProductMenu per card (position:relative);
-             ArchivedSection inline component (collapsed, restore + permanent delete)
-           Backend: migration 029 (archived_at + archive_reason on products), 4 new routes:
-             GET /products/archived, POST /products/:id/archive, POST /products/:id/restore,
-             DELETE /products/:id; archive pauses campaigns; restore checks plan limit;
-             .is('archived_at', null) filter added to all active product queries
-           lib/api.ts: Product type extended with archived_at/archive_reason; 4 new api methods
-           162 tests passing (13 new tests for archive routes); tsc --noEmit: 0 errors
-           E2E tests: 3 new describe blocks in sanity.spec.ts (Settings left nav layout,
-             Products archive flow, Settings regression) + 3 describe blocks from content OS
+             Style selector pill buttons: 📷 Photo / 🎨 Graphic / 📱 Mockup
+             onGenerateImage(id, style?) signature for per-asset style override
+           app/(dashboard)/dashboard/briefs/page.tsx — 2-col layout, AssetBlock grid
+           app/(dashboard)/dashboard/settings/page.tsx — left nav (170px) + 7 tabs:
+             Profile, Security, Content types, Voice clone, Notifications, Products, Account mgmt
+             ContentTypesTab: visual generation settings (default style picker + logo URL input)
+           components/launchmind/ProductMenu.tsx — three-dot overflow menu per product card
+           app/(dashboard)/dashboard/products/page.tsx — ProductMenu + ArchivedSection
+           lib/types/content.ts — ContentPreferences.visual extended with logoUrl + imageStyle
+           lib/types/intake.ts — INTAKE_STORAGE.logoUrl added
+           lib/api.ts — generateImage(assetId, token, style?); confirmEnriched takes logoUrl +
+             includeLogo; Product type has archived_at/archive_reason; 4 archive API methods
+  Week 20: Visual asset pipeline frontend:
+           app/(dashboard)/dashboard/products/new/analysis/page.tsx — saves auto-detected
+             logoUrl from websiteMeta to sessionStorage on intake job completion
+           app/(dashboard)/dashboard/products/new/confirm/page.tsx — brand assets card:
+             48×48 logo preview, URL input (pre-filled if auto-detected), include toggle
+             passes logoUrl + includeLogo to confirmEnriched on submit
+           tsc --noEmit: 0 errors throughout
 
 Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
   playbook_signals: 52 rows (migration 11 + migration 18)
@@ -742,14 +779,21 @@ Seed data (hosted Supabase — gseqtbwdenjkwysregpp):
 Migrations pushed to hosted Supabase (gseqtbwdenjkwysregpp) — all current as of 2026-06-19:
   026 content_assets, 027 content_preferences, 028 content_learnings,
   029 product_archive, 030 product_full_strategy ✓
+  (No new migrations in Week 20 — marketingImages stored in existing scraped_meta JSONB column)
 
 Pending:
   Studio billing plan-change flow requires live STRIPE_SECRET_KEY in VM env.
-  Manual browser testing: settings left nav, products archive/restore flow (requires Next.js dev server + Vijay login).
-  Strategy quality check: MOAT/quote/language in generated output (requires Claude API key on VM).
   Set ELEVENLABS_API_KEY + CREATOMATE_API_KEY on Oracle VM for production video generation.
+  Set REPLICATE_API_TOKEN on Oracle VM for Flux.1 image generation in production.
+  Manual browser testing: full intake → analysis → confirm → strategy flow with a real app URL
+    (verifies logo auto-detection, marketingImages collection, and mockup image generation).
+  Strategy quality check: MOAT/quote/language in generated output (requires Claude API key on VM).
 
-Next: browser test the full intake → strategy flow end-to-end (confirm page → strategy page), then open phases/phase-5/weeks-19-20.md for Week 20.
+Next: test intake flow end-to-end with a real app URL (e.g. AllignX) to verify:
+  1. Logo auto-detected from website and pre-filled on confirm page
+  2. Analysis step collects screenshots + hero images into Storage
+  3. Mockup style uses real screenshot instead of Flux.1 hallucination
+  Then open phases/phase-5/weeks-19-20.md for remaining Week 20 items.
 ```
 
 ---

@@ -57,7 +57,7 @@ Price tier: ${icp.priceTier}
 ${founderContext}
 ${playbookContext}
 
-Return JSON matching EXACTLY this schema:
+Return JSON matching EXACTLY this schema (no markdown, no explanation, raw JSON only):
 {
   "thirtyDay": [{ "channel": "meta"|"google"|"whatsapp"|"linkedin"|"email", "rationale": "string", "projectedPerformance": "high"|"medium"|"low", "suggestedWeeklySpendUSD": number, "suggestedWeeklySpendINR": number, "hookType": "string", "primaryKPI": "string" }],
   "sixtyDay": [same structure],
@@ -65,26 +65,83 @@ Return JSON matching EXACTLY this schema:
   "usa": { "positioning": "string", "primaryChannels": ["channel",...], "messagingAngle": "string", "pricingAngle": "string", "topObjection": "string", "objectiveFocus": "string" },
   "india": { same as usa },
   "executiveSummary": "string",
-  "generatedAt": "ISO timestamp"
+  "generatedAt": "ISO timestamp",
+  "budgetReality": {
+    "currentTier": "seed",
+    "currentMonthlyUSD": 150,
+    "assessment": "This is a learning budget. Focus on zero-cost channels first.",
+    "seed": {
+      "rangeLabel": "$50–200/mo",
+      "name": "Seed",
+      "channels": ["WhatsApp organic", "Email outreach", "Meta 1-city test"],
+      "lockedChannels": [],
+      "projectedInstalls": "20–40/mo"
+    },
+    "growth": {
+      "rangeLabel": "$500–1k/mo",
+      "name": "Growth",
+      "channels": ["WhatsApp broadcast", "Email automation", "Meta 3-city radius"],
+      "lockedChannels": ["Google UAC", "Retargeting loops"],
+      "planRequiredForLocked": "Builder plan",
+      "projectedInstalls": "150–250/mo",
+      "projectedInstallsWithPlan": "400+/mo with Builder plan"
+    },
+    "scale": {
+      "rangeLabel": "$2k+/mo",
+      "name": "Scale",
+      "channels": ["Meta multi-city", "Google UAC scaled", "Email sequences", "WhatsApp broadcast"],
+      "lockedChannels": ["LinkedIn for B2B", "Lookalike audiences", "Simultaneous multi-market"],
+      "planRequiredForLocked": "Studio plan",
+      "projectedInstalls": "500–800/mo",
+      "projectedInstallsWithPlan": "1,000+/mo with Studio plan"
+    }
+  }
 }
 
-thirtyDay = top 3 channels to start. sixtyDay = optimise + expand. ninetyDay = scale winners.
-USA messaging should be outcome-focused. India messaging should be value + social proof focused.`;
+IMPORTANT RULES:
+- budgetReality is REQUIRED — always include it. Replace the example values above with real values for this app.
+- currentTier must be "seed", "growth", or "scale" based on the Monthly ad budget in the Enriched Founder Context (default "seed" if not specified). Tier thresholds: seed = $0–499/mo, growth = $500–1,999/mo, scale = $2,000+/mo.
+- currentMonthlyUSD must be a plain number (no quotes, no currency symbols).
+- channels and lockedChannels must be arrays of plain strings.
+- Do NOT include null values anywhere — omit optional fields entirely if not applicable.
+- thirtyDay = top 3 channels to start. sixtyDay = optimise + expand. ninetyDay = scale winners.
+- USA messaging should be outcome-focused. India messaging should be value + social proof focused.`;
 }
 
 /**
  * Generates a 30/60/90-day strategy and saves campaign draft rows for the product.
- * @param productId - UUID of the product to strategise
- * @param founderId - UUID of the requesting founder (ownership check)
- * @returns         Generated Strategy object
- * @throws          {Error} If product not found, ownership fails, or Claude returns invalid JSON
- * @security        founderId verified against product.founder_id. consumeTokens() called first.
+ * @param productId     - UUID of the product to strategise
+ * @param founderId     - UUID of the requesting founder (ownership check)
+ * @param budgetOverride - Optional new monthly budget string (e.g. "$500-$1,000/mo").
+ *                        When provided, updates products.founder_context.budget before
+ *                        generating so the new strategy reflects the chosen budget tier.
+ * @returns             Generated Strategy object
+ * @throws              {Error} If product not found, ownership fails, or Claude returns invalid JSON
+ * @security            founderId verified against product.founder_id. consumeTokens() called first.
  */
 export async function generateStrategy(
   productId: string,
-  founderId: string
+  founderId: string,
+  budgetOverride?: string
 ): Promise<Strategy> {
   const supabase = getSupabaseAdmin();
+
+  // Apply budget override before fetching product — updates founder_context.budget in DB
+  if (budgetOverride) {
+    const { data: current } = await supabase
+      .from('products')
+      .select('founder_context')
+      .eq('id', productId)
+      .eq('founder_id', founderId)
+      .single();
+    if (current) {
+      const updatedContext = { ...(current.founder_context ?? {}), budget: budgetOverride };
+      await supabase
+        .from('products')
+        .update({ founder_context: updatedContext, updated_at: new Date().toISOString() })
+        .eq('id', productId);
+    }
+  }
 
   const { data: product, error } = await supabase
     .from('products')
@@ -193,17 +250,36 @@ export async function generateStrategy(
     metadata: { campaignDrafts: campaignInserts.length },
   });
 
-  // Kick off full content pipeline (fire-and-forget — does not block strategy response)
-  void (async () => {
+  // Kick off content pipeline — enqueue via BullMQ so it survives backend restarts.
+  // Falls back to fire-and-forget if Redis is not reachable.
+  const redisUrl = process.env.REDIS_URL ?? '';
+  const redisReady = Boolean(redisUrl) && !redisUrl.includes('your_upstash');
+  if (redisReady) {
     try {
-      const { generateContentAssets: runContentPipeline } = await import('./contentService');
-      await runContentPipeline(productId, founderId, null);
+      const { enqueueContentGeneration } = await import('../lib/scheduler');
+      const { jobId } = await enqueueContentGeneration(productId, founderId, null);
+      console.log(`[contentPipeline] Enqueued as BullMQ job ${jobId} for product ${productId.substring(0, 8)}…`);
     } catch (err) {
-      Sentry.captureException(err, { tags: { service: 'strategyService', step: 'contentPipeline' } });
+      console.error(`[contentPipeline] Failed to enqueue, falling back to fire-and-forget:`, err);
+      void runContentPipelineInline(productId, founderId);
     }
-  })();
+  } else {
+    void runContentPipelineInline(productId, founderId);
+  }
 
   return strategy;
+}
+
+async function runContentPipelineInline(productId: string, founderId: string): Promise<void> {
+  try {
+    console.log(`[contentPipeline] Starting (fire-and-forget) for product ${productId.substring(0, 8)}…`);
+    const { generateContentAssets: runContentPipeline } = await import('./contentService');
+    await runContentPipeline(productId, founderId, null);
+    console.log(`[contentPipeline] Completed for product ${productId.substring(0, 8)}…`);
+  } catch (err) {
+    console.error(`[contentPipeline] Failed for product ${productId.substring(0, 8)}…:`, err);
+    Sentry.captureException(err, { tags: { service: 'strategyService', step: 'contentPipeline' } });
+  }
 }
 
 // ── Content asset generation ──────────────────────────────────────────────────

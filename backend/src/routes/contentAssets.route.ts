@@ -15,7 +15,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
-import { generateContentAssets, regenerateAsset } from '../services/contentService';
+import { generateContentAssets, regenerateAsset, renderConceptAsset, generateImageFromBrief } from '../services/contentService';
 
 function getFounderId(req: FastifyRequest): string {
   return (req.user as { sub: string }).sub;
@@ -68,12 +68,32 @@ export async function contentAssetsRoutes(server: FastifyInstance): Promise<void
 
     if (!product) return reply.status(404).send({ error: 'Product not found' });
 
+    const force = (request.query as Record<string, string>).force === 'true';
+
+    // Pre-check: when not forcing, see if all 4 sections already exist in DB.
+    // Return 200 'all_done' immediately so the frontend skips the poll entirely.
+    if (!force) {
+      const { data: existing } = await supabase
+        .from('content_assets')
+        .select('asset_type')
+        .eq('product_id', productId)
+        .eq('founder_id', founderId);
+      const types = new Set((existing ?? []).map((a: { asset_type: string }) => a.asset_type));
+      const hasCopy      = types.has('whatsapp_broadcast');
+      const hasCommunity = types.has('community_whatsapp_group') || types.has('social_proof_case_study');
+      const hasVisual    = types.has('meta_image_brief');
+      const hasVideo     = types.has('video_reels_30s');
+      if (hasCopy && hasCommunity && hasVisual && hasVideo) {
+        return reply.status(200).send({ message: 'all_done', total: types.size });
+      }
+    }
+
     try {
       // Fire-and-forget — returns 202 immediately; pipeline runs in background
-      void generateContentAssets(productId, founderId, null).catch((err) =>
+      void generateContentAssets(productId, founderId, null, force).catch((err) =>
         Sentry.captureException(err, { tags: { route: 'POST /products/:id/content' } })
       );
-      return reply.status(202).send({ message: 'Content generation started' });
+      return reply.status(202).send({ message: force ? 'Full regeneration started' : 'Content generation started' });
     } catch (err) {
       Sentry.captureException(err, { tags: { route: 'POST /products/:id/content' } });
       return reply.status(500).send({ error: 'Failed to start content generation' });
@@ -98,7 +118,7 @@ export async function contentAssetsRoutes(server: FastifyInstance): Promise<void
     try {
       let query = getSupabaseAdmin()
         .from('content_assets')
-        .select('id, product_id, brief_id, asset_type, channel, market, language, text_content, media_url, media_type, duration_seconds, thumbnail_url, quality_score, quality_flags, generation_week, hook_angle, status, auto_approved, approved_at, regen_count, regen_reasons, installs, impressions, cpi, created_at, updated_at', { count: 'exact' })
+        .select('id, product_id, brief_id, asset_type, channel, market, language, text_content, structured_data, media_url, media_type, duration_seconds, thumbnail_url, quality_score, quality_flags, generation_week, hook_angle, status, auto_approved, approved_at, regen_count, regen_reasons, render_started_at, installs, impressions, cpi, created_at, updated_at', { count: 'exact' })
         .eq('product_id', productId)
         .eq('founder_id', founderId)
         .order('created_at', { ascending: false })
@@ -241,5 +261,81 @@ export async function contentAssetsRoutes(server: FastifyInstance): Promise<void
       Sentry.captureException(err, { tags: { route: 'POST /products/:id/content-assets/approve-all' } });
       return reply.status(500).send({ error: 'Failed to approve assets' });
     }
+  });
+
+  /**
+   * POST /content-assets/:id/render
+   * Owner selects a video concept and triggers Creatomate render.
+   * Fires as fire-and-forget (returns 202 immediately).
+   * The concept row transitions: concept → pending (rendering) → pending (done).
+   * @security founderId verified; asset must be status='concept'.
+   */
+  server.post('/content-assets/:id/render', async (request: FastifyRequest, reply: FastifyReply) => {
+    await request.jwtVerify();
+    const founderId = getFounderId(request);
+    const assetId = (request.params as { id: string }).id;
+
+    try {
+      // Verify ownership + concept status before starting render
+      const { data: asset } = await getSupabaseAdmin()
+        .from('content_assets')
+        .select('id, status, asset_type')
+        .eq('id', assetId)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (!asset) return reply.status(404).send({ error: 'Asset not found' });
+      if (asset.status !== 'concept') {
+        return reply.status(409).send({ error: 'Asset is not a concept or has already started rendering' });
+      }
+
+      // Fire-and-forget — render takes 2–4 min for video, ~60s for voice note
+      void renderConceptAsset(assetId, founderId).catch((err) =>
+        Sentry.captureException(err, { tags: { route: 'POST /content-assets/:id/render', assetId } })
+      );
+
+      return reply.status(202).send({ message: 'Render started', assetId });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'POST /content-assets/:id/render' } });
+      return reply.status(500).send({ error: 'Failed to start render' });
+    }
+  });
+
+  /**
+   * POST /content-assets/:id/generate-image?style=photorealistic|graphic|mockup
+   * Generates an AI image from a meta_image_brief or carousel_brief using Replicate Flux.1 Schnell.
+   * Fire-and-forget — returns 202 immediately; image appears in media_url when done (~30s).
+   * Logo is composited automatically if content_preferences.visual.logoUrl is set.
+   * @security founderId verified; asset must be meta_image_brief or carousel_brief type.
+   */
+  server.post('/content-assets/:id/generate-image', async (request: FastifyRequest, reply: FastifyReply) => {
+    await request.jwtVerify();
+    const founderId = getFounderId(request);
+    const assetId = (request.params as { id: string }).id;
+    const { style } = (request.query as { style?: string });
+
+    const VALID_STYLES = ['photorealistic', 'graphic', 'mockup'] as const;
+    type ValidStyle = typeof VALID_STYLES[number];
+    const resolvedStyle: ValidStyle | undefined = VALID_STYLES.includes(style as ValidStyle)
+      ? (style as ValidStyle)
+      : undefined;
+
+    const { data: asset } = await getSupabaseAdmin()
+      .from('content_assets')
+      .select('id, asset_type, founder_id')
+      .eq('id', assetId)
+      .eq('founder_id', founderId)
+      .single();
+
+    if (!asset) return reply.status(404).send({ error: 'Asset not found' });
+    if (!['meta_image_brief', 'carousel_brief'].includes(asset.asset_type as string)) {
+      return reply.status(409).send({ error: 'Image generation only available for meta_image_brief and carousel_brief' });
+    }
+
+    void generateImageFromBrief(assetId, founderId, { style: resolvedStyle }).catch((err) =>
+      Sentry.captureException(err, { tags: { route: 'POST /content-assets/:id/generate-image', assetId, style: resolvedStyle } })
+    );
+
+    return reply.status(202).send({ message: 'Image generation started', assetId, style: resolvedStyle ?? 'default' });
   });
 }

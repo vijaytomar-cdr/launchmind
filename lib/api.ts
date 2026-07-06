@@ -111,6 +111,8 @@ export const api = {
         selectedMarkets?: string[];
         primaryChannel?: string;
         excludedChannels?: string[];
+        logoUrl?: string;
+        includeLogo?: boolean;
       },
       token: string
     ) =>
@@ -123,6 +125,8 @@ export const api = {
           selectedMarkets: data.selectedMarkets,
           primaryChannel: data.primaryChannel,
           excludedChannels: data.excludedChannels,
+          logoUrl: data.logoUrl,
+          includeLogo: data.includeLogo,
         }),
         token,
       }),
@@ -140,8 +144,12 @@ export const api = {
       request<ProductMetrics>(`/products/${id}/metrics?weekCount=${weekCount}`, { token }),
     getStrategy: (id: string, token: string) =>
       request<Record<string, unknown>>(`/products/${id}/strategy`, { token }),
-    generateStrategy: (id: string, token: string) =>
-      request<Record<string, unknown>>(`/products/${id}/strategy`, { method: 'POST', body: '{}', token }),
+    generateStrategy: (id: string, token: string, opts?: { budgetOverride?: string }) =>
+      request<Record<string, unknown>>(`/products/${id}/strategy`, {
+        method: 'POST',
+        body: opts?.budgetOverride ? JSON.stringify({ budgetOverride: opts.budgetOverride }) : '{}',
+        token,
+      }),
     generateAssets: (id: string, channel: string, market: string, token: string) =>
       request<Record<string, unknown>>(`/products/${id}/strategy/assets`, {
         method: 'POST',
@@ -318,8 +326,15 @@ export const api = {
         body: JSON.stringify({ reason, additionalNote }),
         token,
       }),
-    generate: (productId: string, token: string) =>
-      request<{ message: string }>(`/products/${productId}/content`, { method: 'POST', body: '{}', token }),
+    generate: (productId: string, token: string, force = false) =>
+      request<{ message: string; total?: number }>(`/products/${productId}/content${force ? '?force=true' : ''}`, { method: 'POST', body: '{}', token }),
+    render: (assetId: string, token: string) =>
+      request<{ message: string; assetId: string }>(`/content-assets/${assetId}/render`, { method: 'POST', body: '{}', token }),
+    generateImage: (assetId: string, token: string, style?: 'photorealistic' | 'graphic' | 'mockup') =>
+      request<{ message: string; assetId: string; style: string }>(
+        `/content-assets/${assetId}/generate-image${style ? `?style=${style}` : ''}`,
+        { method: 'POST', body: '{}', token }
+      ),
   },
 
   settings: {

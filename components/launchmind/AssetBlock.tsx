@@ -15,7 +15,7 @@ import {
   IconDeviceMobile, IconFileText, IconTags, IconMail, IconBrandLinkedin, IconChartBar,
   IconBrandInstagram, IconBrandYoutube, IconLayoutColumns, IconRocket, IconBrandTwitter,
   IconFileAnalytics, IconQuote, IconStar, IconCheck, IconAlertCircle, IconPlayerPause,
-  IconLoader, IconDownload, IconPencil, IconRefresh, IconVideo,
+  IconLoader, IconDownload, IconPencil, IconRefresh, IconVideo, IconSparkles,
 } from '@tabler/icons-react'
 import type { ContentAsset, AssetType, AssetStatus } from '@/lib/types/content'
 import { ASSET_META, REGEN_REASONS, VIDEO_REGEN_REASONS } from '@/lib/types/content'
@@ -51,11 +51,12 @@ const ICONS: Record<string, IconComp> = {
 
 function StatusBadge({ status }: { status: AssetStatus }) {
   const cfg: Record<AssetStatus, { bg: string; color: string; text: string }> = {
-    pending:      { bg: 'var(--amber-d)',  color: 'var(--amber)', text: 'Pending' },
-    approved:     { bg: 'var(--sage-d)',   color: 'var(--sage)',  text: '✓ Approved' },
-    auto_approved:{ bg: 'var(--sage-d)',   color: 'var(--sage)',  text: '⚡ Auto' },
-    rejected:     { bg: 'var(--red-d)',    color: 'var(--red)',   text: 'Rejected' },
-    held:         { bg: 'var(--amber-d)',  color: 'var(--amber)', text: '⏸ Held' },
+    pending:      { bg: 'var(--amber-d)',   color: 'var(--amber)', text: 'Pending' },
+    approved:     { bg: 'var(--sage-d)',    color: 'var(--sage)',  text: '✓ Approved' },
+    auto_approved:{ bg: 'var(--sage-d)',    color: 'var(--sage)',  text: '⚡ Auto' },
+    rejected:     { bg: 'var(--red-d)',     color: 'var(--red)',   text: 'Rejected' },
+    held:         { bg: 'var(--amber-d)',   color: 'var(--amber)', text: '⏸ Held' },
+    concept:      { bg: 'var(--indigo-d)',  color: 'var(--indigo)', text: 'Script ready' },
   }
   const s = cfg[status]
   return (
@@ -168,6 +169,48 @@ function AssetContent({ assetType, textContent }: { assetType: AssetType; textCo
     )
   }
 
+  // Meta image brief — visual design spec
+  if (assetType === 'meta_image_brief' && parsed && typeof parsed === 'object') {
+    const p = parsed as Record<string, string>
+    const fields: [string, string][] = [
+      ['Headline', p.headline], ['Subtext', p.subtext],
+      ['Background', p.backgroundColor], ['Main visual', p.mainVisual],
+      ['Emotion', p.emotionToConvey], ['Canva template', p.canvaTemplate],
+      ['Avoid', p.doNotInclude],
+    ]
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {fields.filter(([, v]) => v).map(([label, val]) => (
+          <div key={label} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+            <span style={{ color: 'var(--ink3)', minWidth: 110, flexShrink: 0 }}>{label}</span>
+            <span style={{ color: 'var(--ink)', lineHeight: 1.5 }}>{val}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // Carousel brief — slide-by-slide breakdown
+  if (assetType === 'carousel_brief' && parsed && typeof parsed === 'object') {
+    const p = parsed as { slides?: Array<{ slideNumber?: number; type?: string; headline?: string; body?: string; visual?: string }> }
+    if (p.slides && Array.isArray(p.slides)) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {p.slides.map((slide, i) => (
+            <div key={i} style={{ borderLeft: '2px solid var(--border2)', paddingLeft: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--ink3)', marginBottom: 2 }}>
+                Slide {slide.slideNumber ?? i + 1} · {slide.type}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)', marginBottom: 2 }}>{slide.headline}</div>
+              {slide.body && <div style={{ fontSize: 11, color: 'var(--ink2)', lineHeight: 1.5 }}>{slide.body}</div>}
+              {slide.visual && <div style={{ fontSize: 10, color: 'var(--ink3)', marginTop: 2, fontStyle: 'italic' }}>Visual: {slide.visual}</div>}
+            </div>
+          ))}
+        </div>
+      )
+    }
+  }
+
   // ASO keywords array
   if (assetType === 'aso_keywords' && Array.isArray(parsed)) {
     return (
@@ -195,18 +238,23 @@ function AssetContent({ assetType, textContent }: { assetType: AssetType; textCo
 
 // ─── Main AssetBlock ──────────────────────────────────────────────────────────
 
+type ImageStyle = 'photorealistic' | 'graphic' | 'mockup'
+
 interface AssetBlockProps {
   asset: ContentAsset
   onApprove: (id: string) => Promise<void>
   onHold: (id: string) => Promise<void>
   onRegen: (id: string, reason: string, note?: string) => Promise<void>
+  onGenerateImage?: (id: string, style?: ImageStyle) => Promise<void>
 }
 
-export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProps) {
+export function AssetBlock({ asset, onApprove, onHold, onRegen, onGenerateImage }: AssetBlockProps) {
   const [showRegen, setShowRegen] = useState(false)
   const [selectedReasons, setSelectedReasons] = useState<Set<string>>(new Set())
   const [regenNote, setRegenNote] = useState('')
-  const [loading, setLoading] = useState<'approve' | 'hold' | 'regen' | null>(null)
+  const [loading, setLoading] = useState<'approve' | 'hold' | 'regen' | 'genimage' | null>(null)
+  const [showLightbox, setShowLightbox] = useState(false)
+  const [imageStyle, setImageStyle] = useState<ImageStyle>('photorealistic')
 
   const meta = ASSET_META[asset.asset_type]
   if (!meta) return null
@@ -214,11 +262,13 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
   const IconComp = ICONS[meta.iconName] ?? IconFileText
   const isVideo = asset.asset_type.startsWith('video_')
   const isAudio = asset.asset_type === 'whatsapp_voice_note'
+  const isVisualBrief = asset.asset_type === 'meta_image_brief' || asset.asset_type === 'carousel_brief'
   const isPaid = ['meta', 'google'].includes(asset.channel)
   const reasons = isVideo ? VIDEO_REGEN_REASONS : REGEN_REASONS
   const canRegen = asset.regen_count < 3
   const isPending = asset.status === 'pending'
   const isApproved = asset.status === 'approved' || asset.status === 'auto_approved'
+  const isGeneratingImage = loading === 'genimage'
 
   async function handleApprove() {
     setLoading('approve')
@@ -228,6 +278,12 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
   async function handleHold() {
     setLoading('hold')
     try { await onHold(asset.id) } finally { setLoading(null) }
+  }
+
+  async function handleGenerateImage() {
+    if (!onGenerateImage) return
+    setLoading('genimage')
+    try { await onGenerateImage(asset.id, imageStyle) } finally { setLoading(null) }
   }
 
   function toggleReason(r: string) {
@@ -341,6 +397,165 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
           </div>
         )}
 
+        {/* Generated image thumbnail (click to enlarge) */}
+        {isVisualBrief && asset.media_url && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <button
+                onClick={() => setShowLightbox(true)}
+                title="Click to enlarge"
+                style={{
+                  width: 72, height: 72, flexShrink: 0,
+                  borderRadius: 6, overflow: 'hidden',
+                  border: '1.5px solid var(--indigo-b)',
+                  background: '#0d0d1a', cursor: 'zoom-in', padding: 0,
+                  position: 'relative',
+                }}
+              >
+                <img
+                  src={asset.media_url}
+                  alt="AI-generated marketing image"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 11, color: 'var(--indigo)', fontWeight: 500, margin: '0 0 3px' }}>
+                  AI image generated · Flux.1 Schnell
+                </p>
+                <p style={{ fontSize: 10, color: 'var(--ink3)', margin: '0 0 6px' }}>
+                  1:1 square · Click thumbnail to preview
+                </p>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => setShowLightbox(true)}
+                    style={{
+                      fontSize: 10, padding: '3px 9px', borderRadius: 4, cursor: 'pointer',
+                      background: 'var(--raised)', border: '0.5px solid var(--border2)',
+                      color: 'var(--ink2)', fontFamily: 'inherit',
+                    }}
+                  >
+                    Preview
+                  </button>
+                  <a
+                    href={asset.media_url} download target="_blank" rel="noreferrer"
+                    style={{
+                      fontSize: 10, padding: '3px 9px', borderRadius: 4,
+                      background: 'var(--raised)', border: '0.5px solid var(--border2)',
+                      color: 'var(--ink2)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3,
+                    }}
+                  >
+                    <IconDownload size={10} />
+                    Download PNG
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Lightbox */}
+            {showLightbox && (
+              <div
+                onClick={() => setShowLightbox(false)}
+                style={{
+                  position: 'fixed', inset: 0, zIndex: 9999,
+                  background: 'rgba(0,0,0,0.88)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'zoom-out',
+                }}
+              >
+                <img
+                  src={asset.media_url}
+                  alt="AI-generated marketing image"
+                  style={{
+                    maxWidth: '90vw', maxHeight: '90vh',
+                    borderRadius: 8, display: 'block',
+                    boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <button
+                  onClick={() => setShowLightbox(false)}
+                  style={{
+                    position: 'absolute', top: 20, right: 24,
+                    background: 'rgba(255,255,255,0.12)', border: 'none',
+                    color: '#fff', borderRadius: 99, width: 32, height: 32,
+                    fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Image generating spinner — shows when generating with or without existing image */}
+        {isVisualBrief && isGeneratingImage && (
+          <div style={{
+            background: 'var(--raised)', borderRadius: 6, height: 48,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, color: 'var(--ink3)', gap: 6, marginBottom: 10,
+          }}>
+            <IconLoader size={13} style={{ animation: 'spin 1s linear infinite' }} />
+            Generating new image with Flux.1… usually 30–60 seconds
+          </div>
+        )}
+
+        {/* Style selector — shown when visual brief and image generation is available */}
+        {isVisualBrief && onGenerateImage && !isGeneratingImage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+            <span style={{ fontSize: 9, color: 'var(--ink3)', whiteSpace: 'nowrap' as const }}>Style:</span>
+            {(['photorealistic', 'graphic', 'mockup'] as ImageStyle[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setImageStyle(s)}
+                style={{
+                  padding: '3px 9px', borderRadius: 99, fontSize: 9, cursor: 'pointer',
+                  border: imageStyle === s ? '0.5px solid var(--indigo-b)' : '0.5px solid var(--border)',
+                  background: imageStyle === s ? 'var(--indigo-d)' : 'var(--raised)',
+                  color: imageStyle === s ? 'var(--indigo)' : 'var(--ink3)',
+                  fontFamily: 'inherit', fontWeight: imageStyle === s ? 500 : 400,
+                  transition: 'all 0.12s',
+                }}
+              >
+                {s === 'photorealistic' ? '📷 Photo' : s === 'graphic' ? '🎨 Graphic' : '📱 Mockup'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Generate image button (only when no image and not already generating) */}
+        {isVisualBrief && !asset.media_url && !isGeneratingImage && onGenerateImage && (
+          <div style={{
+            background: 'var(--indigo-d)', border: '0.5px solid var(--indigo-b)',
+            borderRadius: 6, padding: '8px 12px', marginBottom: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div>
+              <p style={{ fontSize: 11, color: 'var(--indigo)', fontWeight: 500, margin: 0 }}>
+                Design brief ready
+              </p>
+              <p style={{ fontSize: 10, color: 'var(--ink3)', margin: '2px 0 0' }}>
+                Generate AI image via Flux.1 Schnell · style: {imageStyle}
+              </p>
+            </div>
+            <button
+              onClick={handleGenerateImage}
+              disabled={loading !== null}
+              style={{
+                background: 'var(--indigo)', color: '#fff',
+                border: 'none', borderRadius: 5,
+                padding: '6px 12px', fontSize: 11, fontWeight: 500,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4,
+                flexShrink: 0,
+              }}
+            >
+              <IconSparkles size={12} />
+              Generate image
+            </button>
+          </div>
+        )}
+
         {/* Text content */}
         {!isVideo && !isAudio && (
           <AssetContent assetType={asset.asset_type} textContent={asset.text_content} />
@@ -391,7 +606,25 @@ export function AssetBlock({ asset, onApprove, onHold, onRegen }: AssetBlockProp
             </a>
           )}
 
-          {canRegen && (
+          {/* Visual briefs: "New image" re-runs Flux.1 on the same brief */}
+          {isVisualBrief && asset.media_url && onGenerateImage && !isGeneratingImage && (
+            <button
+              onClick={handleGenerateImage}
+              disabled={loading !== null}
+              style={{
+                background: 'rgba(79,70,229,0.08)', border: '0.5px solid rgba(79,70,229,0.22)',
+                borderRadius: 5, padding: '6px 12px', fontSize: 11, color: '#4f46e5',
+                cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <IconRefresh size={12} />
+              New image
+            </button>
+          )}
+
+          {/* Text assets: show standard regen drawer */}
+          {canRegen && !isVisualBrief && (
             <button
               onClick={() => setShowRegen(!showRegen)}
               style={{

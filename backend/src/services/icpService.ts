@@ -119,7 +119,13 @@ export async function scrapeWebsite(websiteUrl: string): Promise<WebsiteMeta> {
   });
 
   if (!response.ok) {
-    throw new Error(`Website fetch failed: ${response.status}`);
+    if (response.status === 403 || response.status === 401) {
+      throw new Error('This website blocks automated scraping. Try pasting their App Store or Play Store URL instead.');
+    }
+    if (response.status === 429) {
+      throw new Error('Rate limited by this website. Try again in a moment or use their App Store URL.');
+    }
+    throw new Error(`Could not fetch this website (${response.status}). Try their App Store or Play Store URL instead.`);
   }
 
   const html = await response.text();
@@ -143,11 +149,25 @@ export async function scrapeWebsite(websiteUrl: string): Promise<WebsiteMeta> {
 
   const ogImage = $('meta[property="og:image"]').attr('content')?.trim();
 
+  // Logo detection — priority: apple-touch-icon → png icon link → og:image fallback
+  const rawLogo =
+    $('link[rel="apple-touch-icon"]').first().attr('href') ||
+    $('link[rel="apple-touch-icon-precomposed"]').first().attr('href') ||
+    $('link[rel="icon"][type="image/png"]').first().attr('href') ||
+    $('link[rel="shortcut icon"][type="image/png"]').first().attr('href') ||
+    ogImage;
+
+  let logoUrl: string | undefined;
+  if (rawLogo) {
+    try { logoUrl = new URL(rawLogo, websiteUrl).toString(); } catch { /* ignore */ }
+  }
+
   return {
     title,
     description,
     keywords,
-    ...(ogImage ? { ogImage } : {}),
+    ...(ogImage  ? { ogImage }  : {}),
+    ...(logoUrl  ? { logoUrl }  : {}),
   };
 }
 

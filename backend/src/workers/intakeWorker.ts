@@ -23,6 +23,7 @@ import {
 } from './scraperWorker';
 import { analyseReviews } from '../services/reviewAnalysis';
 import { buildICPBrief, scrapeWebsite } from '../services/icpService';
+import { collectMarketingImages } from '../services/marketingImagesService';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 
 let _intakeWorker: Worker<ScrapeJobData, ScrapeJobResult> | null = null;
@@ -100,7 +101,27 @@ export function startIntakeWorker(): void {
           websiteMeta = await scrapeWebsite(websiteUrl).catch(() => null);
         }
 
+        // Collect and permanently store marketing images (best-effort, never fails the job)
+        await job.updateProgress({ status: 'building_icp', pct: 75 });
+        const wm = websiteMeta as { ogImage?: string; logoUrl?: string } | null;
+        const { marketingImages } = await collectMarketingImages({
+          founderId,
+          productId,
+          appName: scraped.name,
+          screenshots: scraped.screenshots,
+          websiteUrl: websiteUrl ?? undefined,
+          websiteOgImage: wm?.ogImage,
+        }).catch((err) => {
+          console.warn(`[intakeWorker] marketing image collection failed (non-fatal): ${(err as Error).message}`);
+          return { marketingImages: [], counts: { screenshots: 0, heroImages: 0, webSearch: 0 } };
+        });
+
         await job.updateProgress({ status: 'building_icp', pct: 90 });
+
+        // Attach permanent storage URLs to scraped_meta so contentService can use real images
+        const scrapedWithImages = marketingImages.length > 0
+          ? { ...scraped, marketingImages }
+          : scraped;
 
         await getSupabaseAdmin()
           .from('products')
@@ -110,7 +131,7 @@ export function startIntakeWorker(): void {
             platform,
             category: scraped.category,
             price_tier: scraped.priceTier,
-            scraped_meta: scraped,
+            scraped_meta: scrapedWithImages,
             confirmed_icp: icpBrief,
             competitor_set: competitors,
             website_meta: websiteMeta,
@@ -124,10 +145,11 @@ export function startIntakeWorker(): void {
         await job.updateProgress(100);
 
         console.log(
-          `[intakeWorker] Completed product=${productId.substring(0, 8)}… name="${scraped.name}"`
+          `[intakeWorker] Completed product=${productId.substring(0, 8)}… name="${scraped.name}" ` +
+          `marketingImages=${marketingImages.length}`,
         );
 
-        return { productId, scraped, icpBrief, competitors, websiteMeta };
+        return { productId, scraped: scrapedWithImages, icpBrief, competitors, websiteMeta };
       } catch (err) {
         Sentry.captureException(err, {
           tags: { worker: 'intakeWorker', productId: productId.substring(0, 8) },
