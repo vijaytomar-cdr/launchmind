@@ -508,4 +508,155 @@ export async function channelsRoutes(server: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  // ── Integration framework: GA4, Firebase, Search Console, Website (ADR-014) ──
+
+  const ConnectApiKeySchema = z.object({
+    api_key:            z.string().min(1),
+    integration_config: z.record(z.unknown()).default({}),
+  });
+
+  const ConnectWebsiteSchema = z.object({
+    url: z.string().url(),
+  });
+
+  /**
+   * POST /integrations/ga4
+   * Connects a Google Analytics 4 property via API key.
+   * Body: { api_key: string, integration_config: { propertyId: string, measurementId?: string } }
+   */
+  server.post(
+    '/integrations/ga4',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = (request.user as { sub: string }).sub;
+
+      const parsed = ConnectApiKeySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', detail: parsed.error.message });
+      }
+
+      try {
+        const { connectApiKeyIntegration } = await import('../services/integrationService');
+        const result = await connectApiKeyIntegration({
+          founderId,
+          platform:          'ga4',
+          apiKey:            parsed.data.api_key,
+          integrationConfig: parsed.data.integration_config,
+        });
+        return reply.status(201).send({ integration: { id: result.id, platform: 'ga4' } });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /integrations/ga4' } });
+        return reply.status(500).send({ error: 'Failed to connect GA4' });
+      }
+    }
+  );
+
+  /**
+   * POST /integrations/firebase
+   * Connects a Firebase project via service account key.
+   * Body: { api_key: string, integration_config: { projectId: string, appId?: string } }
+   */
+  server.post(
+    '/integrations/firebase',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = (request.user as { sub: string }).sub;
+
+      const parsed = ConnectApiKeySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', detail: parsed.error.message });
+      }
+
+      try {
+        const { connectApiKeyIntegration } = await import('../services/integrationService');
+        const result = await connectApiKeyIntegration({
+          founderId,
+          platform:          'firebase',
+          apiKey:            parsed.data.api_key,
+          integrationConfig: parsed.data.integration_config,
+          scopes:            ['firebase.read'],
+        });
+        return reply.status(201).send({ integration: { id: result.id, platform: 'firebase' } });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /integrations/firebase' } });
+        return reply.status(500).send({ error: 'Failed to connect Firebase' });
+      }
+    }
+  );
+
+  /**
+   * POST /integrations/website
+   * Connects a website URL (url_only — no credentials needed).
+   * Body: { url: string }
+   */
+  server.post(
+    '/integrations/website',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = (request.user as { sub: string }).sub;
+
+      const parsed = ConnectWebsiteSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', detail: parsed.error.message });
+      }
+
+      try {
+        const { connectUrlIntegration } = await import('../services/integrationService');
+        const result = await connectUrlIntegration({ founderId, url: parsed.data.url });
+        return reply.status(201).send({ integration: { id: result.id, platform: 'website' } });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /integrations/website' } });
+        return reply.status(500).send({ error: 'Failed to connect website' });
+      }
+    }
+  );
+
+  /**
+   * GET /integrations
+   * Lists all integration statuses for the authenticated founder.
+   * NEVER returns encrypted_token or kms_key_id.
+   */
+  server.get(
+    '/integrations',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = (request.user as { sub: string }).sub;
+
+      try {
+        const { listIntegrations } = await import('../services/integrationService');
+        const integrations = await listIntegrations(founderId);
+        return reply.send({ integrations });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'GET /integrations' } });
+        return reply.status(500).send({ error: 'Failed to list integrations' });
+      }
+    }
+  );
+
+  /**
+   * DELETE /integrations/:platform
+   * Disconnects an integration (sets revoked_at — row preserved for audit).
+   */
+  server.delete<{ Params: { platform: string } }>(
+    '/integrations/:platform',
+    async (request: FastifyRequest<{ Params: { platform: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = (request.user as { sub: string }).sub;
+
+      const validPlatforms = ['ga4', 'firebase', 'search_console', 'website', 'meta', 'google', 'whatsapp', 'linkedin', 'email'];
+      if (!validPlatforms.includes(request.params.platform)) {
+        return reply.status(400).send({ error: 'Invalid platform' });
+      }
+
+      try {
+        const { disconnectIntegration } = await import('../services/integrationService');
+        await disconnectIntegration(founderId, request.params.platform as Parameters<typeof disconnectIntegration>[1]);
+        return reply.status(204).send();
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'DELETE /integrations/:platform' } });
+        return reply.status(500).send({ error: 'Failed to disconnect integration' });
+      }
+    }
+  );
 }

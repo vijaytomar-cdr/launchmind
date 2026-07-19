@@ -209,7 +209,7 @@ export default function ChannelsPage() {
       {error && (
         <div
           className="mb-4 rounded-[8px] px-4 py-3 flex justify-between items-center"
-          style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}
+          style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)', fontSize: 13 }}
         >
           {error}
           <button onClick={() => setError(null)} className="ml-4 opacity-60 hover:opacity-100">✕</button>
@@ -305,7 +305,7 @@ export default function ChannelsPage() {
                         <button
                           onClick={() => handleDisconnect(platform)}
                           disabled={isDisconnecting}
-                          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer', opacity: isDisconnecting ? 0.6 : 1 }}
+                          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, background: 'var(--danger)', color: '#fff', border: 'none', cursor: 'pointer', opacity: isDisconnecting ? 0.6 : 1 }}
                         >
                           {isDisconnecting ? '…' : 'Confirm'}
                         </button>

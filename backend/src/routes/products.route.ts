@@ -1545,4 +1545,249 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  // ── Intake V3: 5-step direct-input wizard (ADR-012) ─────────────────────
+
+  const IntakeV3StartSchema = z.object({
+    name:             z.string().min(1).max(200),
+    category:         z.string().optional(),
+    stage:            z.enum(['idea', 'beta', 'launched', 'scaling']).optional(),
+    primary_language: z.string().optional(),
+    country:          z.string().optional(),
+    store_url:        z.string().url().optional(),
+    platform:         z.enum(['app_store', 'play_store']).optional(),
+    workspace_id:     z.string().uuid().optional(),
+  });
+
+  // Step data saved at each wizard step
+  const IntakeV3StepSchema = z.object({
+    // Step 2: business
+    revenue_model:    z.enum(['subscription', 'one_time', 'freemium', 'ads', 'marketplace']).optional(),
+    monthly_budget:   z.number().int().nonnegative().optional(),
+    // Step 3: audience (stored in confirmed_icp JSONB)
+    confirmed_icp:    z.record(z.unknown()).optional(),
+    // Step 4: brand
+    brand_voice_profile: z.record(z.unknown()).optional(),
+    brand_values:     z.array(z.string()).optional(),
+    color_preferences: z.object({
+      primary:   z.string().optional(),
+      secondary: z.string().optional(),
+      accent:    z.string().optional(),
+    }).optional(),
+    competitor_set:   z.record(z.unknown()).optional(),
+    // Step 5: connections (no-op here — handled by /channels endpoints)
+  });
+
+  /**
+   * POST /products/setup/start
+   * Creates a new product row in intake_v3_step=1 state.
+   * Does not require a store URL (manual-entry wizard path).
+   * @security Plan product limit enforced.
+   */
+  server.post(
+    '/products/setup/start',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+
+      const parsed = IntakeV3StartSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', detail: parsed.error.message });
+      }
+
+      // Workspace gate — intake cannot start without a personal workspace
+      const { data: founder } = await getSupabaseAdmin()
+        .from('founders')
+        .select('plan, active_workspace_id')
+        .eq('id', founderId)
+        .single();
+
+      if (!founder?.active_workspace_id) {
+        return reply.status(422).send({
+          error: 'No workspace found. Call POST /founders/session first to initialise your account.',
+          code: 'NO_WORKSPACE',
+        });
+      }
+
+      // Plan product limit check
+      const plan = founder?.plan ?? 'free';
+      const limit = PLAN_PRODUCT_LIMITS[plan] ?? 1;
+      const { count } = await getSupabaseAdmin()
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('founder_id', founderId)
+        .is('deleted_at', null);
+      if ((count ?? 0) >= limit) {
+        return reply.status(422).send({
+          error: `Product limit (${limit}) reached for ${plan} plan`,
+          code: 'PLAN_LIMIT_REACHED',
+        });
+      }
+
+      try {
+        const { data, error } = await getSupabaseAdmin()
+          .from('products')
+          .insert({
+            founder_id:       founderId,
+            name:             parsed.data.name,
+            store_url:        parsed.data.store_url ?? null,
+            platform:         parsed.data.platform ?? null,
+            category:         parsed.data.category ?? null,
+            stage:            parsed.data.stage ?? null,
+            primary_language: parsed.data.primary_language ?? null,
+            country:          parsed.data.country ?? null,
+            workspace_id:     parsed.data.workspace_id ?? founder?.active_workspace_id ?? null,
+            intake_v3_step:   1,
+          })
+          .select('id, name, intake_v3_step, created_at')
+          .single();
+
+        if (error || !data) throw error ?? new Error('Insert failed');
+
+        await getSupabaseAdmin().from('audit_logs').insert({
+          founder_id:    founderId,
+          action:        'intake_v3.started',
+          resource_type: 'product',
+          resource_id:   data.id,
+          metadata:      { name: parsed.data.name, plan },
+        });
+
+        return reply.status(201).send({ product: data });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /products/setup/start' } });
+        return reply.status(500).send({ error: 'Failed to start intake' });
+      }
+    }
+  );
+
+  /**
+   * PATCH /products/:id/intake/step/:step
+   * Saves data for a wizard step and advances intake_v3_step.
+   * step must be 2–4 (step 1 saved on start, step 5 is connections-only).
+   */
+  server.patch<{ Params: { id: string; step: string } }>(
+    '/products/:id/intake/step/:step',
+    async (
+      request: FastifyRequest<{ Params: { id: string; step: string } }>,
+      reply: FastifyReply,
+    ) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+      const stepNum = parseInt(request.params.step, 10);
+
+      if (isNaN(stepNum) || stepNum < 2 || stepNum > 4) {
+        return reply.status(400).send({ error: 'step must be 2–4' });
+      }
+
+      const parsed = IntakeV3StepSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', detail: parsed.error.message });
+      }
+
+      // Build patch — only include provided fields
+      const patch: Record<string, unknown> = { intake_v3_step: stepNum };
+      const d = parsed.data;
+      if (d.revenue_model    !== undefined) patch.revenue_model    = d.revenue_model;
+      if (d.monthly_budget   !== undefined) patch.monthly_budget   = d.monthly_budget;
+      if (d.confirmed_icp    !== undefined) patch.confirmed_icp    = d.confirmed_icp;
+      if (d.brand_voice_profile !== undefined) patch.brand_voice_profile = d.brand_voice_profile;
+      if (d.brand_values     !== undefined) patch.brand_values     = d.brand_values;
+      if (d.color_preferences !== undefined) patch.color_preferences = d.color_preferences;
+      if (d.competitor_set   !== undefined) patch.competitor_set   = d.competitor_set;
+
+      try {
+        const { data, error } = await getSupabaseAdmin()
+          .from('products')
+          .update(patch)
+          .eq('id', request.params.id)
+          .eq('founder_id', founderId)
+          .is('intake_v3_complete_at', null)
+          .select('id, intake_v3_step')
+          .single();
+
+        if (error || !data) return reply.status(404).send({ error: 'Product not found or intake already complete' });
+        return reply.send({ product: data });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'PATCH /products/:id/intake/step/:step' } });
+        return reply.status(500).send({ error: 'Failed to save intake step' });
+      }
+    }
+  );
+
+  /**
+   * POST /products/:id/intake/complete
+   * Marks intake v3 as complete (sets intake_v3_complete_at = now()).
+   * Also sets intake_v3_step = 5 and updates active_product_id on founders.
+   * Growth Brain generation should be triggered by the caller after this returns.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/products/:id/intake/complete',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+
+      try {
+        const now = new Date().toISOString();
+        const { data, error } = await getSupabaseAdmin()
+          .from('products')
+          .update({ intake_v3_step: 5, intake_v3_complete_at: now })
+          .eq('id', request.params.id)
+          .eq('founder_id', founderId)
+          .is('intake_v3_complete_at', null)
+          .select('id, name, intake_v3_step, intake_v3_complete_at')
+          .single();
+
+        if (error || !data) {
+          return reply.status(404).send({ error: 'Product not found or intake already complete' });
+        }
+
+        // Update active product
+        await getSupabaseAdmin()
+          .from('founders')
+          .update({ active_product_id: request.params.id })
+          .eq('id', founderId);
+
+        await getSupabaseAdmin().from('audit_logs').insert({
+          founder_id:    founderId,
+          action:        'intake_v3.completed',
+          resource_type: 'product',
+          resource_id:   data.id,
+        });
+
+        return reply.send({ product: data });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /products/:id/intake/complete' } });
+        return reply.status(500).send({ error: 'Failed to complete intake' });
+      }
+    }
+  );
+
+  /**
+   * GET /products/:id/intake/status
+   * Returns current intake v3 step and completeness.
+   */
+  server.get<{ Params: { id: string } }>(
+    '/products/:id/intake/status',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+
+      const { data, error } = await getSupabaseAdmin()
+        .from('products')
+        .select('id, name, intake_v3_step, intake_v3_complete_at, created_at')
+        .eq('id', request.params.id)
+        .eq('founder_id', founderId)
+        .single();
+
+      if (error || !data) return reply.status(404).send({ error: 'Product not found' });
+
+      return reply.send({
+        id:               data.id,
+        name:             data.name,
+        step:             data.intake_v3_step,
+        complete:         !!data.intake_v3_complete_at,
+        complete_at:      data.intake_v3_complete_at,
+      });
+    }
+  );
 }

@@ -413,7 +413,7 @@ export default function ConfirmPage() {
       </div>
 
       {error && (
-        <p style={{ fontSize: 13, color: 'var(--red)', marginBottom: 12 }}>{error}</p>
+        <p style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 12 }}>{error}</p>
       )}
 
       <div className="flex justify-between items-center">

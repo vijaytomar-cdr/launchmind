@@ -206,7 +206,7 @@ export function FeedbackWidget() {
                   </div>
 
                   {error && (
-                    <p style={{ fontSize: 12, color: 'var(--red)' }}>{error}</p>
+                    <p style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</p>
                   )}
 
                   {/* Actions */}

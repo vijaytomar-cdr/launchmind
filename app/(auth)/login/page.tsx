@@ -145,7 +145,7 @@ export default function LoginPage() {
                   />
                 </div>
 
-                {error && <p style={{ fontSize: 12, color: 'var(--red)' }}>{error}</p>}
+                {error && <p style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</p>}
 
                 <button
                   type="button"
@@ -205,7 +205,7 @@ export default function LoginPage() {
                   className="w-full rounded-[6px] px-4 py-3 text-center font-mono tracking-widest outline-none"
                   style={{ background: 'var(--raised)', border: '1px solid var(--border2)', color: 'var(--ink)', fontSize: 24 }}
                 />
-                {error && <p style={{ fontSize: 12, color: 'var(--red)' }}>{error}</p>}
+                {error && <p style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</p>}
                 <button
                   type="button"
                   onClick={handleMfa}

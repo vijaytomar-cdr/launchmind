@@ -145,7 +145,7 @@ export default function ResetPasswordPage() {
                   />
                 </div>
 
-                {error && <p style={{ fontSize: 12, color: 'var(--red)' }}>{error}</p>}
+                {error && <p style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</p>}
 
                 <button
                   type="submit"

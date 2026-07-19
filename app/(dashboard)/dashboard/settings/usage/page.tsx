@@ -94,7 +94,7 @@ export default function TokenUsagePage() {
 
       <div style={{ padding: '0 clamp(16px, 4vw, 32px)' }}>
         {error && (
-          <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
+          <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)', fontSize: 13 }}>
             {error}
           </div>
         )}
@@ -109,22 +109,22 @@ export default function TokenUsagePage() {
           <>
             {/* Balance card */}
             <div style={{
-              background: 'var(--surface)', border: `1px solid ${isLow ? 'var(--red-b)' : 'var(--border)'}`,
+              background: 'var(--surface)', border: `1px solid ${isLow ? 'var(--danger-b)' : 'var(--border)'}`,
               borderRadius: 10, padding: '20px 24px', marginBottom: 24,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 2 }}>Current balance</div>
-                  <div className="font-mono" style={{ fontSize: 28, fontWeight: 500, color: isLow ? 'var(--red)' : 'var(--ink)' }}>
+                  <div className="font-mono" style={{ fontSize: 28, fontWeight: 500, color: isLow ? 'var(--danger)' : 'var(--ink)' }}>
                     {isUnlimited ? 'Unlimited' : balance.toLocaleString()}
                     {!isUnlimited && <span style={{ fontSize: 13, color: 'var(--ink3)', marginLeft: 6 }}>/ {tierMax.toLocaleString()} tokens</span>}
                   </div>
                 </div>
                 <div style={{
                   fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 9999,
-                  background: isLow ? 'var(--red-d)' : isUnlimited ? 'var(--sage-d)' : 'var(--raised)',
-                  color: isLow ? 'var(--red)' : isUnlimited ? 'var(--sage)' : 'var(--ink3)',
-                  border: `1px solid ${isLow ? 'var(--red-b)' : isUnlimited ? 'var(--sage-b)' : 'var(--border2)'}`,
+                  background: isLow ? 'var(--danger-d)' : isUnlimited ? 'var(--sage-d)' : 'var(--raised)',
+                  color: isLow ? 'var(--danger)' : isUnlimited ? 'var(--sage)' : 'var(--ink3)',
+                  border: `1px solid ${isLow ? 'var(--danger-b)' : isUnlimited ? 'var(--sage-b)' : 'var(--border2)'}`,
                   textTransform: 'capitalize' as const,
                 }}>
                   {plan}
@@ -135,16 +135,16 @@ export default function TokenUsagePage() {
                 <div style={{ height: 6, borderRadius: 3, background: 'var(--raised)' }}>
                   <div style={{
                     width: `${pct}%`, height: '100%', borderRadius: 3,
-                    background: isLow ? 'var(--red)' : '#d97706',
+                    background: isLow ? 'var(--danger)' : '#d97706',
                     transition: 'width 0.4s ease',
                   }} />
                 </div>
               )}
 
               {isLow && (
-                <p style={{ marginTop: 10, fontSize: 12, color: 'var(--red)' }}>
+                <p style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>
                   Low balance — strategy generation and brief delivery may be paused.{' '}
-                  <Link href="/dashboard/billing" style={{ color: 'var(--red)', fontWeight: 600 }}>Top up now →</Link>
+                  <Link href="/dashboard/billing" style={{ color: 'var(--danger)', fontWeight: 600 }}>Top up now →</Link>
                 </p>
               )}
             </div>

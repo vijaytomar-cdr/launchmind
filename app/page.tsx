@@ -239,7 +239,7 @@ export default function LandingPage() {
               { label: 'WhatsApp · pain-first · India', delta: '+34% installs', meta: 'Productivity apps · $1–5/mo · week 3 · 47 similar apps', dc: 'var(--sage)' },
               { label: 'Google UAC · India', delta: 'CPI $0.82', meta: 'CRM apps · $3–12/mo · week 2 · 31 similar apps', dc: 'var(--sage)' },
               { label: 'ASO subtitle rewrite · USA', delta: '+18% conversion', meta: 'All categories · week 4 · 89 apps', dc: 'var(--sage)' },
-              { label: 'LinkedIn · USA · B2B apps', delta: 'High CPI', meta: 'Most solo founders pause by week 2 · 44 apps', dc: 'var(--red)' },
+              { label: 'LinkedIn · USA · B2B apps', delta: 'High CPI', meta: 'Most solo founders pause by week 2 · 44 apps', dc: 'var(--danger)' },
               { label: 'Meta lookalike · USA', delta: '2.1× vs broad', meta: 'Based on existing user list · productivity · 22 apps', dc: 'var(--sage)' },
             ].map(sig => (
               <div key={sig.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px', marginBottom: 8 }}>
@@ -398,7 +398,7 @@ export default function LandingPage() {
             </form>
           )}
           {ctaStatus === 'duplicate' && <p style={{ fontSize: 12, color: 'var(--amber)' }}>Already on the list — we'll be in touch!</p>}
-          {ctaStatus === 'error' && <p style={{ fontSize: 12, color: 'var(--red)' }}>Something went wrong. Please try again.</p>}
+          {ctaStatus === 'error' && <p style={{ fontSize: 12, color: 'var(--danger)' }}>Something went wrong. Please try again.</p>}
           <div style={{ fontSize: 12, color: 'var(--ink3)', marginBottom: 14 }}>Already have an account? <a href="/login" style={{ color: 'var(--sage)', textDecoration: 'none' }}>Sign in →</a></div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
             <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 99, background: 'var(--sage-d)', border: '1px solid var(--sage-b)', color: '#046c4e' }}>🇺🇸 USA · Stripe</span>

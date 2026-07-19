@@ -11,8 +11,8 @@
  * @dependencies @anthropic-ai/sdk, playbookService, supabaseAdmin, tokens, Sentry
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import * as Sentry from '@sentry/node';
+import { callSonnet } from '../lib/aiPlatform';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
 import { buildPlaybookContext } from './playbookService';
@@ -169,30 +169,15 @@ export async function generateStrategy(
 
   const founderContext = buildStrategyContext(product);
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    system: STRATEGY_SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: buildStrategyPrompt(
-          product.name,
-          product.category ?? 'Productivity',
-          icp,
-          playbookContext,
-          founderContext
-        ),
-      },
-    ],
-  });
-
-  const content = message.content[0];
-  if (content.type !== 'text') throw new Error('Claude returned non-text response');
-
   // Strip markdown code fences if Claude wraps the JSON despite the system prompt
-  const rawText = content.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  const rawText = (await callSonnet(STRATEGY_SYSTEM, buildStrategyPrompt(
+    product.name,
+    product.category ?? 'Productivity',
+    icp,
+    playbookContext,
+    founderContext
+  ), 4096, { founderId, productId: product.id, promptId: 'strategy_generation', action: 'strategy_generation' }))
+    .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
   let strategy: Strategy;
   try {
@@ -384,24 +369,10 @@ export async function generateContentAssets(
 
   await consumeTokens(founderId, 'content_generation', 20);
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    system: ASSETS_SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: buildAssetsPrompt(channel, market, product.name, icp, playbookContext),
-      },
-    ],
-  });
-
-  const msgContent = message.content[0];
-  if (msgContent.type !== 'text') throw new Error('Claude returned non-text response');
-
   // Strip markdown code fences if Claude wraps the JSON
-  const rawAssets = msgContent.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  const rawAssets = (await callSonnet(ASSETS_SYSTEM, buildAssetsPrompt(channel, market, product.name, icp, playbookContext), 2048,
+    { founderId, productId, promptId: 'content_assets', action: 'content_assets' }))
+    .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
   let assets: ContentAssets;
   try {

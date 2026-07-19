@@ -16,6 +16,15 @@ const nextConfig = {
       },
     ];
   },
+
+  // ADR-008: URL stability — old routes redirect to new nav URLs
+  async redirects() {
+    return [
+      { source: '/dashboard/briefs',     destination: '/dashboard/content',   permanent: false },
+      { source: '/dashboard/insights',   destination: '/dashboard/results',   permanent: false },
+      { source: '/dashboard/workspaces', destination: '/dashboard/settings',  permanent: false },
+    ];
+  },
   images: {
     domains: ['play-lh.googleusercontent.com', 'is1-ssl.mzstatic.com'],
   },

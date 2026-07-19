@@ -43,7 +43,7 @@ const STATUS_STYLE: Record<Campaign['status'], React.CSSProperties> = {
   pending_approval: { background: 'var(--amber-d)',  color: 'var(--amber)',  border: '1px solid var(--amber-b)' },
   approved:         { background: 'var(--sage-d)',   color: 'var(--sage)',   border: '1px solid var(--sage-b)' },
   launched:         { background: 'var(--sage-d)',   color: 'var(--sage)',   border: '1px solid var(--sage-b)' },
-  paused:           { background: 'var(--red-d)',    color: 'var(--red)',    border: '1px solid var(--red-b)' },
+  paused:           { background: 'var(--danger-d)',    color: 'var(--danger)',    border: '1px solid var(--danger-b)' },
   completed:        { background: 'var(--raised)',   color: 'var(--ink2)',   border: '1px solid var(--border2)' },
 };
 
@@ -207,7 +207,7 @@ export default function CampaignsPage() {
               The approve-before-post rule is enforced server-side — no content is posted without this step.
             </p>
             {approveError && (
-              <p style={{ fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>{approveError}</p>
+              <p style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 12 }}>{approveError}</p>
             )}
             <div style={{ display: 'flex', gap: 10 }}>
               <button
@@ -288,7 +288,7 @@ export default function CampaignsPage() {
 
       {error && (
         <div className="mb-4 rounded-[8px] px-4 py-3 flex items-center justify-between"
-          style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
+          style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)', fontSize: 13 }}>
           {error}
           <button onClick={() => setError(null)} className="ml-4 opacity-60 hover:opacity-100">✕</button>
         </div>

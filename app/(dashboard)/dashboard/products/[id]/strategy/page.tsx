@@ -722,7 +722,7 @@ export default function StrategyPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {error && <p style={{ fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>{error}</p>}
+      {error && <p style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 16 }}>{error}</p>}
 
       {!strategy && !generating && (
         <div

@@ -8,11 +8,9 @@
  * @dependencies @anthropic-ai/sdk, supabaseAdmin, consumeTokens
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { callHaiku } from '../lib/aiPlatform';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
-
-const anthropic = new Anthropic();
 
 export interface BrandVoiceProfile {
   tone:        string;
@@ -58,12 +56,7 @@ export async function extractBrandVoice(
   const reviewText = reviews.map((r) => `- "${r.text}"`).join('\n') || '(no reviews available)';
   const icp = product.confirmed_icp as Record<string, unknown> | null;
 
-  const { content } = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 400,
-    messages: [{
-      role: 'user',
-      content: `Analyse the brand voice of "${product.name}" (${product.category}) from these user reviews:
+  const raw = (await callHaiku(`Analyse the brand voice of "${product.name}" (${product.category}) from these user reviews:
 ${reviewText}
 
 Target user: ${icp?.targetUser ?? 'unknown'}
@@ -74,11 +67,7 @@ Return ONLY valid JSON with this shape:
   "adjectives": ["word1", "word2", "word3"],
   "avoidWords": ["word1", "word2"],
   "exampleCopy": "One sentence that perfectly captures this app's voice"
-}`,
-    }],
-  });
-
-  const raw = content[0].type === 'text' ? content[0].text.trim() : '{}';
+}`, 400, { founderId, productId, promptId: 'brand_voice_extract', action: 'brand_voice_extract' })).trim() || '{}';
   const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as Omit<BrandVoiceProfile, 'extractedAt'>;
 
   const profile: BrandVoiceProfile = { ...parsed, extractedAt: new Date().toISOString() };
@@ -107,12 +96,7 @@ async function applyBrandVoice(
 ): Promise<string> {
   await consumeTokens(founderId, 'brand_voice_apply', 5);
 
-  const { content } = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    messages: [{
-      role: 'user',
-      content: `Rewrite this copy to match the brand voice.
+  const rewritten = await callHaiku(`Rewrite this copy to match the brand voice.
 
 Brand voice:
 - Tone: ${profile.tone}
@@ -123,11 +107,9 @@ Brand voice:
 Original copy:
 "${copy}"
 
-Return ONLY the rewritten copy — no explanation, no quotes.`,
-    }],
-  });
+Return ONLY the rewritten copy — no explanation, no quotes.`, 300, { founderId, productId: null, promptId: 'brand_voice_apply', action: 'brand_voice_apply' });
 
-  return content[0].type === 'text' ? content[0].text.trim() : copy;
+  return rewritten.trim() || copy;
 }
 
 // ── Preview (orchestrator) ────────────────────────────────────────────────────

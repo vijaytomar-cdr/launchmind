@@ -75,8 +75,8 @@ export default function AdminMrrPage() {
   if (forbidden) {
     return (
       <div className="p-8">
-        <div style={{ maxWidth: 400, background: 'var(--surface)', border: '1px solid var(--red-b)', borderRadius: 10, padding: '32px 24px', textAlign: 'center' }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--red)', marginBottom: 8 }}>Access denied</div>
+        <div style={{ maxWidth: 400, background: 'var(--surface)', border: '1px solid var(--danger-b)', borderRadius: 10, padding: '32px 24px', textAlign: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--danger)', marginBottom: 8 }}>Access denied</div>
           <p style={{ fontSize: 13, color: 'var(--ink2)' }}>Admin-only page.</p>
         </div>
       </div>
@@ -94,7 +94,7 @@ export default function AdminMrrPage() {
   }
 
   if (error) {
-    return <div className="p-8" style={{ fontSize: 13, color: 'var(--red)' }}>{error}</div>;
+    return <div className="p-8" style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</div>;
   }
 
   if (!data) return null;

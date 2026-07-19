@@ -109,7 +109,7 @@ export function VoiceCloneTab() {
             <button
               onClick={handleDeleteVoice}
               disabled={voiceBusy}
-              style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: voiceBusy ? 'not-allowed' : 'pointer', padding: 0, opacity: voiceBusy ? 0.6 : 1 }}
+              style={{ fontSize: 12, color: 'var(--danger)', background: 'none', border: 'none', cursor: voiceBusy ? 'not-allowed' : 'pointer', padding: 0, opacity: voiceBusy ? 0.6 : 1 }}
             >
               Remove
             </button>
@@ -141,7 +141,7 @@ export function VoiceCloneTab() {
         )}
 
         {voiceMsg && (
-          <p style={{ fontSize: 12, color: voiceMsg.ok ? 'var(--sage)' : 'var(--red)', marginTop: 8 }}>
+          <p style={{ fontSize: 12, color: voiceMsg.ok ? 'var(--sage)' : 'var(--danger)', marginTop: 8 }}>
             {voiceMsg.text}
           </p>
         )}

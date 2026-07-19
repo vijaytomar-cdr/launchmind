@@ -233,7 +233,7 @@ export default function WorkspaceDetailPage({ params }: Props) {
             />
 
             {brandVoiceError && (
-              <p style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{brandVoiceError}</p>
+              <p style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6 }}>{brandVoiceError}</p>
             )}
 
             <button

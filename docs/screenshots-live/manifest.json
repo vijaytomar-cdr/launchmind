@@ -1,0 +1,218 @@
+[
+  {
+    "id": "brief",
+    "label": "Morning Brief",
+    "route": "/dashboard/brief",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/brief.png",
+    "size": 52046,
+    "landedUrl": "http://localhost:3000/dashboard/brief",
+    "redirected": false
+  },
+  {
+    "id": "opportunities",
+    "label": "Opportunities",
+    "route": "/dashboard/opportunities",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/opportunities.png",
+    "size": 69578,
+    "landedUrl": "http://localhost:3000/dashboard/opportunities",
+    "redirected": false
+  },
+  {
+    "id": "approvals",
+    "label": "Approvals",
+    "route": "/dashboard/approvals",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/approvals.png",
+    "size": 61186,
+    "landedUrl": "http://localhost:3000/dashboard/approvals",
+    "redirected": false
+  },
+  {
+    "id": "ask",
+    "label": "Ask LaunchMind",
+    "route": "/dashboard/ask",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/ask.png",
+    "size": 75498,
+    "landedUrl": "http://localhost:3000/dashboard/ask",
+    "redirected": false
+  },
+  {
+    "id": "products",
+    "label": "Products",
+    "route": "/dashboard/products",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/products.png",
+    "size": 118773,
+    "landedUrl": "http://localhost:3000/dashboard/products",
+    "redirected": false
+  },
+  {
+    "id": "campaigns",
+    "label": "Campaigns",
+    "route": "/dashboard/campaigns",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/campaigns.png",
+    "size": 211567,
+    "landedUrl": "http://localhost:3000/dashboard/campaigns",
+    "redirected": false
+  },
+  {
+    "id": "content",
+    "label": "Content Studio",
+    "route": "/dashboard/content",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/content.png",
+    "size": 309980,
+    "landedUrl": "http://localhost:3000/dashboard/content",
+    "redirected": false
+  },
+  {
+    "id": "briefs",
+    "label": "Weekly Briefs",
+    "route": "/dashboard/briefs",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/briefs.png",
+    "size": 309979,
+    "landedUrl": "http://localhost:3000/dashboard/content",
+    "redirected": true
+  },
+  {
+    "id": "experiments",
+    "label": "Experiments",
+    "route": "/dashboard/experiments",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/experiments.png",
+    "size": 78263,
+    "landedUrl": "http://localhost:3000/dashboard/experiments",
+    "redirected": false
+  },
+  {
+    "id": "calendar",
+    "label": "Calendar",
+    "route": "/dashboard/calendar",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/calendar.png",
+    "size": 74590,
+    "landedUrl": "http://localhost:3000/dashboard/calendar",
+    "redirected": false
+  },
+  {
+    "id": "missions",
+    "label": "Missions",
+    "route": "/dashboard/missions",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/missions.png",
+    "size": 70828,
+    "landedUrl": "http://localhost:3000/dashboard/missions",
+    "redirected": false
+  },
+  {
+    "id": "analytics",
+    "label": "Analytics",
+    "route": "/dashboard/analytics",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/analytics.png",
+    "size": 54201,
+    "landedUrl": "http://localhost:3000/dashboard/analytics",
+    "redirected": false
+  },
+  {
+    "id": "reports",
+    "label": "Reports",
+    "route": "/dashboard/reports",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/reports.png",
+    "size": 63828,
+    "landedUrl": "http://localhost:3000/dashboard/reports",
+    "redirected": false
+  },
+  {
+    "id": "results",
+    "label": "Results",
+    "route": "/dashboard/results",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/results.png",
+    "size": 98335,
+    "landedUrl": "http://localhost:3000/dashboard/results",
+    "redirected": false
+  },
+  {
+    "id": "growth-brain",
+    "label": "Growth Brain",
+    "route": "/dashboard/intelligence/growth-brain",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/growth-brain.png",
+    "size": 74501,
+    "landedUrl": "http://localhost:3000/dashboard/intelligence/growth-brain",
+    "redirected": false
+  },
+  {
+    "id": "market",
+    "label": "Market Intel",
+    "route": "/dashboard/intelligence/market",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/market.png",
+    "size": 58588,
+    "landedUrl": "http://localhost:3000/dashboard/intelligence/market",
+    "redirected": false
+  },
+  {
+    "id": "reviews",
+    "label": "Reviews",
+    "route": "/dashboard/intelligence/reviews",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/reviews.png",
+    "size": 58311,
+    "landedUrl": "http://localhost:3000/dashboard/intelligence/reviews",
+    "redirected": false
+  },
+  {
+    "id": "memory",
+    "label": "Memory",
+    "route": "/dashboard/intelligence/memory",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/memory.png",
+    "size": 94749,
+    "landedUrl": "http://localhost:3000/dashboard/intelligence/memory",
+    "redirected": false
+  },
+  {
+    "id": "knowledge",
+    "label": "Knowledge Graph",
+    "route": "/dashboard/intelligence/knowledge",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/knowledge.png",
+    "size": 84230,
+    "landedUrl": "http://localhost:3000/dashboard/intelligence/knowledge",
+    "redirected": false
+  },
+  {
+    "id": "timeline",
+    "label": "Timeline",
+    "route": "/dashboard/intelligence/timeline",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/timeline.png",
+    "size": 109845,
+    "landedUrl": "http://localhost:3000/dashboard/intelligence/timeline",
+    "redirected": false
+  },
+  {
+    "id": "ai-audit",
+    "label": "AI Audit",
+    "route": "/dashboard/intelligence/ai-audit",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/ai-audit.png",
+    "size": 84011,
+    "landedUrl": "http://localhost:3000/dashboard/intelligence/ai-audit",
+    "redirected": false
+  },
+  {
+    "id": "channels",
+    "label": "Channels",
+    "route": "/dashboard/channels",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/channels.png",
+    "size": 127336,
+    "landedUrl": "http://localhost:3000/dashboard/channels",
+    "redirected": false
+  },
+  {
+    "id": "billing",
+    "label": "Billing",
+    "route": "/dashboard/billing",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/billing.png",
+    "size": 119759,
+    "landedUrl": "http://localhost:3000/dashboard/billing",
+    "redirected": false
+  },
+  {
+    "id": "settings",
+    "label": "Settings",
+    "route": "/dashboard/settings",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots-live/settings.png",
+    "size": 66156,
+    "landedUrl": "http://localhost:3000/dashboard/settings/profile",
+    "redirected": false
+  }
+]

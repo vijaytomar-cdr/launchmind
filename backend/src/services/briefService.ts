@@ -15,14 +15,12 @@
  * @dependencies @anthropic-ai/sdk, resend, anonymizationService, supabaseAdmin, tokens, Sentry
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { callMessages } from '../lib/aiPlatform';
 import { Resend } from 'resend';
 import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
 import { anonymizeAndAudit, PIIDetectedError } from './anonymizationService';
-
-const anthropic = new Anthropic();
 
 function getResend(): Resend {
   return new Resend(process.env.RESEND_API_KEY);
@@ -114,14 +112,7 @@ Return JSON:
 }
 nextActions: 2–4 items maximum. Prioritise pain_first hooks for underperforming channels.`;
 
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 600,
-    system: BRIEF_SYSTEM,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const raw = response.content[0].type === 'text' ? response.content[0].text : '';
+  const raw = await callMessages('haiku', [{ role: 'user', content: prompt }], BRIEF_SYSTEM, 600);
 
   let parsed: { whatWorked: string; whatToKill: string; nextActions: BriefNarrative['nextActions'] };
   try {

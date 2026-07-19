@@ -17,15 +17,19 @@ export type AssetType =
   | 'community_indiehackers' | 'community_twitter_thread'
   | 'social_proof_case_study' | 'social_proof_testimonial'
   | 'social_proof_review_response' | 'social_proof_producthunt'
+  // M08 new types
+  | 'blog_post' | 'landing_page_copy' | 'push_notification' | 'release_notes' | 'press_release'
 
 // Snake_case to match the Fastify API response (DB column names)
 export interface ContentAsset {
   id: string
   product_id: string
+  founder_id: string
   brief_id: string | null
+  campaign_id: string | null
   asset_type: AssetType
   channel: string
-  market: string
+  market: 'usa' | 'india' | 'both' | null
   language: string
   text_content: string | null
   structured_data: Record<string, unknown> | null
@@ -33,19 +37,30 @@ export interface ContentAsset {
   media_type: 'mp4' | 'mp3' | 'jpg' | 'png' | null
   duration_seconds: number | null
   thumbnail_url: string | null
+  model_used: string | null
   quality_score: number | null
   quality_flags: Record<string, boolean> | null
   hook_angle: string | null
-  generation_week: number
+  generation_week: number | null
+  tokens_consumed: number
   status: AssetStatus
   auto_approved: boolean
   approved_at: string | null
   regen_count: number
   regen_reasons: Array<{ reason: string; note?: string; timestamp: string }> | null
+  parent_asset_id: string | null
   installs: number | null
   impressions: number | null
   cpi: number | null
+  ctr: number | null
+  performed_at: string | null
   render_started_at: string | null
+  // M08 fields
+  tags: string[] | null
+  mission_id: string | null
+  growth_brain_version: number
+  archived_at: string | null
+  published_at: string | null
   created_at: string
   updated_at: string
 }
@@ -137,10 +152,16 @@ export const ASSET_META: Record<AssetType, AssetMeta> = {
   social_proof_testimonial:     { label: 'Testimonial card',          iconName: 'quote',     color: '#059669', channel: 'Social Proof' },
   social_proof_review_response: { label: 'Review responses',          iconName: 'star',      color: '#d97706', channel: 'Social Proof' },
   social_proof_producthunt:     { label: 'Product Hunt comment',      iconName: 'rocket',    color: '#d97706', channel: 'Social Proof' },
+  // M08 types
+  blog_post:                    { label: 'Blog post',                  iconName: 'article',   color: '#059669', channel: 'Web' },
+  landing_page_copy:            { label: 'Landing page copy',          iconName: 'layout',    color: '#059669', channel: 'Web' },
+  push_notification:            { label: 'Push notification',          iconName: 'bell',      color: '#4f46e5', channel: 'Push' },
+  release_notes:                { label: 'Release notes',              iconName: 'notes',     color: '#626880', channel: 'Push' },
+  press_release:                { label: 'Press release',              iconName: 'newspaper', color: '#626880', channel: 'Web' },
 }
 
 /** Groups assets by their channel for display in the right column. */
-export const CHANNEL_ORDER = ['WhatsApp', 'Meta', 'Google', 'ASO', 'Email', 'LinkedIn', 'Video', 'Visual', 'Community', 'Social Proof']
+export const CHANNEL_ORDER = ['WhatsApp', 'Meta', 'Google', 'ASO', 'Email', 'LinkedIn', 'Video', 'Visual', 'Community', 'Social Proof', 'Web', 'Push']
 
 export function groupAssetsByChannel(assets: ContentAsset[]): Record<string, ContentAsset[]> {
   const groups: Record<string, ContentAsset[]> = {}

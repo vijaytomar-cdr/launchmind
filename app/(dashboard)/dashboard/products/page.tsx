@@ -495,7 +495,7 @@ export default function ProductsPage() {
       {loading && <Spinner />}
 
       {!loading && error && (
-        <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>
+        <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>
       )}
 
       {!loading && !error && products.length === 0 && archivedProducts.length === 0 && <EmptyState />}

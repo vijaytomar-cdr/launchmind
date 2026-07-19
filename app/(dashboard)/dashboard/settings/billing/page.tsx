@@ -146,7 +146,7 @@ export default function BillingSettingsPage() {
       {error && (
         <div
           className="mb-5 px-4 py-3 rounded-[8px]"
-          style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}
+          style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)', fontSize: 13 }}
         >
           {error}
         </div>
@@ -201,7 +201,7 @@ export default function BillingSettingsPage() {
                     onClick={handleCancel}
                     disabled={cancelLoading}
                     className="font-semibold disabled:opacity-50 transition-opacity hover:opacity-80"
-                    style={{ fontSize: 13, color: 'var(--red)' }}
+                    style={{ fontSize: 13, color: 'var(--danger)' }}
                   >
                     {cancelLoading ? 'Cancelling…' : 'Confirm cancel'}
                   </button>

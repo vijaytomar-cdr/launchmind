@@ -166,7 +166,7 @@ export default function CompetitorsPage() {
                 ) : (
                   <span
                     className="rounded-full px-2 py-0.5 font-medium flex-shrink-0"
-                    style={{ fontSize: 10, background: 'var(--red-d)', color: 'var(--red)', border: '1px solid var(--red-b)' }}
+                    style={{ fontSize: 10, background: 'var(--danger-d)', color: 'var(--danger)', border: '1px solid var(--danger-b)' }}
                   >
                     ✗ Removed
                   </span>
@@ -196,7 +196,7 @@ export default function CompetitorsPage() {
                 onClick={() => setConfirmed(i, false)}
                 disabled={!comp.confirmed}
                 className="rounded-[4px] px-2.5 py-1 transition-opacity hover:opacity-80 disabled:opacity-30"
-                style={{ fontSize: 12, background: 'var(--red-d)', color: 'var(--red)', border: '1px solid var(--red-b)' }}
+                style={{ fontSize: 12, background: 'var(--danger-d)', color: 'var(--danger)', border: '1px solid var(--danger-b)' }}
               >
                 ✗ Remove
               </button>
@@ -234,7 +234,7 @@ export default function CompetitorsPage() {
           </button>
         </div>
         {addError && (
-          <p style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{addError}</p>
+          <p style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6 }}>{addError}</p>
         )}
       </div>
 

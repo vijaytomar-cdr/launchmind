@@ -303,7 +303,7 @@ export default function WorkspacesPage() {
               </div>
             </div>
             {error && (
-              <p style={{ fontSize: 12, color: 'var(--red)', marginTop: 12 }}>{error}</p>
+              <p style={{ fontSize: 12, color: 'var(--danger)', marginTop: 12 }}>{error}</p>
             )}
             <div className="flex gap-3 mt-6">
               <button

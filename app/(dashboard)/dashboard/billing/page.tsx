@@ -160,7 +160,7 @@ export default function BillingPage() {
 
       <div style={{ padding: '0 clamp(16px, 4vw, 32px)' }}>
         {error && (
-          <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
+          <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)', fontSize: 13 }}>
             {error}
           </div>
         )}
@@ -217,13 +217,13 @@ export default function BillingPage() {
                   <div>
                     {cancelConfirm ? (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: 'var(--red)' }}>Confirm cancel?</span>
+                        <span style={{ fontSize: 12, color: 'var(--danger)' }}>Confirm cancel?</span>
                         <button onClick={() => setCancelConfirm(false)}
                           style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border2)', background: 'var(--surface)', cursor: 'pointer', color: 'var(--ink2)' }}>
                           No
                         </button>
                         <button onClick={handleCancel} disabled={cancelBusy}
-                          style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: 'none', background: 'var(--red)', color: '#fff', cursor: cancelBusy ? 'not-allowed' : 'pointer', opacity: cancelBusy ? 0.7 : 1 }}>
+                          style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: 'none', background: 'var(--danger)', color: '#fff', cursor: cancelBusy ? 'not-allowed' : 'pointer', opacity: cancelBusy ? 0.7 : 1 }}>
                           {cancelBusy ? 'Cancelling…' : 'Yes, cancel'}
                         </button>
                       </div>

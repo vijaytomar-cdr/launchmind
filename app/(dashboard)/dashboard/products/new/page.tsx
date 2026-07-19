@@ -157,7 +157,7 @@ export default function NewProductPage() {
           )}
         </div>
 
-        {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}
+        {error && <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>}
 
         {!hasStoreUrl && (
           <p style={{ fontSize: 12, color: 'var(--ink3)' }}>

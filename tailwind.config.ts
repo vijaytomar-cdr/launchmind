@@ -1,8 +1,9 @@
 /**
  * @file tailwind.config.ts
- * @description Tailwind CSS — Slate & Sage design system tokens.
+ * @description Tailwind CSS — Slate & Sage Design System v1.0 tokens.
  *   All tokens mirror the CSS custom properties in globals.css.
- *   See CLAUDE.md §6 for the authoritative reference.
+ *   shadcn/ui is NOT installed — do not import from @/components/ui/*.
+ *   See CLAUDE.md §6 and LaunchMind Design System §6 for the full reference.
  */
 import type { Config } from 'tailwindcss';
 
@@ -51,6 +52,14 @@ const config: Config = {
           border:  'rgba(220,38,38,0.22)',
         },
 
+        /* ── AI — LaunchMind judgment (violet) ─── */
+        ai: {
+          DEFAULT: '#7c5cff',
+          light:   '#a78bfa',
+          bg:      'rgba(124,92,255,0.10)',
+          border:  'rgba(124,92,255,0.24)',
+        },
+
         /* ── Ink — body text hierarchy ───────────── */
         ink: {
           DEFAULT: '#1b1f2e',
@@ -58,36 +67,8 @@ const config: Config = {
           3:       '#9ca4be',
         },
 
-        /* ── shadcn / Radix compatibility ──────── */
-        background:  'hsl(var(--background))',
-        foreground:  'hsl(var(--foreground))',
-        border:      'hsl(var(--border))',
-        input:       'hsl(var(--input))',
-        ring:        'hsl(var(--ring))',
-        primary: {
-          DEFAULT:    'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
-        },
-        secondary: {
-          DEFAULT:    'hsl(var(--secondary))',
-          foreground: 'hsl(var(--secondary-foreground))',
-        },
-        destructive: {
-          DEFAULT:    'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
-        },
-        muted: {
-          DEFAULT:    'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
-        },
-        accent: {
-          DEFAULT:    'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
-        },
-        card: {
-          DEFAULT:    'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
-        },
+        /* ── Fallback border (for @apply border-*) ── */
+        border: 'rgba(27,31,46,0.10)',
       },
 
       fontFamily: {
@@ -102,6 +83,9 @@ const config: Config = {
         sm:    ['12px', { lineHeight: '1.5' }],
         base:  ['13px', { lineHeight: '1.5' }],
         md:    ['14px', { lineHeight: '1.5' }],
+        lg:    ['18px', { lineHeight: '1.3' }],
+        xl:    ['24px', { lineHeight: '1.2' }],
+        '2xl': ['32px', { lineHeight: '1.1' }],
       },
 
       borderRadius: {
@@ -109,8 +93,18 @@ const config: Config = {
         sm:      '6px',
         xs:      '4px',
         full:    '9999px',
-        lg:      'var(--radius)',
-        md:      'calc(var(--radius) - 2px)',
+      },
+
+      transitionDuration: {
+        fast:    '120ms',
+        DEFAULT: '180ms',
+        slow:    '280ms',
+      },
+
+      boxShadow: {
+        e1: '0 1px 2px rgba(27,31,46,0.04)',
+        e2: '0 2px 8px rgba(27,31,46,0.06)',
+        e3: '0 8px 24px rgba(27,31,46,0.10)',
       },
 
       keyframes: {

@@ -46,11 +46,25 @@ import { apiKeysRoutes } from './routes/apiKeys.route';
 import { foundersRoutes } from './routes/founders.route';
 import { contentAssetsRoutes } from './routes/contentAssets.route';
 import { settingsRoutes } from './routes/settings.route';
+import { memoryRoutes } from './routes/memory.route';
+import { knowledgeRoutes } from './routes/knowledge.route';
+import { aiRoutes }      from './routes/ai.route';
+import { missionRoutes } from './routes/missions.route';
+import { ownerRoutes }   from './routes/owner.route';
+import { studioRoutes }    from './routes/studio.route';
+import { campaignRoutes }  from './routes/campaigns.route';
+import { experimentRoutes } from './routes/experiments.route';
+import { calendarRoutes }         from './routes/calendar.route';
+import { recommendationsRoutes }  from './routes/recommendations.route';
+import { benchmarksRoutes }       from './routes/benchmarks.route';
+import analyticsRoutes            from './routes/analytics.route';
+import reportsRoutes              from './routes/reports.route';
 import { InsufficientTokensError } from './types/errors';
 import { checkAnomaly, extractFounderIdFromHeader } from './middleware/auth.middleware';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
-import { startIntakeWorker } from './workers/intakeWorker';
-import { startContentWorker } from './workers/contentWorker';
+import { startIntakeWorker }  from './workers/intakeWorker';
+import { startContentWorker }  from './workers/contentWorker';
+import { startMissionWorker }  from './workers/missionWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
 
 /**
@@ -132,6 +146,19 @@ export async function buildServer(): Promise<FastifyInstance> {
   await server.register(foundersRoutes);
   await server.register(contentAssetsRoutes);
   await server.register(settingsRoutes);
+  await server.register(memoryRoutes);
+  await server.register(knowledgeRoutes);
+  await server.register(aiRoutes);
+  await server.register(missionRoutes);
+  await server.register(ownerRoutes);
+  await server.register(studioRoutes);
+  await server.register(campaignRoutes);
+  await server.register(experimentRoutes);
+  await server.register(calendarRoutes);
+  await server.register(recommendationsRoutes);
+  await server.register(benchmarksRoutes);
+  await server.register(analyticsRoutes);
+  await server.register(reportsRoutes);
 
   // Anomaly detection — fires on every request with an Authorization header.
   // Decodes JWT payload (no re-verification) to extract founderId, then fires
@@ -184,6 +211,7 @@ async function start(): Promise<void> {
       startBriefWorker();
       startIntakeWorker();
       startContentWorker();
+      startMissionWorker();
       await scheduleWeeklyBrief();
     } else {
       console.warn('[server] REDIS_URL not configured — BullMQ workers skipped (set a real URL to enable)');

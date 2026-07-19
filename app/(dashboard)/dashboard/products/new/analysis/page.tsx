@@ -211,9 +211,9 @@ export default function AnalysisPage() {
         <IntakeSteps currentStep="analysing" />
         <div
           className="rounded-[10px] p-6 text-center"
-          style={{ background: 'var(--surface)', border: '1px solid var(--red-b)' }}
+          style={{ background: 'var(--surface)', border: '1px solid var(--danger-b)' }}
         >
-          <p className="font-semibold mb-2" style={{ fontSize: 15, color: 'var(--red)' }}>
+          <p className="font-semibold mb-2" style={{ fontSize: 15, color: 'var(--danger)' }}>
             Analysis failed
           </p>
           <p style={{ fontSize: 13, color: 'var(--ink2)', marginBottom: 16 }}>{failed}</p>

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "s-login",
+    "label": "Login",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-login.png",
+    "size": 36973
+  },
+  {
+    "id": "s-signup",
+    "label": "Sign Up",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-signup.png",
+    "size": 42696
+  },
+  {
+    "id": "s-mfa",
+    "label": "MFA Verification",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-mfa.png",
+    "size": 32250
+  },
+  {
+    "id": "s-dashboard",
+    "label": "Morning Brief / Dashboard",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-dashboard.png",
+    "size": 119685
+  },
+  {
+    "id": "s-discover",
+    "label": "Product Discovery",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-discover.png",
+    "size": 84504
+  },
+  {
+    "id": "s-confirm",
+    "label": "ICP Confirmation",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-confirm.png",
+    "size": 90490
+  },
+  {
+    "id": "s-strategy",
+    "label": "Strategy",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-strategy.png",
+    "size": 121872
+  },
+  {
+    "id": "s-campaigns",
+    "label": "Campaigns",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-campaigns.png",
+    "size": 98892
+  },
+  {
+    "id": "s-briefs",
+    "label": "Weekly Briefs",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-briefs.png",
+    "size": 142026
+  },
+  {
+    "id": "s-channels",
+    "label": "Channels",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-channels.png",
+    "size": 91685
+  },
+  {
+    "id": "s-billing",
+    "label": "Billing",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-billing.png",
+    "size": 83109
+  },
+  {
+    "id": "s-settings",
+    "label": "Settings",
+    "file": "/Users/vtomar/opt/launchMind/docs/screenshots/s-settings.png",
+    "size": 76666
+  }
+]

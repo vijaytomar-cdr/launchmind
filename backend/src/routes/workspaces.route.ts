@@ -15,6 +15,17 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
+import {
+  createWorkspace,
+  listWorkspaces,
+  getWorkspace,
+  updateWorkspace,
+  setActiveWorkspace,
+  setActiveProduct,
+  listWorkspaceMembers,
+  inviteWorkspaceMember,
+  removeWorkspaceMember,
+} from '../services/workspaceService';
 
 function getFounderId(req: FastifyRequest): string {
   return (req.user as { sub: string }).sub;
@@ -252,6 +263,132 @@ export async function workspacesRoutes(server: FastifyInstance): Promise<void> {
       } catch (err) {
         Sentry.captureException(err, { tags: { route: 'POST /workspaces/:id/products/:productId' } });
         return reply.status(500).send({ error: 'Failed to assign product to workspace' });
+      }
+    }
+  );
+
+  // ── Active workspace / product switching (ADR-013) ───────────────────────
+
+  /**
+   * POST /workspaces/:id/activate
+   * Sets the authenticated founder's active_workspace_id.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/workspaces/:id/activate',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+      try {
+        await setActiveWorkspace(founderId, request.params.id);
+        return reply.send({ ok: true });
+      } catch (err) {
+        Sentry.captureException(err, { tags: { route: 'POST /workspaces/:id/activate' } });
+        return reply.status(500).send({ error: 'Failed to set active workspace' });
+      }
+    }
+  );
+
+  /**
+   * POST /products/:id/activate
+   * Sets the authenticated founder's active_product_id.
+   * Also updates active_workspace_id to the product's workspace if set.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/products/:productId/activate',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+      const productId = (request.params as unknown as { productId: string }).productId;
+      try {
+        await setActiveProduct(founderId, productId);
+        return reply.send({ ok: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('not found')) return reply.status(404).send({ error: msg });
+        Sentry.captureException(err, { tags: { route: 'POST /products/:id/activate' } });
+        return reply.status(500).send({ error: 'Failed to set active product' });
+      }
+    }
+  );
+
+  // ── Workspace member management ──────────────────────────────────────────
+
+  const InviteMemberSchema = z.object({
+    email: z.string().email(),
+    role:  z.enum(['admin', 'editor', 'viewer']).default('viewer'),
+  });
+
+  /**
+   * GET /workspaces/:id/members
+   * Lists members of a workspace (owner only).
+   */
+  server.get<{ Params: { id: string } }>(
+    '/workspaces/:id/members',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+      try {
+        const members = await listWorkspaceMembers(request.params.id, founderId);
+        return reply.send({ members });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('not found')) return reply.status(404).send({ error: msg });
+        Sentry.captureException(err, { tags: { route: 'GET /workspaces/:id/members' } });
+        return reply.status(500).send({ error: 'Failed to list members' });
+      }
+    }
+  );
+
+  /**
+   * POST /workspaces/:id/members
+   * Invites a member (creates pending workspace_members row).
+   * Body: { email: string, role: 'admin' | 'editor' | 'viewer' }
+   */
+  server.post<{ Params: { id: string } }>(
+    '/workspaces/:id/members',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+
+      const parsed = InviteMemberSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', detail: parsed.error.message });
+      }
+
+      try {
+        const member = await inviteWorkspaceMember(
+          request.params.id,
+          founderId,
+          parsed.data.email,
+          parsed.data.role,
+        );
+        return reply.status(201).send({ member });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('not found')) return reply.status(404).send({ error: msg });
+        Sentry.captureException(err, { tags: { route: 'POST /workspaces/:id/members' } });
+        return reply.status(500).send({ error: 'Failed to invite member' });
+      }
+    }
+  );
+
+  /**
+   * DELETE /workspaces/:id/members/:memberId
+   * Removes a member from a workspace (owner only).
+   */
+  server.delete<{ Params: { id: string; memberId: string } }>(
+    '/workspaces/:id/members/:memberId',
+    async (request: FastifyRequest<{ Params: { id: string; memberId: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+      try {
+        await removeWorkspaceMember(request.params.id, founderId, request.params.memberId);
+        return reply.status(204).send();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('not found')) return reply.status(404).send({ error: msg });
+        Sentry.captureException(err, { tags: { route: 'DELETE /workspaces/:id/members/:memberId' } });
+        return reply.status(500).send({ error: 'Failed to remove member' });
       }
     }
   );

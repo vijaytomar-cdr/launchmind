@@ -28,6 +28,7 @@ import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { createClient } from '@supabase/supabase-js';
+import { ensurePersonalWorkspace } from '../services/workspaceService';
 
 function getFounderId(req: FastifyRequest): string {
   return (req.user as { sub: string }).sub;
@@ -48,6 +49,71 @@ const NotificationsSchema = z.object({
 });
 
 export async function foundersRoutes(server: FastifyInstance): Promise<void> {
+
+  /**
+   * POST /founders/session
+   * Idempotent session initialisation. Called by the frontend after every login/signup.
+   * Guarantees:
+   *   1. Founder row exists in founders table (created by Supabase Auth trigger or first-call upsert).
+   *   2. Founder has at least one personal workspace (ensurePersonalWorkspace).
+   *   3. founders.active_workspace_id is set.
+   * Returns founder profile + workspace so the frontend can bootstrap in one call.
+   * @security JWT required. Idempotent — safe to call on every login. Never creates duplicates.
+   */
+  server.post('/founders/session', async (request: FastifyRequest, reply: FastifyReply) => {
+    await request.jwtVerify();
+    const founderId = getFounderId(request);
+    const db = getSupabaseAdmin();
+
+    try {
+      // Upsert founders row (handles case where Supabase trigger hasn't fired yet)
+      const jwtUser = request.user as { sub: string; email?: string };
+      await db.from('founders').upsert(
+        {
+          id:    founderId,
+          email: jwtUser.email ?? '',
+        },
+        { onConflict: 'id', ignoreDuplicates: true },
+      );
+
+      // Ensure personal workspace exists
+      const { workspace, created } = await ensurePersonalWorkspace(founderId);
+
+      // Return founder profile
+      const { data: founder } = await db
+        .from('founders')
+        .select('id, email, name, plan, token_balance, onboarding_step, active_workspace_id, active_product_id')
+        .eq('id', founderId)
+        .single();
+
+      return reply.send({
+        founder,
+        workspace,
+        workspaceCreated: created,
+      });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'POST /founders/session' } });
+      return reply.status(500).send({ error: 'Session initialization failed' });
+    }
+  });
+
+  /**
+   * GET /founders/me
+   * Returns the authenticated founder's profile + active workspace.
+   */
+  server.get('/founders/me', async (request: FastifyRequest, reply: FastifyReply) => {
+    await request.jwtVerify();
+    const founderId = getFounderId(request);
+
+    const { data, error } = await getSupabaseAdmin()
+      .from('founders')
+      .select('id, email, name, plan, token_balance, onboarding_step, active_workspace_id, active_product_id, created_at')
+      .eq('id', founderId)
+      .single();
+
+    if (error || !data) return reply.status(404).send({ error: 'Founder not found' });
+    return reply.send({ founder: data });
+  });
 
   /**
    * DELETE /founders/me

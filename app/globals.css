@@ -2,77 +2,81 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Slate & Sage design tokens ───────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   Slate & Sage Design System v1.0  —  authoritative token set
+   CLAUDE.md §6 · LaunchMind Design System §6
+   ═══════════════════════════════════════════════════════════════ */
 :root {
-  /* Backgrounds */
-  --page:     #f2f3f6;
-  --surface:  #ffffff;
-  --raised:   #eceef3;
-  --sidebar:  #28304a;
-  --sidebar2: #323c58;
+  /* ── Backgrounds ──────────────────────────── */
+  --page:      #f2f3f6;
+  --surface:   #ffffff;
+  --raised:    #eceef3;
+  --sidebar:   #28304a;
+  --sidebar-2: #323c58;
 
-  /* Borders */
-  --border:    rgba(0,0,0,0.07);
-  --border2:   rgba(0,0,0,0.12);
+  /* ── Borders ──────────────────────────────── */
+  --border:    rgba(27,31,46,0.10);
+  --border2:   rgba(27,31,46,0.06);
   --s-border:  rgba(255,255,255,0.07);
   --s-border2: rgba(255,255,255,0.12);
 
-  /* Ink (text) */
+  /* ── Ink (text) ──────────────────────────── */
   --ink:    #1b1f2e;
   --ink2:   #626880;
-  --ink3:   #9ca4be;
-  --s-text: rgba(255,255,255,0.88);
+  --ink3:   #9ca4be;   /* decorative only — never body text (contrast 2.8:1) */
+  --s-text:  rgba(255,255,255,0.88);
   --s-text2: rgba(255,255,255,0.42);
   --s-text3: rgba(255,255,255,0.22);
 
-  /* Sage — primary */
+  /* ── Sage — primary action & success ─────── */
   --sage:   #059669;
   --sage-l: #34d399;
   --sage-d: rgba(5,150,105,0.12);
   --sage-b: rgba(5,150,105,0.28);
 
-  /* Indigo — accent */
+  /* ── Indigo — accent & plan badges ──────── */
   --indigo:   #4f46e5;
   --indigo-d: rgba(79,70,229,0.10);
   --indigo-b: rgba(79,70,229,0.22);
 
-  /* Amber — India */
+  /* ── Amber — India market & warnings ─────── */
   --amber:   #d97706;
   --amber-d: rgba(217,119,6,0.10);
   --amber-b: rgba(217,119,6,0.22);
 
-  /* Red — danger */
-  --red:   #dc2626;
-  --red-d: rgba(220,38,38,0.09);
-  --red-b: rgba(220,38,38,0.22);
+  /* ── Danger ──────────────────────────────── */
+  --danger:   #dc2626;
+  --danger-d: rgba(220,38,38,0.09);
+  --danger-b: rgba(220,38,38,0.22);
 
-  /* Radius */
-  --r:  10px;
-  --r2:  6px;
-  --r3:  4px;
+  /* ── AI — LaunchMind's judgment (violet) ─── */
+  /* Permitted: AI badge, confidence, evidence chips, Why panel, Ask surface */
+  /* Forbidden: buttons, gradients, decoration */
+  --ai:   #7c5cff;
+  --ai-d: rgba(124,92,255,0.10);
+  --ai-b: rgba(124,92,255,0.24);
+  --ai-l: #a78bfa;
 
-  /* shadcn/Radix mappings */
-  --background:          220 14% 96%;   /* ~#f2f3f6 */
-  --foreground:          229 25% 14%;   /* ~#1b1f2e */
-  --card:                0 0% 100%;
-  --card-foreground:     229 25% 14%;
-  --border:              220 13% 91%;
-  --input:               220 13% 91%;
-  --primary:             161 91% 30%;   /* #059669 */
-  --primary-foreground:  0 0% 100%;
-  --secondary:           220 14% 92%;   /* #eceef3 */
-  --secondary-foreground: 229 25% 14%;
-  --muted:               220 14% 92%;
-  --muted-foreground:    228 16% 55%;   /* #626880 */
-  --accent:              220 14% 92%;
-  --accent-foreground:   229 25% 14%;
-  --destructive:         0 72% 51%;     /* #dc2626 */
-  --destructive-foreground: 0 0% 100%;
-  --ring:                161 91% 30%;
-  --radius:              0.625rem;      /* 10px */
+  /* ── Radius ──────────────────────────────── */
+  --r:      10px;
+  --r2:      6px;
+  --r3:      4px;
+  --r-full:  9999px;
+
+  /* ── Elevation — restrained (not a gradient app) ─── */
+  --e1: 0 1px 2px rgba(27,31,46,0.04);
+  --e2: 0 2px 8px rgba(27,31,46,0.06);
+  --e3: 0 8px 24px rgba(27,31,46,0.10);   /* modals only */
+
+  /* ── Motion ──────────────────────────────── */
+  --dur-fast: 120ms;
+  --dur:      180ms;
+  --dur-slow: 280ms;
+  --ease:     cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
 }
 
-/* ── Autofill override — keeps inputs gray on light backgrounds ──────── */
+/* ── Autofill — keeps inputs gray on light backgrounds ───────── */
 .autofill-light:-webkit-autofill,
 .autofill-light:-webkit-autofill:hover,
 .autofill-light:-webkit-autofill:focus,
@@ -82,10 +86,18 @@
   transition: background-color 9999s ease-in-out 0s;
 }
 
-/* ── Base ───────────────────────────────────────────────────────────── */
+/* ── Reduced motion ───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Base ────────────────────────────────────────────────────── */
 @layer base {
   * {
-    @apply border-border;
+    border-color: var(--border);
   }
   html, body {
     background: var(--page);

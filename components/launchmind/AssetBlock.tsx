@@ -54,7 +54,7 @@ function StatusBadge({ status }: { status: AssetStatus }) {
     pending:      { bg: 'var(--amber-d)',   color: 'var(--amber)', text: 'Pending' },
     approved:     { bg: 'var(--sage-d)',    color: 'var(--sage)',  text: '✓ Approved' },
     auto_approved:{ bg: 'var(--sage-d)',    color: 'var(--sage)',  text: '⚡ Auto' },
-    rejected:     { bg: 'var(--red-d)',     color: 'var(--red)',   text: 'Rejected' },
+    rejected:     { bg: 'var(--danger-d)',     color: 'var(--danger)',   text: 'Rejected' },
     held:         { bg: 'var(--amber-d)',   color: 'var(--amber)', text: '⏸ Held' },
     concept:      { bg: 'var(--indigo-d)',  color: 'var(--indigo)', text: 'Script ready' },
   }

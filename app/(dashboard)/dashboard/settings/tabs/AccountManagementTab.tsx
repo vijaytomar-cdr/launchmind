@@ -187,7 +187,7 @@ export function AccountManagementTab() {
                     <p style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{k.name}</p>
                     <p style={{ fontSize: 11, color: 'var(--ink3)', fontFamily: 'monospace' }}>{k.key_prefix}… · {k.scopes.join(', ')}</p>
                   </div>
-                  <button onClick={() => revokeApiKey(k.id)} style={{ fontSize: 11, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  <button onClick={() => revokeApiKey(k.id)} style={{ fontSize: 11, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                     Revoke
                   </button>
                 </div>
@@ -198,7 +198,7 @@ export function AccountManagementTab() {
       )}
 
       {/* Data export + account delete */}
-      <div style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', borderRadius: 10, padding: 20 }}>
+      <div style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)', borderRadius: 10, padding: 20 }}>
         <div className={row}>
           <div>
             <p style={text13b}>Export my data</p>
@@ -218,18 +218,18 @@ export function AccountManagementTab() {
           <div className="shrink-0">
             {!deleteConfirm ? (
               <button onClick={() => setDeleteConfirm(true)}
-                style={{ fontSize: 12, background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                style={{ fontSize: 12, background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 500, whiteSpace: 'nowrap' }}>
                 Delete account
               </button>
             ) : (
               <div className="flex flex-col items-end gap-2">
-                <p style={{ fontSize: 12, color: 'var(--red)', fontWeight: 500 }}>Type DELETE to confirm</p>
+                <p style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 500 }}>Type DELETE to confirm</p>
                 <input
                   type="text"
                   value={deleteText}
                   onChange={e => setDeleteText(e.target.value)}
                   placeholder="DELETE"
-                  style={{ ...inputBase, width: 160, border: '1px solid var(--red-b)', fontSize: 12 }}
+                  style={{ ...inputBase, width: 160, border: '1px solid var(--danger-b)', fontSize: 12 }}
                 />
                 <div className="flex gap-2">
                   <button onClick={() => { setDeleteConfirm(false); setDeleteText(''); }} style={{ ...ghostBtn, padding: '5px 12px' }}>
@@ -238,7 +238,7 @@ export function AccountManagementTab() {
                   <button
                     onClick={deleteAccount}
                     disabled={deleteText !== 'DELETE'}
-                    style={{ fontSize: 12, background: 'var(--red)', color: '#fff', borderRadius: 6, padding: '5px 12px', fontWeight: 500, border: 'none', cursor: deleteText !== 'DELETE' ? 'not-allowed' : 'pointer', opacity: deleteText !== 'DELETE' ? 0.5 : 1 }}>
+                    style={{ fontSize: 12, background: 'var(--danger)', color: '#fff', borderRadius: 6, padding: '5px 12px', fontWeight: 500, border: 'none', cursor: deleteText !== 'DELETE' ? 'not-allowed' : 'pointer', opacity: deleteText !== 'DELETE' ? 0.5 : 1 }}>
                     Confirm delete
                   </button>
                 </div>

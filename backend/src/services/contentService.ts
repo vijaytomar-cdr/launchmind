@@ -21,7 +21,7 @@ import { z } from 'zod';
 import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
-import { callSonnet, callHaiku } from '../lib/aiClient';
+import { callSonnet, callHaiku } from '../lib/aiPlatform';
 import { textToSpeech } from '../lib/elevenLabsClient';
 import { renderVideo, pollRender } from '../lib/creatomateClient';
 import { generateImage, buildMarketingImagePrompt, ImageStyle } from '../lib/replicateClient';
@@ -402,7 +402,7 @@ Criteria:
 3. ctaClear: Is there one clear call to action?
 4. charLimitOk: Is the content under the character limit for ${assetType}?
 
-Return: { "painFirst": bool, "moatPresent": bool, "ctaClear": bool, "charLimitOk": bool, "score": 0.0-1.0 }`);
+Return: { "painFirst": bool, "moatPresent": bool, "ctaClear": bool, "charLimitOk": bool, "score": 0.0-1.0 }`, 512, { promptId: 'content_score', action: 'content_score' });
 
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -448,7 +448,7 @@ Rules:
 - Preserve the core message and pain point
 - Keep customer quote if present
 - Never exceed the character limit
-- Return the FULL content object with only violations fixed`, 4096);
+- Return the FULL content object with only violations fixed`, 4096, { founderId, promptId: 'content_char_limit', action: 'content_char_limit' });
 
   try {
     const cleaned = rewritten.replace(/```json|```/g, '').trim();
@@ -1278,7 +1278,7 @@ ${promptSections.join(',\n')}
 DO NOT wrap in markdown. Return raw JSON only. Every REQUIRED field must be present.
 Creative fatigue: ${ctx.staleCampaigns.length > 0 ? `Flag for refresh in day30 plan: ${ctx.staleCampaigns.map((c) => (c as Record<string, unknown>).channel).join(', ')}` : 'None.'}`;
 
-  const rawOutput = await callSonnet(buildSystemPrompt(ctx), userPrompt, 12000);
+  const rawOutput = await callSonnet(buildSystemPrompt(ctx), userPrompt, 12000, { founderId, productId, promptId: 'content_assets_generation', action: 'content_assets_generation' });
   console.log(`[contentService] Sonnet response received (${rawOutput.length} chars)`);
 
   let content: ContentOutput;
@@ -1422,7 +1422,8 @@ Creative fatigue: ${ctx.staleCampaigns.length > 0 ? `Flag for refresh in day30 p
     if (waScore < 0.7) {
       await consumeTokens(founderId, 'content_regen_quality', 5);
       const regenWa = await callHaiku(
-        `Rewrite this WhatsApp broadcast to score higher on quality.\nCurrent: "${content.whatsapp.painFirst}"\nIssues: ${JSON.stringify(waFlags)}\nRules: Max 160 chars. Pain-first opening. Clear CTA. Use customer quote if available: "${ctx.founderContext.bestCustomerQuote ?? ''}"\nReturn ONLY the rewritten text, no quotes.`
+        `Rewrite this WhatsApp broadcast to score higher on quality.\nCurrent: "${content.whatsapp.painFirst}"\nIssues: ${JSON.stringify(waFlags)}\nRules: Max 160 chars. Pain-first opening. Clear CTA. Use customer quote if available: "${ctx.founderContext.bestCustomerQuote ?? ''}"\nReturn ONLY the rewritten text, no quotes.`,
+        200, { founderId, productId, promptId: 'content_wa_regen', action: 'content_wa_regen' }
       );
       content = { ...content, whatsapp: { ...content.whatsapp, painFirst: regenWa.trim().substring(0, 160) } };
     }
@@ -1504,7 +1505,8 @@ Owner feedback:
 - Additional note: ${additionalNote ?? 'none'}
 
 Apply the feedback. Keep the same channel (${asset.channel}) and market (${asset.market}).
-Return ONLY the new text content for this single asset. No JSON wrapper, no explanation.`
+Return ONLY the new text content for this single asset. No JSON wrapper, no explanation.`,
+    1024, { founderId, productId: asset.product_id as string, promptId: 'content_asset_regen', action: 'content_asset_regen' }
   );
 
   // Save regen reason as a learning

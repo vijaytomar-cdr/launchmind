@@ -51,7 +51,7 @@ function ChipGroup({ options, selected, onChange, mode = 'single', amber = false
         const active = selectedArr.includes(opt);
         let bg = 'var(--raised)', color = 'var(--ink2)', border = 'var(--border2)';
         if (active) {
-          if (danger) { bg = 'var(--red-d)'; color = 'var(--red)'; border = 'var(--red-b)'; }
+          if (danger) { bg = 'var(--danger-d)'; color = 'var(--danger)'; border = 'var(--danger-b)'; }
           else if (amber) { bg = 'var(--amber-d)'; color = 'var(--amber)'; border = 'var(--amber-b)'; }
           else { bg = 'var(--sage-d)'; color = 'var(--sage)'; border = 'var(--sage-b)'; }
         }
@@ -374,8 +374,8 @@ export default function ContextPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-[6px] px-3 py-2" style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)' }}>
-          <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>
+        <div className="mb-4 rounded-[6px] px-3 py-2" style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)' }}>
+          <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>
         </div>
       )}
 

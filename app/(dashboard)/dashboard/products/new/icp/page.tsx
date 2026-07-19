@@ -311,13 +311,13 @@ export default function IcpPage() {
             <span
               key={i}
               className="pain-chip flex items-center gap-1.5 rounded-full px-3 py-1"
-              style={{ fontSize: 12, background: 'var(--red-d)', color: 'var(--red)', border: '1px solid var(--red-b)' }}
+              style={{ fontSize: 12, background: 'var(--danger-d)', color: 'var(--danger)', border: '1px solid var(--danger-b)' }}
             >
               {point}
               <button
                 type="button"
                 onClick={() => removePainPoint(i)}
-                style={{ color: 'var(--red)', lineHeight: 1 }}
+                style={{ color: 'var(--danger)', lineHeight: 1 }}
                 className="hover:opacity-70 transition-opacity"
               >
                 <i style={{ fontStyle: 'normal', fontSize: 11 }}>✕</i>

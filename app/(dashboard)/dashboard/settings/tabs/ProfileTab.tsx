@@ -86,7 +86,7 @@ export function ProfileTab() {
             {profileSaving ? 'Saving…' : 'Save changes'}
           </button>
           {profileMsg && (
-            <span style={{ fontSize: 13, color: profileMsg.ok ? 'var(--sage)' : 'var(--red)' }}>{profileMsg.text}</span>
+            <span style={{ fontSize: 13, color: profileMsg.ok ? 'var(--sage)' : 'var(--danger)' }}>{profileMsg.text}</span>
           )}
         </div>
       </div>

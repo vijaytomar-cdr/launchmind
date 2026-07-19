@@ -11,12 +11,10 @@
  * @dependencies @anthropic-ai/sdk, consumeTokens, Sentry
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import * as Sentry from '@sentry/node';
+import { callMessages } from '../lib/aiPlatform';
 import { consumeTokens } from '../lib/tokens';
 import type { Review } from '../types/scraper';
-
-const client = new Anthropic();
 
 export interface ReviewAnalysis {
   sentiment: 'positive' | 'negative' | 'mixed';
@@ -65,10 +63,12 @@ export async function analyseReviews(
   try {
     const reviewText = formatReviewsForPrompt(reviews);
 
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      system: `You are a mobile app marketing analyst. Analyse app store reviews and extract actionable marketing intelligence.
+    const reviewResponseText = await callMessages('haiku', [
+      {
+        role: 'user',
+        content: `Analyse these app store reviews:\n\n${reviewText}`,
+      },
+    ], `You are a mobile app marketing analyst. Analyse app store reviews and extract actionable marketing intelligence.
 Return ONLY valid JSON matching this schema (no markdown, no explanation):
 ${REVIEW_ANALYSIS_SCHEMA}
 
@@ -76,19 +76,9 @@ Guidelines:
 - painPoints: specific user frustrations that could be used in pain-first ad copy (max 8)
 - copySignals: phrases and words users actually use about the app (max 8)
 - marketingOpportunities: unmet needs or use cases to highlight in campaigns (max 6)
-- sentiment: overall tone of the review set`,
-      messages: [
-        {
-          role: 'user',
-          content: `Analyse these app store reviews:\n\n${reviewText}`,
-        },
-      ],
-    });
+- sentiment: overall tone of the review set`, 1024);
 
-    const content = message.content[0];
-    if (content.type !== 'text') return fallback;
-
-    const parsed = JSON.parse(content.text) as ReviewAnalysis;
+    const parsed = JSON.parse(reviewResponseText) as ReviewAnalysis;
 
     return {
       sentiment: ['positive', 'negative', 'mixed'].includes(parsed.sentiment)

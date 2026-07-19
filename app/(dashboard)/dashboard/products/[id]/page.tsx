@@ -100,7 +100,7 @@ export default async function ProductDetailPage({ params }: Props) {
             <ul className="space-y-1">
               {icp.painPoints.map((p, i) => (
                 <li key={i} className="flex gap-2" style={{ fontSize: 13, color: 'var(--ink)' }}>
-                  <span style={{ color: 'var(--red)', marginTop: 1 }}>•</span>
+                  <span style={{ color: 'var(--danger)', marginTop: 1 }}>•</span>
                   {p}
                 </li>
               ))}

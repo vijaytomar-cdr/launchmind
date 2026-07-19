@@ -151,7 +151,7 @@ export default function MfaPage() {
           </div>
 
           {error && (
-            <p className="text-center mt-3" style={{ fontSize: 13, color: 'var(--red)' }}>
+            <p className="text-center mt-3" style={{ fontSize: 13, color: 'var(--danger)' }}>
               {error}
             </p>
           )}

@@ -74,7 +74,7 @@ function WeeklySummaryRow({ s }: { s: WeeklySummary }) {
           ...TD_STYLE,
           textAlign: 'right',
           fontWeight: 600,
-          color: (s.avgRoas ?? 0) >= 1 ? 'var(--sage)' : 'var(--red)',
+          color: (s.avgRoas ?? 0) >= 1 ? 'var(--sage)' : 'var(--danger)',
         }}
       >
         {fmt(s.avgRoas)}x
@@ -99,7 +99,7 @@ function ChannelRow({ c }: { c: ChannelBreakdown }) {
           ...TD_STYLE,
           textAlign: 'right',
           fontWeight: 600,
-          color: (c.avgRoas ?? 0) >= 1 ? 'var(--sage)' : 'var(--red)',
+          color: (c.avgRoas ?? 0) >= 1 ? 'var(--sage)' : 'var(--danger)',
         }}
       >
         {fmt(c.avgRoas)}x
@@ -126,7 +126,7 @@ function TopPerformerRow({ t }: { t: TopPerformer }) {
           ...TD_STYLE,
           textAlign: 'right',
           fontWeight: 600,
-          color: (t.roas ?? 0) >= 1 ? 'var(--sage)' : 'var(--red)',
+          color: (t.roas ?? 0) >= 1 ? 'var(--sage)' : 'var(--danger)',
         }}
       >
         {fmt(t.roas)}x
@@ -239,7 +239,7 @@ export default function MetricsPage() {
       {error && (
         <div
           className="rounded-[8px] px-4 py-3"
-          style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}
+          style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)', fontSize: 13 }}
         >
           {error}
         </div>
@@ -276,7 +276,7 @@ export default function MetricsPage() {
                     <p style={{ fontSize: 11, color: 'var(--ink3)', marginBottom: 4 }}>{card.label}</p>
                     <p className="font-semibold" style={{ fontSize: 22, color: 'var(--ink)' }}>{card.value}</p>
                     {card.delta && (
-                      <p className="font-medium mt-1" style={{ fontSize: 12, color: card.positive ? 'var(--sage)' : 'var(--red)' }}>
+                      <p className="font-medium mt-1" style={{ fontSize: 12, color: card.positive ? 'var(--sage)' : 'var(--danger)' }}>
                         {card.delta}
                       </p>
                     )}

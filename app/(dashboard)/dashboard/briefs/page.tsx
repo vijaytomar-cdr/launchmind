@@ -130,7 +130,7 @@ export default function BriefsPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-[8px] px-4 py-3" style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)', color: 'var(--red)', fontSize: 13 }}>
+        <div className="mb-4 rounded-[8px] px-4 py-3" style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)', fontSize: 13 }}>
           {error}
         </div>
       )}
@@ -256,8 +256,8 @@ function BriefNarrative({ brief }: { brief: WeeklyBrief }) {
       )}
 
       {brief.what_to_kill && (
-        <div style={{ borderLeft: '3px solid var(--red)', paddingLeft: 12, marginBottom: 14 }}>
-          <p style={{ fontSize: 10, color: 'var(--red)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, marginBottom: 4, marginTop: 0 }}>
+        <div style={{ borderLeft: '3px solid var(--danger)', paddingLeft: 12, marginBottom: 14 }}>
+          <p style={{ fontSize: 10, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, marginBottom: 4, marginTop: 0 }}>
             What to kill
           </p>
           <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, margin: 0 }}>{brief.what_to_kill}</p>

@@ -250,13 +250,13 @@ export default function AdminPage() {
       <div className="p-8">
         <div
           className="max-w-md rounded-[10px] p-8 text-center"
-          style={{ background: 'var(--surface)', border: '1px solid var(--red-b)' }}
+          style={{ background: 'var(--surface)', border: '1px solid var(--danger-b)' }}
         >
           <div
             className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ background: 'var(--red-d)', border: '1px solid var(--red-b)' }}
+            style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)' }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--red)' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--danger)' }}>
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -292,7 +292,7 @@ export default function AdminPage() {
   if (error) {
     return (
       <div className="p-8">
-        <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>
+        <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>
       </div>
     );
   }

@@ -9,11 +9,10 @@
  */
 
 import * as cheerio from 'cheerio';
-import Anthropic from '@anthropic-ai/sdk';
+import { callMessages } from '../lib/aiPlatform';
+import type { ImageBlockParam } from '../lib/aiClient';
 import type { ScrapedAppData, ICPBrief, WebsiteMeta, ScreenshotAnalysis } from '../types/scraper';
 import type { ReviewAnalysis } from './reviewAnalysis';
-
-const anthropicClient = new Anthropic();
 
 /**
  * Derives an ICP brief from scraped app data and review analysis.
@@ -189,7 +188,7 @@ export async function analyseScreenshots(
 
   const sample = screenshots.slice(0, 3);
 
-  const imageBlocks: Anthropic.ImageBlockParam[] = sample.map((src) => {
+  const imageBlocks: ImageBlockParam[] = sample.map((src) => {
     if (src.startsWith('data:')) {
       const [header, data] = src.split(',');
       const mediaType = (header.match(/data:([^;]+);/) ?? [])[1] ?? 'image/jpeg';
@@ -208,10 +207,9 @@ export async function analyseScreenshots(
     };
   });
 
-  const message = await anthropicClient.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 512,
-    messages: [
+  let screenshotText: string;
+  try {
+    screenshotText = await callMessages('haiku', [
       {
         role: 'user',
         content: [
@@ -222,16 +220,13 @@ export async function analyseScreenshots(
           },
         ],
       },
-    ],
-  });
-
-  const content = message.content[0];
-  if (content.type !== 'text') {
+    ], undefined, 512);
+  } catch {
     return { summary: 'Analysis unavailable', tone: 'Unknown', screenshots_analysed: sample.length };
   }
 
   try {
-    const cleaned = content.text.replace(/```(?:json)?\n?|\n?```/g, '').trim();
+    const cleaned = screenshotText.replace(/```(?:json)?\n?|\n?```/g, '').trim();
     const parsed = JSON.parse(cleaned);
     return {
       summary: String(parsed.summary ?? ''),
@@ -241,7 +236,7 @@ export async function analyseScreenshots(
     };
   } catch {
     return {
-      summary: content.text.slice(0, 300),
+      summary: screenshotText.slice(0, 300),
       tone: 'Unknown',
       screenshots_analysed: sample.length,
     };
