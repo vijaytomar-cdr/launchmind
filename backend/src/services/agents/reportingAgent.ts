@@ -50,7 +50,7 @@ export const reportingAgent: AgentFn = async (input, context) => {
   }
 
   // Aggregate totals
-  const totals = metricsData.reduce(
+  const totals = metricsData.reduce<{ impressions: number; clicks: number; installs: number }>(
     (acc, m) => ({
       impressions: acc.impressions + ((m.impressions as number) ?? 0),
       clicks:      acc.clicks      + ((m.clicks as number)      ?? 0),

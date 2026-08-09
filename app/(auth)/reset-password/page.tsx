@@ -116,7 +116,7 @@ export default function ResetPasswordPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Min 8 characters"
-                    className="w-full rounded-[6px] px-3 py-2.5 outline-none"
+                    className="w-full rounded-[9px] px-3 py-2.5 outline-none"
                     style={{
                       background: 'var(--raised)',
                       border: '1px solid var(--border2)',
@@ -135,7 +135,7 @@ export default function ResetPasswordPage() {
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
                     placeholder="Repeat your password"
-                    className="w-full rounded-[6px] px-3 py-2.5 outline-none"
+                    className="w-full rounded-[9px] px-3 py-2.5 outline-none"
                     style={{
                       background: 'var(--raised)',
                       border: '1px solid var(--border2)',
@@ -150,7 +150,7 @@ export default function ResetPasswordPage() {
                 <button
                   type="submit"
                   disabled={status === 'loading'}
-                  className="w-full rounded-[6px] py-2.5 font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
+                  className="w-full rounded-[10px] py-2.5 font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
                   style={{ background: 'var(--sage)', color: '#fff', fontSize: 13 }}
                 >
                   {status === 'loading' ? 'Updating…' : 'Update password'}

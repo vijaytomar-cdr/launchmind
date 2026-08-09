@@ -54,6 +54,22 @@ Before writing any new code:
 3. Confirm no existing function signatures will change
 4. Run existing tests first — all must pass before adding new code
 
+### 1.3a Observe Before Fixing — No Guess-Based Changes
+**Never make code changes based on guesses or assumptions about what is broken.**
+
+Mandatory debug protocol before any fix:
+1. **Observe first** — check the actual runtime behaviour: backend logs, browser console, network tab, database rows, API responses
+2. **Identify the real root cause** — query the DB directly, add `console.log` / `logger.info` at the callsite, read the actual error message returned by the stack (not what you expect it to say)
+3. **Confirm the cause** — state what you observed and why it explains the symptom before touching any file
+4. **Fix only the confirmed cause** — the smallest change that addresses the root cause; do not refactor surrounding code at the same time
+5. **Verify the fix** — observe the same surface again; confirm the symptom is gone and no adjacent behaviour broke
+
+**Rules:**
+- If a fix attempt fails, do NOT make another speculative change. Stop, re-observe, find what was missed.
+- A fix that introduces a new failure is worse than no fix. Read every file the change touches before committing to it.
+- Add temporary debug logging (`console.log`, `logger.info`) freely during investigation — remove it once the root cause is confirmed.
+- When a Supabase insert/update silently produces no rows, always check the `error` field on the response — CHECK constraint violations return HTTP 400 with a `message` field that names the constraint.
+
 ### 1.4 Token-Ready from Day 1
 Every Claude API call routes through:
 ```typescript
@@ -420,85 +436,125 @@ security/* ← expedited, 1-reviewer merge to main
 
 ---
 
-## 6. Design System — Slate & Sage (LOCKED)
+## 6. Design System
 
-This is a **light-theme** design system. Never use dark backgrounds for app pages.
+### 6.0 Reference Files
+| File | Covers | Authority |
+|---|---|---|
+| `LaunchMind_Production_UX_July18_2026(15).html` | Cinematic homepage + all dashboard screens | **SINGLE SOURCE OF TRUTH — always read this file directly** |
+| `launchmind-ux-slate-sage.html` | Earlier 12 dashboard screens | Superseded — do NOT use for new work |
 
-Reference files (must be in project root):
-- `launchmind-ux-slate-sage.html` — all 12 interactive dashboard screens
-- `launchmind-homepage.html` — complete marketing homepage
+**All new UI must match `LaunchMind_Production_UX_July18_2026(15).html` exactly.**
+**When CLAUDE.md §6 and the spec HTML conflict, the spec HTML wins. Update CLAUDE.md to match.**
 
-Every UI component MUST match these reference files exactly.
+### 6.0.1 Cinematic Homepage Design (`app/page.tsx`)
+The marketing homepage uses a standalone cinematic dark theme — **entirely different from the dashboard**.
+- **Font**: `Inter, ui-sans-serif, system-ui` (same Inter as dashboard — inherits from global body rule)
+- **Background**: `#07120f` (very dark green-black — overrides `var(--page)`)
+- **Primary CTA color**: `#2ed39f`
+- **Sections**: `cine-hero` · `cine-promise` · `cine-discovery` · `cine-report` · `cine-teach` · `cine-brain` · `cine-morning` · `cine-trust` · `cine-evolution` · `cine-final`
+- **Reveal animation**: `.cr` class + IntersectionObserver adds `.cr-visible`
+- **Do NOT apply dashboard CSS tokens** (`--page`, `--raised`, etc.) to this page — use inline dark styles
+
+### 6.0.2 Dashboard Design (light-theme, locked)
+This is a **light-theme** design system for page content. The sidebar uses a dark forest-green gradient — `linear-gradient(180deg,var(--nav),#10201c)`. Never use dark backgrounds for page content areas.
 
 ### 6.1 Colour Tokens
+> Source of truth: `LaunchMind_Production_UX_July18_2026(15).html` · `app/globals.css`
 
 | Token | Value | Usage |
 |---|---|---|
-| `--page` | `#f2f3f6` | App background |
+| `--page` | `#f5f6f4` | App background |
 | `--surface` | `#ffffff` | Cards, topbar, modals |
-| `--raised` | `#eceef3` | Inputs, metric blocks, subtle containers |
-| `--sidebar` | `#28304a` | Left nav (dark navy) |
-| `--sidebar2` | `#323c58` | Sidebar hover state |
-| `--border` | `rgba(0,0,0,0.07)` | Default border |
-| `--border2` | `rgba(0,0,0,0.12)` | Stronger border |
-| `--s-border` | `rgba(255,255,255,0.07)` | Sidebar internal borders |
-| `--s-text` | `rgba(255,255,255,0.88)` | Sidebar primary text |
-| `--s-text2` | `rgba(255,255,255,0.42)` | Sidebar secondary text |
-| `--s-text3` | `rgba(255,255,255,0.22)` | Sidebar dim text |
-| `--ink` | `#1b1f2e` | Primary text |
-| `--ink2` | `#626880` | Secondary text |
-| `--ink3` | `#9ca4be` | Muted / placeholder text |
-| `--sage` | `#059669` | Primary CTA, success, active states |
-| `--sage-l` | `#34d399` | Sage light — sidebar active, highlights |
-| `--sage-d` | `rgba(5,150,105,0.12)` | Sage tint background |
-| `--sage-b` | `rgba(5,150,105,0.28)` | Sage tint border |
-| `--indigo` | `#4f46e5` | Accent — current plan, indigo badges |
+| `--raised` | `#f8f9f7` | Inputs, metric blocks, subtle containers |
+| `--nav` | `#13231f` | Sidebar gradient start + cinematic homepage nav |
+| `--nav-2` | `#1b302a` | Cinematic nav secondary |
+| `--border` | `#e2e7e3` | Default border (solid hex — not alpha) |
+| `--border2` | `#cfd7d1` | Stronger border |
+| `--ink` | `#17211d` | Primary text (warm green-black) |
+| `--ink2` | `#42504a` | Secondary text |
+| `--ink3` | `#7a8781` | Muted / placeholder (decorative only — fails contrast as body text) |
+| `--sage` | `#0b8f69` | Primary CTA, success, active states |
+| `--sage-l` | `#34d399` | Sage light — token bar fill start |
+| `--sage-d` | `rgba(11,143,105,0.12)` | Sage tint background |
+| `--sage-b` | `rgba(11,143,105,0.28)` | Sage tint border |
+| `--sage2` | `#dff4ec` | Sage light opaque — secondary button bg, recommendation border |
+| `--sage3` | `#b9e6d7` | Sage medium opaque — recommendation card border |
+| `--indigo` | `#4f46e5` | Accent — plan badges |
 | `--indigo-d` | `rgba(79,70,229,0.10)` | Indigo tint background |
 | `--indigo-b` | `rgba(79,70,229,0.22)` | Indigo tint border |
-| `--amber` | `#d97706` | India market badge, warnings |
-| `--amber-d` | `rgba(217,119,6,0.10)` | Amber tint background |
-| `--amber-b` | `rgba(217,119,6,0.22)` | Amber tint border |
-| `--red` | `#dc2626` | Danger, kill signals |
-| `--red-d` | `rgba(220,38,38,0.09)` | Red tint background |
-| `--red-b` | `rgba(220,38,38,0.22)` | Red tint border |
-| `--r` | `10px` | Default border radius |
-| `--r2` | `6px` | Medium border radius |
-| `--r3` | `4px` | Small border radius |
+| `--amber` | `#b86808` | India market badge, warnings |
+| `--amber-d` | `rgba(184,104,8,0.10)` | Amber tint background |
+| `--amber-b` | `rgba(184,104,8,0.22)` | Amber tint border |
+| `--amber2` | `#fff2dd` | Amber opaque — warning alert background |
+| `--danger` | `#c33f43` | Danger, kill signals |
+| `--danger-d` | `rgba(195,63,67,0.09)` | Danger tint background |
+| `--danger-b` | `rgba(195,63,67,0.22)` | Danger tint border |
+| `--danger2` | `#feeceb` | Danger opaque — error alert background |
+| `--blue` | `#2468cc` | Blue accent |
+| `--blue2` | `#eaf2ff` | Blue light background |
+| `--ai` | `#6956d9` | AI provenance only (badge, confidence bar, evidence chips, Why panel) |
+| `--ai-d` | `rgba(105,86,217,0.10)` | AI tint background |
+| `--ai-b` | `rgba(105,86,217,0.24)` | AI tint border |
+| `--ai-l` | `#9b8ee8` | AI light |
+| `--violet` | `#6956d9` | Spec alias for `--ai` (same value) |
+| `--violet2` | `#efedff` | Violet light opaque — AI spark background |
+| `--e1` | `0 1px 2px rgba(27,31,46,0.04)` | Elevation — card hover |
+| `--e2` | `0 2px 8px rgba(27,31,46,0.06)` | Elevation — card |
+| `--e3` | `0 8px 24px rgba(27,31,46,0.10)` | Elevation — modals only |
+| `--r` | `10px` | Small element radius (nav items, badges) |
+| `--r1` | `10px` | Spec alias for `--r` |
+| `--r2` | `14px` | Card + button border radius (spec `.card { border-radius: var(--r2) }`) |
+| `--r3` | `20px` | Pill / chip border radius |
+| `--r-full` | `9999px` | Full pill |
 
-Tailwind: `bg-page bg-surface bg-raised bg-sidebar text-ink text-ink2 text-ink3 text-sage text-indigo text-amber text-danger`
+> **Removed from CSS vars**: `--sidebar` (`#28304a`) — sidebar now uses `linear-gradient(180deg,var(--nav),#10201c)` directly.
+> **Renamed**: `--red` / `--red-d` / `--red-b` → `--danger` / `--danger-d` / `--danger-b`.
+> **Token values updated 2026-07-23**: `--danger` `#dc2626`→`#c33f43`, `--amber` `#d97706`→`#b86808`, `--ai` `#7c5cff`→`#6956d9` (now matches spec `--violet`). Added `--sage2`, `--sage3`, `--amber2`, `--danger2`, `--blue`, `--blue2`, `--violet`, `--violet2`, `--r1`.
+> **Sidebar internal colors** (not CSS vars, apply inline): text `#b9c9c3`, section labels `#617b70`, muted `#8fa79d`, active icon color `#47d9ae`, nav badge bg `#2c5146`, nav badge text `#bff7e4`.
+
+Tailwind: `bg-page bg-surface bg-raised text-ink text-ink2 text-ink3 text-sage text-indigo text-amber text-danger`
 
 ### 6.2 Typography
 ```
-Body:    DM Sans  · base 13px · line-height 1.5
-Display: Syne     · headings, sidebar logo, card titles, section headers
-Mono:    DM Mono  · token counts, metrics, data values, code
+Body:    Inter   · base 14px · line-height 1.5   (next/font/google, variable: --font-inter)
+Display: Syne    · headings, card titles, section headers  (variable: --font-syne)
+Mono:    DM Mono · token counts, metrics, data values, code  (variable: --font-dm-mono)
 ```
-Google Fonts: `Syne:wght@400;500;600;700;800` + `DM+Sans:wght@300;400;500` + `DM+Mono:wght@400;500`
+Google Fonts loaded in `app/layout.tsx`: `Inter` + `Syne:wght@400;500;600;700;800` + `DM+Mono:wght@300;400;500`
+
+> **Changed from DM Sans 13px to Inter 14px.** All pages including auth use Inter via the global body rule.
 
 ### 6.3 Component Conventions
 ```
-Card:          bg-surface border border-[--border] rounded-[10px] p-[14px_16px]
-Card featured: border-[--sage-b] border-[1.5px]
-Input:         bg-raised border border-[--border2] rounded-[6px] px-3 py-2 text-ink
-               focus:border-[--sage-b] focus:ring-2 focus:ring-[--sage-d]
-Button solid:  bg-sage text-white rounded-[6px] px-4 py-2 text-sm font-medium
-Button ghost:  border border-[--border2] text-ink2 hover:bg-raised rounded-[6px]
-Button sage:   bg-[--sage-d] border border-[--sage-b] text-sage rounded-[6px]
-Sidebar item:  text-[--s-text2] hover:bg-white/6 rounded-[6px] mx-[6px]
-               active: bg-[--sage-d] border border-[--sage-b] text-[--sage-l]
-Metric block:  bg-raised rounded-[6px] p-[11px_13px]
-Topbar:        bg-surface border-b border-[--border]
+Card:          bg-surface border border-[--border] rounded-[10px] p-4
+Card featured: border border-[--sage-b]
+Input:         bg-raised border border-[--border2] rounded-[9px] px-3 py-2 text-ink
+               focus:border-[--sage] outline-none
+Button solid:  bg-sage text-white rounded-[14px] px-4 py-2 text-sm font-semibold cursor-pointer
+Button ghost:  h-[38px] px-[13px] border border-[--border] bg-white text-ink rounded-[10px]
+Button sage:   bg-[--sage-d] border border-[--sage-b] text-sage rounded-[14px]
+Sidebar:       background: linear-gradient(180deg,var(--nav),#10201c) · width: 248px
+Sidebar item:  color:#b9c9c3 padding:10px 11px rounded-[10px] hover:bg-white/6
+               active: background:rgba(47,211,159,.13) color:#fff icon-color:#47d9ae
+Sidebar badge: background:#2c5146 color:#bff7e4 border-radius:999px min-width:20px height:20px
+Metric block:  bg-surface border border-[--border] rounded-[10px] p-4
+Topbar:        height:68px bg-[rgba(255,255,255,.86)] backdrop-filter:blur(12px)
+               border-b border-[--border] sticky top-0 z-15
+               all action buttons: height:38px border-radius:10px border:1px solid var(--border)
 ```
 
 ### 6.4 Badges
 ```
-USA market:     bg-[--sage-d]   border-[--sage-b]   color:#046c4e
-India market:   bg-[--amber-d]  border-[--amber-b]  color:#92400e
-Draft:          bg-raised       border-[--border2]  text-ink2
-Active/Success: bg-[--sage-d]   border-[--sage-b]   text-sage
-Pending:        bg-[--amber-d]  border-[--amber-b]  text-amber
-Pausing/Error:  bg-[--red-d]    border-[--red-b]    text-red
-Indigo/Accent:  bg-[--indigo-d] border-[--indigo-b] text-indigo
+USA market:     bg-[--sage-d]    border-[--sage-b]    color:#087253
+India market:   bg-[--amber-d]   border-[--amber-b]   color:#8d4f08
+Draft:          bg-raised        border-[--border2]   text-ink2
+Active/Success: bg-[--sage-d]    border-[--sage-b]    text-sage
+Pending:        bg-[--amber-d]   border-[--amber-b]   text-amber
+Danger/Error:   bg-[--danger-d]  border-[--danger-b]  text-danger
+Indigo/Accent:  bg-[--indigo-d]  border-[--indigo-b]  text-indigo
+AI provenance:  bg-[--ai-d]      border-[--ai-b]      color:var(--ai)  (AI badge/evidence/why only)
+Sidebar count:  background:#2c5146 color:#bff7e4 border-radius:999px  (sidebar nav only)
 ```
 
 ### 6.5 Icons
@@ -506,27 +562,59 @@ Use `@tabler/icons-react` v3. Outline only — never filled variants.
 **v3 uses `Icon` prefix, NOT `Tb` prefix.** `size` prop accepts `string | number`.
 Key: `IconLayoutDashboard IconSearch IconRoute IconSpeakerphone IconFileAnalytics IconPlug IconCreditCard
 IconSettings IconCheck IconAlertCircle IconShieldCheck IconSparkles IconArrowRight IconBrandWhatsapp
-IconBrandFacebook IconBrandGoogle IconBrandLinkedin IconMail IconLock IconDownload`
+IconBrandFacebook IconBrandGoogle IconBrandLinkedin IconMail IconLock IconDownload IconBolt IconRocket`
 
 ### 6.6 shadcn Usage
 Use shadcn: `Button Input Textarea Select Card Dialog Toast Badge Tabs Table`
 Do NOT build custom equivalents of shadcn components.
 
-### 6.7 12 Dashboard Screens → Next.js Routes
-| Screen ID | Route | File |
+### 6.7 Dashboard Screens → Next.js Routes
+
+**Auth pages:**
+| Screen | Route | File |
 |---|---|---|
 | s-login | `/login` | `app/(auth)/login/page.tsx` |
 | s-signup | `/signup` | `app/(auth)/signup/page.tsx` |
 | s-mfa | `/mfa` | `app/(auth)/mfa/page.tsx` |
-| s-dashboard | `/dashboard` | `app/(dashboard)/page.tsx` |
-| s-discover | `/products/new` | `app/(dashboard)/products/new/page.tsx` |
-| s-confirm | `/products/new/confirm` | `app/(dashboard)/products/new/confirm/page.tsx` |
-| s-strategy | `/products/[id]/strategy` | `app/(dashboard)/products/[id]/strategy/page.tsx` |
-| s-campaigns | `/campaigns` | `app/(dashboard)/campaigns/page.tsx` |
-| s-briefs | `/briefs` | `app/(dashboard)/briefs/page.tsx` |
-| s-channels | `/channels` | `app/(dashboard)/channels/page.tsx` |
-| s-billing | `/billing` | `app/(dashboard)/billing/page.tsx` |
-| s-settings | `/settings` | `app/(dashboard)/settings/page.tsx` |
+
+**Sidebar nav — exact structure from spec `LaunchMind_Production_UX_July18_2026(15).html`:**
+
+MAIN section:
+| Nav label | Icon | Route |
+|---|---|---|
+| Morning Brief | `IconSunrise` | `/dashboard/brief` |
+| Opportunities | `IconBulb` | `/dashboard/opportunities` |
+| Approvals | `IconChecklist` | `/dashboard/approvals` |
+| Missions | `IconRoute` | `/dashboard/missions` |
+| Content Studio | `IconPalette` | `/dashboard/content` |
+| Campaigns | `IconSpeakerphone` | `/dashboard/campaigns` |
+| Calendar | `IconCalendar` | `/dashboard/calendar` |
+| Experiments | `IconFlask` | `/dashboard/experiments` |
+
+INTELLIGENCE section:
+| Nav label | Icon | Badge | Route |
+|---|---|---|---|
+| Growth Brain | `IconBrain` | — | `/dashboard/intelligence/growth-brain` |
+| Capability Unlocks | `IconBolt` | `4` (green circle) | `/dashboard/channels` |
+| Market Intelligence | `IconChartBar` | — | `/dashboard/intelligence/market` |
+| Marketing Memory | `IconDatabase` | — | `/dashboard/intelligence/memory` |
+| Knowledge Graph | `IconNetwork` | — | `/dashboard/intelligence/knowledge` |
+
+SYSTEM section:
+| Nav label | Icon | Badge | Route |
+|---|---|---|---|
+| Launch Readiness | `IconRocket` | `7` (green circle) | `/dashboard/launch-readiness` |
+| Settings | `IconSettings` | — | `/dashboard/settings` |
+
+**Other key dashboard routes:**
+| Route | File |
+|---|---|
+| `/products/new` | `app/(dashboard)/products/new/page.tsx` |
+| `/products/new/confirm` | `app/(dashboard)/products/new/confirm/page.tsx` |
+| `/products/[id]/strategy` | `app/(dashboard)/products/[id]/strategy/page.tsx` |
+| `/dashboard/analytics` | `app/(dashboard)/dashboard/analytics/page.tsx` |
+| `/dashboard/reports` | `app/(dashboard)/dashboard/reports/page.tsx` |
+| `/dashboard/billing` | `app/(dashboard)/dashboard/billing/page.tsx` |
 
 ---
 
@@ -1450,8 +1538,1067 @@ Pending (M13):
   Add --coverage flag to CI and enforce 80% gate on new files.
   Add SAST semgrep rule blocking direct Anthropic SDK use outside aiClient.ts.
 
+UX Remediation v2.0 — COMPLETE (2026-07-23)
+  Branch: july6addnewarchsec
+  Basis: 3-pass diff (83 findings) between LaunchMind_Production_UX_July18_2026(15).html and current impl.
+  Source of truth confirmed: LaunchMind_Production_UX_July18_2026(15).html — §6.0 rule upheld.
+
+  CSS/Design System (T1–T13):
+    app/globals.css — corrected --danger #dc2626→#c33f43, --amber #d97706→#b86808,
+      --ai #7c5cff→#6956d9 (+ all derived rgba tokens recomputed)
+    Added 9 new tokens: --sage2 #dff4ec, --sage3 #b9e6d7, --amber2 #fff2dd, --danger2 #feeceb,
+      --blue #2468cc, --blue2 #eaf2ff, --violet #6956d9, --violet2 #efedff, --r1 10px
+    CLAUDE.md §6.1 updated to match (--danger, --amber, --ai, new tokens, update note added)
+
+  Auth pages (V1/V2):
+    app/(auth)/login/page.tsx, signup/page.tsx, mfa/page.tsx,
+    forgot-password/page.tsx, reset-password/page.tsx
+    All inputs: rounded-[9px] · All primary/social buttons: rounded-[10px]
+    Login C6 fix: ?next= param read as fallback redirect destination (middleware sets it, login reads it)
+
+  Layout (MN13):
+    app/layout.tsx — DM_Sans removed from Google Fonts import (was unused; Inter covers body)
+
+  Topbar (C2/MS2/V8/MN3):
+    components/launchmind/Topbar.tsx — button order fixed (breadcrumb → switcher → search → notif → review → update → new mission)
+    "Update launch context" opens inline 2-col wizard modal (not navigation) — wizardOpen state
+    "Review product understanding" is a <button onClick router.push> not a <Link>
+    Breadcrumb + product-switcher show real product name from layout prop (falls back to "My Product")
+
+  Sidebar (V9/V10/V12):
+    components/launchmind/Sidebar.tsx — token bar danger color uses var(--danger) not hardcoded #dc2626
+    Workspace card: shows real product name (initial badge, name, markets + platform from layout props)
+    Accepts productName, productPlatform, productMarkets props; falls back to "My Product" / "USA · iOS & Android"
+
+  Dashboard layout (V9/V10/MN3 data wire):
+    app/(dashboard)/layout.tsx — 3rd parallel fetch: GET /products (revalidate 30s)
+    Picks first non-archived product; passes productName, productPlatform, productMarkets to Sidebar + Topbar
+    Existing seed product "ClientPulse" (vijay@lm.com, solo plan) serves as live data source
+
+  Morning Brief page (L1–L9, V3, V7, MN1):
+    app/(dashboard)/dashboard/brief/page.tsx — full overhaul:
+    h1: 22px → 30px (Syne bold, lineHeight 1.2)
+    Page head: 2-col flex — greeting left, "Since your last visit" floated right card
+    Capability banner rendered before metrics grid (spec order)
+    Metric cards: moved out of header into standalone grid below banner
+    Recommendation card: 4px left gradient stripe + violet ✦ spark box (violet2 bg, violet color)
+    Opportunity cards: space-y-2 → 2-col grid
+    Warning alert: var(--amber-d) bg → var(--amber2) solid bg, border #f2d29f, text #7d4306
+    Production Readiness card added to right column (72% score, 3 bullet items, link to launch-readiness)
+    ApprovalBanner + SinceThenStrip removed
+    All card borderRadius: 10px → 14px
+    Grid ratio: xl:grid-cols-[1fr_360px] → xl:grid-cols-[minmax(0,1.75fr)_minmax(300px,0.75fr)]
+
+  Launch Readiness page (C1/MS1):
+    app/(dashboard)/dashboard/launch-readiness/page.tsx — new page (606 lines)
+    Score summary card (72% base, climbs as cards resolved), animated progress bar
+    3-col responsive risk grid: 2×P0 danger, 3×P1 amber, 1×P2 sage cards
+    Mark-resolved interactivity (toggles strikethrough + sage stripe, updates score)
+    Expand/collapse per-card remediation guidance
+    Export remediation plan → downloads .txt file
+
+  Channels page (C8/MS3/MS4):
+    app/(dashboard)/dashboard/channels/page.tsx — full rebuild (1784 lines)
+    Primary UI: Phase 2 Capability Unlocks (progressive trust model per spec)
+      - 4-principle grid, 5-milestone journey bar, Level 1 card (62% confidence)
+      - 2-col layout: hero App Store Connect + RevenueCat/GA4/locked Google Ads/locked Meta
+      - Capability roadmap, connection health sidebar, trust ledger, Phase 2 completion rule
+      - "Coming soon" toast (3s auto-dismiss) on all Phase 2 connect buttons
+      - Unlock filter chips: All / Observe / Execute later
+    Execution channels section: collapsible (collapsed by default), all existing WhatsApp/Meta/Google/
+      LinkedIn/Email OAuth connect/disconnect logic fully preserved
+
+  Component library fixes (T14–T21, this session):
+    tailwind.config.ts — complete rewrite: all 15 color values corrected to match globals.css spec;
+      fontFamily.sans → Inter; borderRadius r2:14px + r3:20px added; removed stale sidebar tokens;
+      added shadow/shadow2 boxShadow entries; added sage.2/sage.3/amber.2/danger.2/blue/violet scales
+    app/globals.css — removed stale --sidebar/#28304a + --sidebar-2 vars; added --shadow + --shadow2
+    components/launchmind/MetricCard.tsx — borderRadius:14, padding:16, label fontWeight:750 +
+      letterSpacing:.08em, value fontSize:27 + fontWeight:780 + letterSpacing:-.8px
+    components/launchmind/ConfidenceBadge.tsx — padding:6px 9px, fontWeight:800,
+      background:var(--violet2) opaque, border:1px solid #d7d0ff
+    components/launchmind/EvidenceChips.tsx — neutral palette: raised bg + border, ink2 text
+      (violet was spec violation — violet is AIBadge/ConfidenceBadge only)
+    components/launchmind/WhyThisPanel.tsx — neutral palette: raised bg + border (same fix)
+    components/launchmind/Button.tsx — radius:10px (r1 not r2), height:38px, fontWeight:650,
+      danger hover corrected to rgba(195,63,67,0.14)
+    components/launchmind/MobileNav.tsx — background: linear-gradient(180deg,var(--nav),#10201c)
+      (was using deleted --sidebar var)
+    components/launchmind/Sidebar.tsx — 6 icon fixes to match CLAUDE.md §6.7 canonical table
+      (IconSunrise/IconBulb/IconChecklist/IconRoute/IconPalette/IconChartBar)
+
+  Page rebuilds (C-05, C-06, CO-05, L-01, this session):
+    app/(dashboard)/dashboard/intelligence/growth-brain/page.tsx — rebuilt to spec 3-card layout:
+      Phase 1 eyebrow, 3-col risk-grid (Context/Context delta/Learning cards with sage/amber/indigo
+      tag pills, 3 label-value rows each), full-width confidence card (62%, DM Mono, sage bar,
+      3 stats: signals/recommendations/strategy cycles). No violet — static data, no ICP cards.
+    app/(dashboard)/dashboard/missions/page.tsx — rebuilt to table-card layout:
+      Single white card with CSS grid table (Mission·Status·Progress·Owner·Updated·Actions columns),
+      table-head in var(--raised), row hover, auto-poll every 5s when running/queued,
+      Cancel/Retry inline action buttons, status filter pills (All/Running/Completed/Failed)
+    app/(dashboard)/dashboard/opportunities/page.tsx — rebuilt to table-card layout:
+      Single white card, 5-col grid (Opportunity·Impact·Confidence·Effort·Action),
+      Impact derived from confidence score (High/Medium/Low), ConfidenceBadge in Confidence cell,
+      effort italic ink3, Action: Create mission + Save/Dismiss; filter tabs All/Saved/Dismissed
+    app/(dashboard)/dashboard/approvals/page.tsx — rebuilt to risk-grid card layout:
+      repeat(auto-fill,minmax(340px,1fr)) grid, 14px radius cards, typed tag pills
+      (amber=campaign, indigo=mission, blue=content), inline reject flow (note textarea before confirm),
+      paid campaign confirm gate preserved, empty/loading states
+
+  tsc --noEmit: 0 errors throughout
+
+Auth Flow Remediation — COMPLETE (2026-07-23)
+  Basis: Full spec diff of LaunchMind_Production_UX_July18_2026(15).html auth panel vs implementation.
+  Source of truth: spec auth panel (fv-step[1]) — tabbed Create account / Log in panel with CSS tokens.
+
+  Backend (new):
+    backend/src/routes/founders.route.ts — GET /founders/me/resume added:
+      Queries products WHERE founder_id=auth, archived_at IS NULL, intake_step > 0, confirmed_icp IS NULL
+      Returns { hasResume: true/false, product?: { id, name, intake_step, step_label, store_url, updated_at } }
+      step_label mapping: 1=URLs entered · 2=Context added · 3=Discovery complete ·
+        4=ICP confirmed · 5=Competitors confirmed · 6=Markets selected
+    lib/api.ts — api.founders.resume(token) added
+
+  Frontend auth pages (5 files):
+    app/(auth)/login/page.tsx:
+      Button text: "Sign in →" → "Log in →" (spec: Log in →)
+      Button sizing: height:44px, marginTop:15px (spec .full-cta)
+      Input background: var(--raised) → white (spec .field input { background: white })
+      Forgot password: moved from inline password label row to BELOW submit button as .text-action
+        (border:none, bg:none, sage color, fontWeight:750, padding:8px 0)
+      Google button: background white (spec .social-auth { background: white })
+      OR divider: replaced flex hairlines with position:relative container + absolute line + span bg:white
+      Resume card: reads localStorage 'lm_resume_hint', shows if productName present
+        Spec style: border:1px solid var(--sage3), background:var(--sage2), borderRadius:13, padding:12
+        Icon: ↻ (20px), "Unfinished Growth Brain found", productName · relativeTime · stepLabel
+        Resume button → /dashboard/products
+      autofill-light class added to email + password inputs
+
+    app/(auth)/signup/page.tsx:
+      Signup tab:
+        Form grid: single column → 2-column grid (name + work email side by side, password spans full)
+          CSS: display:grid; grid-template-columns:1fr 1fr; gap:13px; password: gridColumn:1/-1
+        Email label: "Email" → "Work email" (spec exact)
+        Password minLength: 8 → 12 (spec: "Use 12+ characters")
+        Password hint: "Use 12+ characters. A verification link will be sent." (10px, ink3, marginTop:5)
+        Terms copy: "I agree to the Terms and understand LaunchMind will use my inputs to personalize recommendations."
+        Submit button: "Create free account →" → "Create workspace →" (spec exact), height:44, width:100%
+        All inputs: background white
+        Google button: background:white, height:42, border:var(--border2), borderRadius:10, fontWeight:700
+        OR divider: same inline spec approach (span bg:white)
+        autofill-light on name, email, password inputs
+      Login tab:
+        Button text: "Sign in →" → "Log in →"
+        All inputs: background white
+        Forgot password: moved below submit button (same .text-action style)
+        Resume card: same as login/page.tsx
+        Google button: background white, OR divider: span bg white
+      Auth tab styles: padding:10px 15px, fontWeight:750
+        Active: color:var(--sage), borderBottom:2px solid var(--sage)
+        Inactive: color:var(--ink3), borderBottom:2px solid transparent
+
+    app/(auth)/mfa/page.tsx:
+      Logo added above card (identical to all other auth pages)
+      Card width: max-w-sm (384px) → max-w-md (448px) — consistent with all auth pages
+      Digit box maxLength: 2 → 1 (one digit per box, correct UX pattern)
+      "Back to login" link added below Verify button (Link href="/login")
+      Dead backup code href="#" replaced with Link href="/login" ← Back to login
+
+  Intake wizard localStorage (resume card data source):
+    app/(dashboard)/dashboard/products/new/analysis/page.tsx:
+      Writes localStorage 'lm_resume_hint' JSON when analysis job completes:
+        { productName, productId, intakeStep:3, stepLabel:'Discovery complete', updatedAt }
+      productName: result.result?.name → appName state → 'Your app' fallback
+    app/(dashboard)/dashboard/products/new/page.tsx:
+      Clears localStorage 'lm_resume_hint' on fresh intake start (alongside sessionStorage clear)
+
+  Auth layout rebuild — two-panel split (2026-07-24):
+    login/page.tsx + signup/page.tsx completely restructured to full-viewport two-panel layout:
+      Left panel (420px, lg:flex hidden on mobile):
+        background: linear-gradient(180deg,#13231f,#0a1a16)
+        LM logo mark + LaunchMind wordmark
+        "PHASE 1" eyebrow (#47d9ae, uppercase .13em tracking)
+        "Discovery + Alignment" heading (Syne 26px bold, white)
+        Description copy (13px, rgba white 55%, lineHeight 1.65)
+        5-step progress list — step 1 always active (green badge + tint row + border)
+          Steps: Create workspace · Discover product · Confirm and align · Set boundaries · Get first direction
+        Footer: "Save & finish later / Progress saved automatically" (marginTop:auto)
+      Right panel (flex:1, white):
+        Header bar: ● Account indicator + × close → /
+        Main: maxWidth:480 centered, padding 40px 48px (lg) — eyebrow + h2 + lead text + tabs + form
+          Eyebrow: "CREATE YOUR LAUNCHMIND WORKSPACE" (sage, 10px uppercase)
+          H2: "Where should we save your Growth Brain?" (Syne 28px bold)
+          Lead: "A lightweight account lets you return to the analysis..." (14px ink2)
+        Auth tabs as Link navigation: "Create account" → /signup · "Log in" → /login
+          Active tab: sage color + 2px solid sage border-bottom
+        Footer bar: "Account" · "Growth Brain confidence · 8%" + 4px sage progress bar
+    signup/page.tsx: removed embedded login tab (now separate /login page)
+      MFA setup + verify steps reuse same two-panel shell with step-appropriate headings
+    Both pages: no more centered card on gray background — right panel IS the white surface
+
+  tsc --noEmit: 0 errors throughout
+
 Next: Production launch (post ops tasks) → Milestone 13 (agent implementations + platform posting)
+
+Phase 1 Onboarding Flow — COMPLETE (2026-07-26)
+  16-step state machine implemented end-to-end.
+  DB Migrations (9):      062 onboarding_sessions (state machine, lock_version optimistic locking)
+                          063 discovery_jobs (BullMQ job tracking, progress stages)
+                          064 product_claims (FACT/INFERENCE/QUESTION, evidence_sources JSONB)
+                          065 founder_context (audience, context_delta, working_style, notification_cadence)
+                          066 business_goals (goal_type, target_value, unit, time_horizon_days)
+                          067 competitor_relationships (name, relationship, key_differentiator)
+                          068 approval_boundary_policies (autonomous_permitted[], approval_required[], immutable)
+                          069 strategy_directions (AI-generated 4-week direction, acknowledged_at)
+                          070 fix_handle_new_user_email_conflict (ON CONFLICT DO NOTHING for re-signup)
+  Backend service:        backend/src/services/onboardingService.ts
+                            createOrResumeSession, getSession, transitionState (optimistic locking)
+                            saveWorkspace, startDiscovery (SSRF-protected validatePublicUrl), getDiscoveryJob
+                            retryDiscovery, selectMatch
+                            acknowledgeReport, getClaims, reviewClaim, completeBeliefReview
+                            saveAudience, saveContextDelta, saveGoal, saveCompetitors, saveBoundaries
+                            generateDirection (callSonnet, 50 tokens), getDirection, completePhase1
+                            generatePreliminaryReport (callHaiku, 15 tokens), extractAndStoreClaims
+                          Uses getSupabaseAdmin() (not direct createClient) — required for test mocking
+  Backend routes:         backend/src/routes/onboarding.route.ts — 19 routes:
+                            GET /onboarding/session (create-or-resume)
+                            GET/PUT /onboarding/sessions/:id (get, workspace)
+                            POST /onboarding/sessions/:id/discovery (SSRF validate + BullMQ enqueue)
+                            GET /onboarding/sessions/:id/discovery (job status polling)
+                            POST /onboarding/sessions/:id/discovery/retry
+                            POST /onboarding/sessions/:id/discovery/select
+                            GET/POST /onboarding/sessions/:id/report (/acknowledge)
+                            GET /onboarding/sessions/:id/claims
+                            PATCH /onboarding/sessions/:id/claims/:claimId (CONFIRMED/CORRECTED/REJECTED)
+                            POST /onboarding/sessions/:id/claims/complete
+                            PUT /onboarding/sessions/:id/audience, /context-delta, /goal, /competitors, /boundaries
+                            POST/GET /onboarding/sessions/:id/direction
+                            POST /onboarding/sessions/:id/complete (acknowledgedDirection: z.literal(true) gate)
+  State machine (16):     WORKSPACE_SETUP → DISCOVERY_PENDING → DISCOVERY_IN_PROGRESS →
+                          DISCOVERY_MATCH_NEEDED | DISCOVERY_FAILED → PRELIMINARY_REPORT →
+                          BELIEF_REVIEW → ALIGNMENT_AUDIENCE → ALIGNMENT_CONTEXT → ALIGNMENT_GOAL →
+                          ALIGNMENT_COMPETITORS → BOUNDARIES_SETUP → FINAL_REVIEW →
+                          DIRECTION_GENERATING → DIRECTION_COMPLETE → PHASE_1_COMPLETE
+  State-to-route map:     STATE_TO_ROUTE: 16 states mapped to /onboarding/... frontend paths
+  Frontend (16 pages):    app/onboarding/layout.tsx — dark left sidebar (5-stage progress, confidence 8%)
+                          app/onboarding/page.tsx — server redirect based on session.nextRoute
+                          app/onboarding/workspace/page.tsx — name + role + stage selector
+                          app/onboarding/discovery/page.tsx — URL input (App Store/Play Store/Website)
+                          app/onboarding/discovery/progress/page.tsx — polling + 6-step progress bar
+                          app/onboarding/discovery/recovery/page.tsx — error + retry + match selection
+                          app/onboarding/report/page.tsx — preliminary growth report view
+                          app/onboarding/beliefs/page.tsx — claim review (confirm/correct/reject)
+                          app/onboarding/audience/page.tsx — audience confirmation
+                          app/onboarding/context-delta/page.tsx — context founder knows, AI doesn't
+                          app/onboarding/goal/page.tsx — primary goal setup
+                          app/onboarding/competitors/page.tsx — competitor confirmation
+                          app/onboarding/boundaries/page.tsx — working style + spend caps (ack gate)
+                          app/onboarding/review/page.tsx — final alignment review
+                          app/onboarding/generating/page.tsx — direction generation progress
+                          app/onboarding/direction/page.tsx — 4-week direction view + acknowledge
+                          app/onboarding/complete/page.tsx — phase 1 complete → dashboard/brief
+  Auth wiring:            signup/page.tsx: emailRedirectTo = /auth/callback?next=/onboarding/workspace
+                          auth/callback/route.ts: /onboarding in ALLOWED_NEXT_PATHS
+                          middleware.ts: /onboarding requires auth (same as /dashboard)
+                          login/page.tsx: reads localStorage 'lm_resume_hint' to show resume card
+  Resume card:            analysis/page.tsx writes 'lm_resume_hint' to localStorage on job complete
+                          products/new/page.tsx clears 'lm_resume_hint' on fresh intake start
+  SSRF:                   validatePublicUrl() blocks localhost, 127.x, 192.168.x, 10.x, 169.254.x
+  Tests (55):             backend/tests/onboarding.test.ts — 55/55 passing
+                            Session create-or-resume, get, tenant isolation
+                            Workspace save + state transition
+                            Discovery: 422 SSRF, 400 empty, 201 queued, GET status, 404 missing
+                            Report: GET with data, acknowledge (payload: {} not '{}')
+                            Claims: GET array, PATCH CONFIRMED/CORRECTED, POST complete
+                            Alignment: audience/context-delta/goal/competitors — mock sequences:
+                              saveGoal/saveCompetitors call getSession twice (own + transitionState)
+                              session mock arrays: [state×2, nextState] for 3-call services
+                            Boundaries: founderAcknowledged literal-true gate (400 on false)
+                            Direction: generateDirection 5-session-call sequence fixed
+                            Complete: DIRECTION_COMPLETE → PHASE_1_COMPLETE, nextRoute /dashboard/brief
+                            Retry: 409 when not failed (payload {} not '{}')
+  Key patterns:
+    transitionState always calls getSession internally → services that also call getSession directly
+      need N+1 calls in test mocks (saveGoal and saveCompetitors need [state×2, nextState])
+    All bodyless POST calls use payload: {} (object) not payload: '{}' (string) — avoids 415
+    onboardingService uses getSupabaseAdmin() not createClient — enables vi.mock supabaseAdmin pattern
+
+Onboarding UI Remediation — COMPLETE (2026-07-26)
+  Basis: Full diff of LaunchMind_Production_UX_July18_2026(15).html onboarding spec vs implementation.
+  Source of truth: spec fv-step[1..16] — two-panel phase1-shell layout (dark left sidebar + white right).
+  All 16 pages rebuilt to match spec HTML exactly. All pages use inline styles, no Tailwind.
+
+  lib/api.ts — Critical fixes:
+    Added requestData<T>() helper that strips { ok: true, data: T } ok() envelope from Fastify responses
+    All 14 api.onboarding.* methods changed from request<T> to requestData<T> (envelope was never stripped before)
+    completePhase1 body fixed: { directionId, acknowledgedDirection: true } (was wrong field name)
+    founders.resume() simplified to use requestData<T>
+
+  sessionStorage wiring:
+    workspace/page.tsx + discovery/page.tsx + discovery/progress/page.tsx all save
+      onboarding_session_id to sessionStorage on load + on first-call (so later pages can retrieve it)
+
+  Pages rebuilt (all match fv-step spec):
+    workspace/page.tsx       (fv-step[2])  — 2-col form grid, stage buttons, blue info notice
+    discovery/page.tsx       (fv-step[3])  — url-box with inline button, source tabs, SSRF gate note
+    discovery/progress/page.tsx (fv-step[4]) — ob-spin orbit animation, scan-list, 2.5s polling,
+                                              sessionStorage fallback for session ID
+    discovery/recovery/page.tsx (fv-step[5]) — danger ! icon, report-actions row, multiple-candidates
+                                              branch with select buttons
+    report/page.tsx          (fv-step[6])  — report-top (icon/name/score), findings 3-col grid,
+                                              first-insight gradient card with evidence toggle,
+                                              value-gate 3-button flow
+    beliefs/page.tsx         (fv-step[7])  — belief-list (FACT=blue/ASSUMPTION=amber badges),
+                                              inline belief-editor, completeBeliefReview
+    audience/page.tsx        (fv-step[8])  — conversation-thread with LM gradient avatar,
+                                              3 choice buttons, inline-edit on correction, ai-response-preview
+    context-delta/page.tsx   (fv-step[9])  — AI message bubble, textarea, 5 quick-tags pills,
+                                              ai-response-preview when text typed
+    goal/page.tsx            (fv-step[10]) — 4 goal-option cards 2×2, metric-grid (current/target/time),
+                                              ai-response-preview
+    competitors/page.tsx     (fv-step[11]) — competitor-list with letter-circle logos, add-competitor row
+    boundaries/page.tsx      (fv-step[12]) — autonomy-grid 4 options, boundary-summary, checkbox gate
+    review/page.tsx          (fv-step[13]) — 5-row summary (AUDIENCE/WHAT'S CHANGING/90-DAY/
+                                              COMPETITORS/WORKING BOUNDARY), sage ✓ notice,
+                                              generateDirection → /onboarding/generating
+    generating/page.tsx      (fv-step[14]) — 3-dot dl-pulse animation, strategy-build chips revealed
+                                              sequentially, getDirection polling, redirect on status=ready
+    direction/page.tsx       (fv-step[15]) — direction-card with objective/confidence, 2×2 grid,
+                                              4-week timeline, data-needed disclosure, export + complete
+    complete/page.tsx        (fv-step[16]) — gradient ✓ mark, confidence jump 18%→96% (DM Mono),
+                                              learned 2×3 grid, clears sessionStorage + lm_resume_hint
+
+  tsc --noEmit: 0 errors throughout
 ```
+
+Improve Intelligence (internal Phase 2) — Step 1: Foundation repair — COMPLETE (2026-08-07)
+  Goal: remove every mock/fabricated production behaviour before any provider adapter is written.
+  Basis: LaunchMind_Improve_Intelligence_Phase2_Claude_Code_Implementation.md §§5, 8–12, 18, 29.10
+
+  Mocks removed (were presented to owners as observed provider data):
+    connectionService.ts — deleted MOCK_ACCOUNTS, PROVIDER_SIGNALS, FIRST_INSIGHTS,
+      simulateSyncProgress. File rewritten around a real ProviderAdapter contract.
+    channels.route.ts — deleted the `mock-credential-${provider}-${Date.now()}` fallback.
+      A credential (api_key | oauth_token, min 8 chars) is now REQUIRED by the Zod schema.
+    channels page — removed the simulated progress timer, the 8s forced completion,
+      the fabricated firstInsight fallback, the static "+N points" score gain, and the
+      hardcoded preview stats (18.4% / Search / Daily → "Not observed yet").
+    Sidebar — removed the static `badge: '4'` on Improve Intelligence.
+    growth-brain page — removed the `?? 62` score default and the 6-row placeholder
+      dimension array (62/62/74/0/0/0) shown when coverage fails to load.
+    BriefClientView — removed the `'App Store Connect'` default recommendation name.
+
+  New files:
+    backend/src/services/providers/types.ts    — ProviderAdapter, ProviderSignal, ProviderError
+                                                  (kinds: PERMISSION_DENIED, WRONG_ACCOUNT,
+                                                   NEEDS_REAUTH, PROVIDER_UNAVAILABLE,
+                                                   ADAPTER_UNAVAILABLE, SYNC_FAILED)
+                                                  periodStart/periodEnd REQUIRED — migration 078's
+                                                  dedup index is partial (WHERE period_start IS NOT NULL)
+    backend/src/services/providers/registry.ts — INTENTIONALLY EMPTY. getAdapter() throws
+                                                  ADAPTER_UNAVAILABLE → route returns 501.
+                                                  Add adapters here in Step 2; nothing else changes.
+    backend/src/services/connectionStateMachine.ts — all 16 states + allow-list; compare-and-set
+                                                  UPDATE (.eq('status', from)) so concurrent writers
+                                                  cannot both win; InvalidTransitionError → HTTP 409
+    backend/src/lib/traceId.ts                 — lm_<32 hex>; inbound header validated (log-injection guard)
+    backend/tests/connectionStateMachine.test.ts — 21 tests incl. BFS no-dead-end proof
+
+  Migration 079 (additive, idempotent):
+    workspace_connections.last_trace_id · connection_sync_runs.trace_id ·
+    intelligence_signals.trace_id + 2 partial indexes.
+    learning_events carries trace_id in payload JSONB (no column — 8 handlers write that table).
+
+  Async correctness:
+    server.ts — startConnectionSyncWorker() now called in the Redis-gated block.
+      Previously jobs were enqueued to a queue with NO consumer; only the
+      Redis-unavailable synchronous fallback worked.
+    POST /connections/:id/sync and /refresh → 202 { syncRunId, status:'queued', traceId }.
+      Both previously ran simulateSyncProgress inline on the request thread.
+    connectionSyncWorker — canonical execution path; calls executeSync().
+      Terminal ProviderError kinds (ADAPTER_UNAVAILABLE, PERMISSION_DENIED, NEEDS_REAUTH,
+      WRONG_ACCOUNT) are NOT retried — the owner must act. Transient kinds retry with back-off.
+      DLQ: 'failed' handler closes the sync run once attempts are exhausted.
+      Preserved: deterministic jobId `${connectionId}:${syncRunId}`, attempts=3, exponential back-off,
+      ON CONFLICT DO NOTHING signal upsert.
+
+  Canonical state (replaces "a platform_tokens row exists"):
+    connectionService.getCanonicalConnectionStates(founderId) → per-provider
+      { status, healthy, inFlight, needsAttention, noHistory, lastSyncedAt, freshness,
+        signalCount, adapterAvailable, errorDetail }
+    intelligenceService — dimension scores now require HEALTHY/PARTIAL **and** signalCount > 0.
+      PARTIAL scores at 60%. NO_HISTORY earns +5 (connection established) but reports not-observed.
+      A NEEDS_REAUTH / SYNC_FAILED connection now contributes 0 — it previously still counted.
+      Coverage response gained `connectionStates` and per-dimension `statusLabel` + `observed`.
+      recommendedSource gained `available` so the UI can show "not available yet" instead of a
+      Connect button that cannot succeed.
+
+  Newly functional states: PREVIEWING (POST /connections/:provider/preview — grants nothing),
+    AUTHORIZING (set before adapter.verifyCredential), SELECTING_SOURCE (select-resource),
+    NO_HISTORY + PARTIAL (executeSync outcomes), NEEDS_REAUTH (POST /connections/:id/reauthorize).
+
+  New routes: POST /connections/:provider/preview · GET /connections/providers ·
+    POST /connections/:id/reauthorize
+
+  lib/api.ts BUG FIX: api.connections.* used request<T>, which does NOT strip the
+    ok() envelope, so `const { connections } = await api.connections.list()` was always
+    undefined and swallowed by a bare catch. Switched to requestData<T>. Canonical state
+    had never actually reached the UI.
+
+  Owner-facing language (§2.1) — 9 rendered strings replaced:
+    login/signup "PHASE 1" eyebrow → "TEACH YOUR AI CMO" (matches spec .phase-label)
+    onboarding/layout eyebrow → "TEACH YOUR AI CMO"; step label → "Product understanding ready"
+    complete "Phase 1 is complete." → "Product understanding is ready."
+    direction button "Complete Phase 1 →" → "Open completion summary →"; alert reworded
+    boundaries "Your Phase 1 boundaries" → "Your current working boundaries"
+    discovery "...accessed in Phase 1." → "...accessed during product discovery."
+    intelligenceService overallCopy — "Complete Phase 1 alignment" removed
+    Internal identifiers (PHASE_1_COMPLETE state, file headers, ADRs) unchanged per §2.1.
+
+  Verification:
+    backend vitest: 455/457 (2 pre-existing failures: content.test.ts mock shape,
+      aiPlatform.test.ts fake timers — both documented in Pending, neither touches this code)
+    connections.test.ts + connectionStateMachine.test.ts: 50/50
+    backend tsc --noEmit: 39 errors, all pre-existing, 0 in changed files
+    frontend tsc --noEmit: 0 errors
+
+  EXPECTED BEHAVIOUR CHANGE — this is the point of Step 1:
+    With zero adapters registered, POST /connections/:provider/connect returns
+    501 ADAPTER_UNAVAILABLE, no provider reaches AUTHORIZED, and the UI shows
+    "Not available yet". The feature is intentionally inert rather than fabricating data.
+
+  NOT started (Step 2+): all 9 provider adapters, OAuth/PKCE per provider,
+    connection_permission_history, execution-permission upgrade flow, analytics events,
+    focus trap / aria-modal, E2E provider journeys, workspace- (vs founder-) level scoping.
+
+Improve Intelligence (internal Phase 2) — Step 2: Security, workspace, OAuth, permissions — COMPLETE (2026-08-07)
+  Goal: finish the production security/tenancy/permission/OAuth architecture that every
+  provider adapter will use. No provider-specific work in this step.
+
+  Migrations (4, additive + idempotent):
+    080 connection_workspace_scoping
+        SQL helpers lm_is_workspace_member / lm_workspace_role / lm_can_write_workspace
+          (STABLE, SECURITY DEFINER, pinned search_path, REVOKE FROM PUBLIC)
+        workspace_id added to workspace_connections, connection_sync_runs, intelligence_signals
+        Backfill: founders.active_workspace_id → oldest owned workspace; sync runs inherit
+          their connection's workspace (never re-resolved from founder, so a run cannot drift)
+        NOT NULL promoted only inside a guarded DO block when zero NULLs remain
+        RLS replaced: read = any ACCEPTED member; write = owner|admin|editor. Viewers read-only.
+        ⚠ CONSTRAINT CHANGE: UNIQUE(founder_id, provider) → UNIQUE(workspace_id, provider).
+          Not a column drop/rename/retype. Required so two workspaces of one founder can each
+          connect the same provider. The one non-trivially-reversible change in this pass.
+    081 connection_credentials — workspace-scoped vault: encrypted access + refresh token,
+        kms_key_id, expires_at, scopes[], external_account_id (substitution guard),
+        revoked_at. RLS enabled with NO permissive policy + REVOKE ALL FROM authenticated,anon.
+        Never client-readable, not even by the workspace owner.
+    082 oauth_authorization_requests — server-side state/nonce/PKCE store. state UNIQUE,
+        encrypted code_verifier, redirect_uri, expires_at, consumed_at, rejected_reason.
+        Backend-only (REVOKE ALL). Replaces the stateless HMAC state.
+    083 connection_permission_history — append-only audit (spec §16). Full snapshot after
+        each action + previous_snapshot. REVOKE UPDATE, DELETE. Member read via lm_is_workspace_member.
+
+  New services:
+    workspaceAuthService.ts — THE authorization boundary. Four checks per request:
+      actor (JWT sub) → membership → role → resource ownership.
+      RULE ENFORCED: a client-supplied workspace id is CONTEXT, never AUTHORIZATION.
+      A non-member gets WorkspaceAccessError (404-shaped, indistinguishable from
+      "does not exist" so tenant structure is not leaked) — never a silent fall-back
+      to their own workspace. Pending invites (accepted_at IS NULL) grant nothing.
+      A stale founders.active_workspace_id pointing at a lost membership is ignored.
+      verifyJobWorkspaceBinding() — background jobs re-verify rather than trust the payload.
+    connectionPermissionService.ts — canonical ladder READ · RECOMMEND · DRAFT · CHANGE ·
+      PUBLISH · SPEND. DEFAULT_CONNECTION_PERMISSIONS = [READ, RECOMMEND] and callers
+      CANNOT pass a wider set, which makes "observation never implies execution" structural.
+      Effective authority is read from the persisted grant — never from OAuth scopes,
+      provider capabilities, or connection status. assertAuthority() is the single choke point.
+      Upgrade mechanism: request → approve (admin+, written reason ≥8 chars) → audited.
+      approveAuthorityUpgrade is the ONLY path by which CHANGE/PUBLISH/SPEND can appear.
+      Records authority; executes nothing (execution is a later milestone).
+      normalizePermissions() drops unknown entries so malformed DB data cannot widen authority.
+    connectionCredentialService.ts — workspace-scoped vault access. Plaintext exists only as
+      a local inside one call. Account-substitution guard on both store and rotate.
+      Revoked credentials retained (revoked_at) for audit, never deleted.
+    oauthService.ts — 256-bit CSPRNG state, UNIQUE, single-use via compare-and-set on
+      consumed_at, 10-min TTL, constant-time compare. PKCE S256 (verifier encrypted at rest).
+      Nonce for OIDC. Redirect URIs validated by EXACT allow-list (no prefix matching).
+      Callback re-verifies workspace membership — a state issued before access was lost fails.
+      Provider error bodies are discarded, never surfaced: they echo the code and sometimes
+      the client secret. Rejections persisted with a reason for auditing.
+    providers/oauthConfig.ts — per-provider endpoints + least-privilege READ scopes.
+      Returns null when client credentials are absent → route answers 501 "not available yet"
+      rather than sending the owner to a broken authorization screen.
+
+  Routes (channels.route.ts, connections block rewritten):
+    All existing routes now resolve a verified WorkspaceContext first.
+    New: POST /connections/:provider/oauth/start · GET /connections/oauth/callback
+         (JWT-exempt; authorized by the single-use state)
+         GET /connections/:id/permissions
+         POST /connections/:id/permissions/request-upgrade | approve-upgrade | downgrade
+    sendConnectionError maps WorkspaceAccessError→404, WorkspacePermissionError→403,
+      AuthorityError→403, AccountSubstitution→409, OAuthError/CredentialError→typed status.
+
+  Worker: ConnectionSyncJobPayload gained workspaceId. executeSync re-verifies the binding
+    BEFORE decrypting any credential or writing any signal.
+
+  Test harness — tests/helpers/memoryDb.ts (NEW):
+    In-memory Supabase stub that HONOURS .eq/.is/.not/.in/.lt/.gt predicates.
+    The previous chain stub returned `this` from .eq() and ignored the argument, so a
+    tenant-isolation test passed even if the service forgot its workspace filter entirely.
+    All connection tests were migrated onto it, which makes the isolation assertions real.
+
+  Tests (108 connection-related, all passing):
+    workspaceIsolation.test.ts (26) — read/modify/sync-run/signal isolation, membership
+      resolution, pending-invite denial, no-silent-fallback, stale active_workspace_id,
+      background-job binding, state machine returns "not found" (not InvalidTransition,
+      which would confirm the row exists).
+    connectionSecurity.test.ts (44) — redirect-URI near-miss table, PKCE, opaque state,
+      replay, expiry, revoked access, malformed state, provider-error-body suppression,
+      account substitution (store + rotate), rotation, revoke, expired-credential paths,
+      least privilege, escalation rejection (editor + cross-tenant), reason required,
+      request≠grant, CHANGE does not drag PUBLISH/SPEND, reauthorization does not widen,
+      malformed persisted permissions cannot widen.
+    connections.test.ts (38) — rewritten on MemoryDb; adds workspace-hint rejection,
+      permission routes, no-credential-material-in-responses assertions.
+    connectionStateMachine.test.ts (21) — unchanged coverage, workspace-scoped signature.
+
+  Verification:
+    backend vitest: 534/536 (same 2 pre-existing failures: content.test.ts mock shape,
+      aiPlatform.test.ts fake timers — neither touches this code)
+    backend tsc --noEmit: 39 errors, identical to baseline, 0 in Step 2 files
+    frontend tsc --noEmit: 0 errors
+
+  PRE-EXISTING BUG FOUND (not fixed — legacy path, out of Step 2 scope):
+    /integrations/google-ads/oauth/init builds state as Buffer.from(founderId).toString('base64'),
+    but verifyOAuthState() expects the HMAC form `payload.sig` and returns null without a '.'
+    separator. That legacy callback can never succeed. The new canonical OAuth infrastructure
+    supersedes it; the legacy route should be retired when Google Ads gets a real adapter.
+
+  NOT started (Step 3+): all 9 provider adapters, analytics events, focus trap / aria-modal,
+    E2E provider journeys, scheduled token-refresh worker, provider-side revocation calls
+    on disconnect (revokeAtProvider exists but is not yet wired), RLS verification against a
+    live Postgres (policies are written but only service-layer enforcement is unit-tested).
+
+Improve Intelligence (internal Phase 2) — Step 3: App Store Connect reference provider — COMPLETE (2026-08-07)
+  Goal: one REAL provider, end to end, proving the framework. No mocked accounts,
+  metrics, signals, insights, or credentials anywhere in production code.
+
+  Authentication — Apple does NOT use OAuth for the App Store Connect API:
+    providers/appleJwt.ts — ES256 assertion signed per call with the owner's .p8
+      (PKCS#8 EC P-256) key via jose. Header { alg:ES256, kid, typ }, payload
+      { iss, iat, exp, aud:'appstoreconnect-v1' }. Apple caps lifetime at 20 min, so
+      assertions are minted per request and never persisted; only the key is at rest.
+      normalizePrivateKey repairs the three ways owners mangle a pasted .p8
+      (escaped \n, CRLF, header/footer stripped) — a paste error becomes a
+      recoverable NEEDS_REAUTH, not a 500. Key material never appears in an error.
+      packAppleCredential bundles issuerId+keyId+privateKey into the one encrypted
+      blob the vault stores.
+
+  API client — providers/appStoreConnectClient.ts, Apple's supported production path:
+    /v1/apps  →  analyticsReportRequests (ONGOING per-app opt-in; 409 = already exists,
+    a success path)  →  analyticsReports by category  →  instances (DAILY)  →  segments
+    (pre-signed, gzipped TSV, downloaded WITHOUT the bearer header — the signature is
+    the authorization and forwarding a token to Apple's CDN would leak it).
+    Error mapping: 401→NEEDS_REAUTH · 403→PERMISSION_DENIED · 404→WRONG_ACCOUNT ·
+    429/5xx→PROVIDER_UNAVAILABLE. Apple's `detail` text is never echoed (it can carry
+    request context); only the machine `code` is read.
+
+  Adapter — providers/appStoreConnectAdapter.ts:
+    Extended ProviderAdapter contract: verifyCredential / listAccounts / fetchSignals
+    (required) + validateSelection / checkHealth / refreshAuthorization /
+    revokeAtProvider (optional; connectionService checks presence).
+    Column aliasing handles Apple's Standard vs Detailed report header differences.
+    Signals: impressions · downloads · conversion (downloads ÷ page views, emitted ONLY
+    when both inputs are real) · source-type breakdown · territory breakdown.
+    Every signal carries a period parsed from the Date column — migration 078's dedup
+    index is partial on period_start IS NOT NULL, so a signal without one would be
+    undeduplicable on replay; the adapter refuses rather than write it.
+    READ-ONLY IS STRUCTURAL: the adapter exposes no method that can mutate anything at
+    Apple, so CHANGE/PUBLISH/SPEND cannot be satisfied by this provider at all.
+
+  Progress: 7 steps emitted only AFTER the corresponding Apple call returns
+    (Authorization verified → App selected → Reading product-page performance →
+     Mapping acquisition sources → Calculating store conversion → Comparing
+     territories and release performance → Updating Growth Brain).
+    The frontend's simulated timer was already removed in Step 1; connectionService
+    now writes adapter-reported progress to connection_sync_runs.
+
+  Insights — migration 084 connection_insights + connectionInsightService.ts:
+    Four rules, each firing only when its precondition genuinely holds:
+      conversion vs 3.5% store benchmark (needs ≥200 page views AND >15% relative gap)
+      acquisition-source concentration (≥55% share)
+      territory concentration (≥55% share)
+      reach-without-conversion (engagement present, commerce absent)
+    Data that says nothing produces NO insight — there is no filler.
+    Every row stores evidence[] (the numbers), source_signal_ids (the rows used), and
+    provenance { provider, report_name, sync_run_id, period, computed_at, method }.
+    Confidence scales with sample size and is capped at 0.92 — one window is one
+    observation. Re-syncs supersede rather than duplicate (partial unique index).
+
+  Cross-surface: intelligenceService.getGrowthBrainCoverage now returns liveInsights
+    read from the same connection_insights rows the health endpoint and the Improve
+    Intelligence card use, so the three surfaces cannot disagree.
+
+  Frontend: ConnectedSourceCard (status · app · last sync · freshness · signals
+    learned · latest insight with evidence chips · Refresh / Manage access /
+    Disconnect). Status is always a text label, never colour alone.
+    lib/analytics.ts: all 21 Phase-2 events + trackIntelligence(), which drops any
+    property whose name looks credential-shaped and any string over 120 chars.
+
+  BUG FOUND AND FIXED (real, not a test artifact):
+    POST /connect queued a sync even when the provider returned several accounts and
+    the owner had not chosen one yet. The adapter then correctly refused with
+    WRONG_ACCOUNT, so a multi-app Apple account could never complete a first sync.
+    Connect now queues only on auto-select (exactly one account); otherwise
+    POST /select-resource queues the first sync, which is the point at which
+    LaunchMind actually knows what to read.
+
+  Test-harness fix: MemoryDb generated ids like `gen_table_1`, which routes rejected
+    with 400 at the UUID guard — masking real behaviour. Now emits real UUIDs.
+
+  Tests:
+    appStoreConnect.test.ts (40) — genuine EC P-256 keypair, so JWT signing and
+      verification are exercised for real (jwtVerify against the matching public key,
+      20-minute ceiling, fresh assertion per call, no key material in errors);
+      PEM repair; TSV parsing; the full HTTP error-status matrix; real metric
+      arithmetic (11,900 impressions / 73 downloads / 3.65% conversion from fixture
+      rows); monotonic progress; NO_HISTORY; both PARTIAL directions; and an
+      assertion that the adapter exposes no write surface.
+      Insight rules: silence on small samples, silence near the benchmark, silence on
+      empty input, above- and below-benchmark wording, confidence scaling, and an
+      end-to-end "change the data, change the number" check.
+    appStoreConnectJourney.test.ts (8) — the required journey through real routes,
+      real adapter, real executeSync, real insight derivation, with only Apple's HTTP
+      stubbed: brief gap → preview → authorize → app selection from Apple's response
+      → async sync → first insight (1.8% derived from 54÷3000) → Growth Brain
+      coverage rises → brief gap clears → health card → refresh → disconnect →
+      reconnect. Plus 6 recovery paths: auth failure, outage, no history, expired
+      auth mid-sync (prior data survives), sync failure (no stack traces reach the
+      owner), missing selection, partial data.
+    tests/e2e/improve-intelligence.visual.spec.ts + a `visual` Playwright project —
+      token parity parsed live out of LaunchMind_Production_UX_July18_2026(21).html
+      (not transcribed, so it cannot drift), plus screenshot baselines at
+      1440/834/390 and a permission-copy legibility check.
+
+  Verification:
+    backend vitest: 583/585 (same 2 pre-existing: content.test.ts mock shape,
+      aiPlatform.test.ts fake timers — neither touches this code)
+    backend tsc --noEmit: 39 errors, identical to baseline, 0 in Step 3 files
+    frontend tsc --noEmit: 0 errors
+    token parity script: 23/23 tokens match the approved HTML (only #fff vs #ffffff,
+      normalized by the comparison)
+    visual screenshots: NOT executed here — they need a running Next.js server and
+      TEST_EMAIL/TEST_PASSWORD. Baselines are not yet committed.
+
+  NOT started (Step 4+): the other 8 provider adapters, scheduled token-refresh
+    worker, provider-side revocation wiring, focus trap / aria-modal on the connect
+    modal, RLS verification against live Postgres, committed visual baselines.
+
+Improve Intelligence (internal Phase 2) — Step 4: Observation provider expansion — COMPLETE (2026-08-08)
+  RevenueCat · Google Analytics 4 · Stripe (read-only) · Google Search Console, all
+  through the App Store Connect framework. No second connection architecture, no
+  framework redesign, no approved-UX changes beyond provider-specific labels.
+
+  ZERO new migrations. The intelligence_signals provider and signal_type CHECK
+  constraints (migration 074) already covered all four; connection_insights (084) is
+  provider-agnostic. ZERO new dependencies — fetch + jose only.
+
+  New shared layer — providers/http.ts:
+    One HTTP + error-mapping implementation for every non-Apple adapter
+    (401→NEEDS_REAUTH · 403→PERMISSION_DENIED · 404→WRONG_ACCOUNT · 429/5xx→
+    PROVIDER_UNAVAILABLE · 400→SYNC_FAILED, because a malformed request is our bug and
+    telling the owner to reconnect would send them to fix nothing).
+    Provider error BODIES are parsed only for a machine code and never surfaced —
+    they routinely echo the request and sometimes the credential.
+    App Store Connect keeps its own client: its report pipeline and error bodies are
+    genuinely provider-shaped.
+
+  Authentication, per provider's real mechanism:
+    RevenueCat     secret key, Bearer sk_… (RevenueCat offers no server OAuth)
+    GA4            Google OAuth2 + analytics.readonly, via the canonical oauthService
+    Stripe         RESTRICTED key rk_… (see limitation note below)
+    Search Console Google OAuth2 + webmasters.readonly
+
+  Data, only what each API actually exposes:
+    RevenueCat  /v2/projects · /v2/projects/{id}/metrics/overview
+                → trials · retention (trial share) · churn counts · mrr · revenue · ARPU
+    GA4         analyticsadmin accountSummaries · analyticsdata runReport ×3
+                → sessions/engagement · landing pages + highest-bounce · source/medium
+                  quality · overall conversion
+    Stripe      /v1/account · balance_transactions · charges · subscriptions · refunds
+                → revenue (gross/fees/net) · MRR (yearly normalized) · plan movement ·
+                  payment failure rate + reasons · refund rate
+    GSC         /sites · searchAnalytics/query ×2 (query, page)
+                → impressions · CTR · impression-weighted position · queries · pages ·
+                  search opportunities
+
+  Judgement calls made deliberately, and why:
+    - NO LTV from RevenueCat. Its overview endpoint exposes no churn rate, and LTV
+      without one is a guess wearing a number's clothes. ARPU (MRR ÷ active subs) is
+      exact and is emitted instead, with an explicit note on the signal.
+    - GSC window ends 3 days ago. Search Console finalizes on a delay; ending "today"
+      returns zeros that read as "traffic collapsed" rather than "not published yet".
+    - GSC position is impression-weighted. An unweighted mean lets a zero-impression
+      long-tail term distort the figure.
+    - Stripe MRR counts only items with a resolvable interval; anything else is
+      excluded rather than guessed.
+    - A "search opportunity" means position ≤20, ≥50 impressions, CTR below the set's
+      OWN median — a gap between visibility and appeal, not "improve SEO".
+
+  Insight rules — 9 new, dispatched by provider via DERIVERS map:
+    revenue_cat.trial_heavy_base · trial_pipeline_thin · revenue_per_subscriber
+    ga4.best_converting_source · high_bounce_landing_page · low_engagement_rate
+    stripe.payment_failure_rate · refund_pressure · past_due_subscriptions ·
+      revenue_per_subscriber (Stripe leads with failed payments: revenue already won
+      and then lost is usually the cheapest thing to fix)
+    search_console.underclicked_queries · visibility_without_ranking ·
+      strong_position_weak_ctr (a ranking problem and a snippet problem need
+      different responses, so they are separate findings)
+    Every rule has a minimum sample and a materiality threshold, so data that says
+    nothing produces NO insight.
+
+  Pipeline changes (extension, not redesign):
+    connectionService: insight derivation now dispatches by provider instead of
+      hard-coding App Store Connect.
+    loadCredential now refreshes expired OAuth tokens via adapter.refreshAuthorization
+      and rotates them through the vault. Without this, GA4 and Search Console owners
+      would be told to reconnect every hour despite a valid refresh token on file.
+    intelligenceService: Search Console added to the Performance dimension
+      (app_store_connect 50 · ga4 30 · search_console 20).
+
+  BUG FOUND AND FIXED: the connect route's OAuth guard keyed off oauthConfig
+    TEMPLATES rather than the adapter's declared authMechanism. Stripe has a Connect
+    template on file for a future platform setup but authenticates with a restricted
+    key today, so the guard wrongly rejected every Stripe connection. Now gated on
+    getAdapter(provider).authMechanism, which is the authoritative source.
+
+  Tests (+102, all passing):
+    observationProviders.test.ts (49) — shared contract for all four adapters
+      (including "no write-shaped member exists"), the full HTTP status matrix,
+      credential-echo suppression, real arithmetic per provider, NO_HISTORY, both
+      PARTIAL directions, progress ordering, and per-rule silence tests.
+    observationProviderJourneys.test.ts (53) — table-driven so all four must behave
+      identically against the shared framework; a provider needing a special case here
+      would BE a second architecture. Each runs the true auth path: api-key providers
+      via /connect, GA4 and Search Console via /oauth/start → /oauth/callback with a
+      real single-use state. Covers journey, 8 recovery paths, workspace isolation,
+      credential-leak checks, and least-privilege assertions.
+
+  Verification:
+    backend vitest: 685/687 (same 2 pre-existing: content.test.ts mock shape,
+      aiPlatform.test.ts fake timers — neither touches this code)
+    backend tsc --noEmit: 39 errors, identical to baseline, 0 in Step 4 files
+    frontend tsc --noEmit: 0 errors
+    token parity: 23/23 against LaunchMind_Production_UX_July18_2026(21).html
+    visual screenshots: BLOCKED — need a running Next.js server and TEST_EMAIL /
+      TEST_PASSWORD. 13 specs written (now including a per-provider connected-card
+      baseline); no baseline PNGs committed. Must run before Phase 2 is called complete.
+
+  PROVIDER API LIMITATIONS DISCOVERED:
+    1. RevenueCat's metrics overview has no churn rate → no defensible LTV (above).
+    2. Stripe Connect OAuth needs LaunchMind to be a registered Connect platform,
+       which it is not. A restricted key is the supported read-only mechanism for a
+       founder granting access to their own account, and is narrower. The Connect
+       template stays in oauthConfig for when the platform account exists.
+    3. GA4 conversion counts come from the `conversions` metric, which depends on the
+       owner having marked events as conversions. A property with none reports zero —
+       correctly, not as an error.
+    4. Search Console's 2–3 day finalization delay (handled above).
+    5. Google Ads has no read-only OAuth scope; observation-only will have to be
+       enforced by LaunchMind's own permission grant. Relevant to Step 5, not here.
+
+  NOT started: Google Ads, Meta, HubSpot, Mailchimp; scheduled token-refresh worker;
+    focus trap / aria-modal on the connect modal; RLS verification against live
+    Postgres; committed visual baselines.
+
+Improve Intelligence (internal Phase 2) — Step 5: Action-capable platforms — COMPLETE (2026-08-08)
+  Google Ads and Meta connected as ACTION-CAPABLE providers in observation-only mode.
+  This is the trust boundary: their tokens could change campaigns and spend money, and
+  LaunchMind must be structurally incapable of doing so.
+
+  ZERO new migrations. ZERO new dependencies.
+
+  connectionExecutionGuard.ts (NEW) — the single choke point, four independent gates:
+    1. ACTOR      'system' is refused FIRST and unconditionally. An AI-planned action
+                  cannot execute even in a workspace whose owner granted SPEND — the
+                  grant belongs to the owner, not the planner.
+    2. WORKSPACE  membership + admin role (an editor may connect, never act)
+    3. AUTHORITY  the persisted grant, never the provider's token scopes
+    4. CAPABILITY the adapter must implement execute_<action>
+    Gate 3 before gate 4 on purpose: an unauthorized caller learns nothing about what
+    the platform can do. Gate 4 is currently UNSATISFIABLE — no adapter implements any
+    execution capability, so a fully granted owner still cannot cause a change.
+    Capability is duck-typed on the adapter, so an adapter cannot claim what it has
+    not written.
+
+  Google Ads — the harder case:
+    Google publishes NO read-only OAuth scope. `.../auth/adwords` grants write access
+    and cannot be narrowed at Google. Read-only is therefore LaunchMind's guarantee,
+    enforced in three layers:
+      STRUCTURAL  no execute_* method → capability gate can never pass
+      PROTOCOL    assertReadOnlyQuery() verifies every GAQL string is a plain SELECT;
+                  rejects mutate/update/delete/insert/set and smuggled `;` statements,
+                  case- and whitespace-insensitive. Mutate endpoints are never built.
+      AUTHORITY   granted READ + RECOMMEND; execution needs an audited upgrade
+    Data: listAccessibleCustomers → searchStream GAQL over campaign, search_term_view,
+    keyword_view. Cost converted from micros. Signals: spend (+CTR/CPC), cac,
+    campaign_performance, search-term and keyword breakdowns with zero-conversion spend.
+    Requires GOOGLE_ADS_DEVELOPER_TOKEN (a LaunchMind platform credential, read per
+    call, never stored per connection); absent → ADAPTER_UNAVAILABLE, not a broken flow.
+
+  Meta — the easier case:
+    Meta DOES publish real read-only scopes. LaunchMind requests exactly
+    `ads_read` + `read_insights` and NEVER `ads_management`, so a write fails at Meta
+    as well as at LaunchMind. Data: /me/adaccounts → insights at campaign, ad, and
+    account level (publisher_platform breakdown). Signals: spend, cac,
+    campaign_performance, creative_performance (fatigue = frequency ≥ 3 with spend and
+    no attributed conversion), audience.
+    refreshAuthorization deliberately throws NEEDS_REAUTH: Meta exchanges long-lived
+    tokens rather than using refresh tokens, and a half-implemented refresh would be
+    worse than asking the owner to sign in again.
+
+  Insight rules (+6), all phrased as observation:
+    google_ads.zero_conversion_search_spend · zero_conversion_campaigns ·
+      cost_per_conversion
+    meta.creative_fatigue · placement_concentration · cost_per_conversion
+    Each explicitly tells the owner LaunchMind will not act — "can draft a
+    negative-keyword list for your review — it cannot apply one".
+
+  Routes:
+    GET  /connections/:id/execution-boundary  per-action allowed/blocked + reason
+    POST /connections/:id/execute             the ONE door any future execution enters.
+      Exists now, before execution does, so the boundary is testable and there is
+      exactly one place to audit later. Every request is refused today.
+
+  Frontend: AuthorityPanel — what LaunchMind may and may not do, per action, with
+    an admin-only upgrade REQUEST flow (request ≠ grant, stated plainly), permission
+    history, role="dialog"/aria-modal, Escape-to-close, and ✓/✗ symbols so status is
+    never colour alone.
+
+  BUG FOUND AND FIXED: getDefaultWorkspaceId considered only owned workspaces, so an
+    invited teammate who owns none resolved to no workspace and was locked out of one
+    they legitimately belong to. Now falls back to the oldest ACCEPTED membership
+    (pending invitations still grant nothing).
+
+  Tests (+64):
+    executionBoundary.test.ts (36) — the permission evidence. Adapters expose no
+      execute_*; Meta never requests ads_management; the GAQL guard rejects mutation
+      and statement-smuggling; the system actor is refused before every other gate and
+      even with full authority; a STRUCTURAL test greps aiPlatform/aiClient/
+      agentRegistry/agents for any import of the permission, credential, or execution
+      modules and fails if one appears; a read-only connection is refused for all six
+      actions; a fully granted owner is stopped by capability with 501; editor and
+      cross-workspace refusals; approval is audited and attributable; approving CHANGE
+      does not drag PUBLISH or SPEND; and the HTTP route enforces all of it.
+    paidPlatforms.test.ts (28) — real OAuth dance, account enumeration, GAQL-is-always-
+      SELECT, real arithmetic ($1000 from micros; Meta fatigue by frequency), insight
+      derivation that changes with the data, journeys landing on READ + RECOMMEND,
+      outage and expired-auth recovery.
+
+  Verification:
+    backend vitest: 749/751 (same 2 pre-existing: content.test.ts mock shape,
+      aiPlatform.test.ts fake timers)
+    backend tsc --noEmit: 39 errors, identical to baseline, 0 in Step 5 files
+    frontend tsc --noEmit: 0 errors
+    visual screenshots: still BLOCKED (no server / credentials); token parity holds.
+
+  NOT started: HubSpot, Mailchimp; any actual execution; scheduled token refresh;
+    RLS verification against live Postgres; committed visual baselines.
+
+Improve Intelligence (internal Phase 2) — Step 6: Lifecycle providers — COMPLETE (2026-08-08)
+  HubSpot and Mailchimp complete the nine-provider set. Same framework throughout —
+  no new architecture, no new permission model, no execution.
+
+  ZERO new migrations. ZERO new dependencies.
+
+  HubSpot — CRM lifecycle intelligence:
+    Auth: OAuth 2.0, scopes crm.objects.contacts.read + crm.objects.deals.read.
+      No `.write`, no `automation`, no `content` — HubSpot itself refuses a mutation.
+      verifyCredential also rejects a token whose scopes lack contacts, so a
+      mis-approved connection is a fixable permission error rather than an empty sync.
+    Resource: a HubSpot OAuth token binds to ONE portal → exactly one resource →
+      auto-select, the same sanctioned case as Stripe.
+    Data: /oauth/v1/access-tokens/{token} (portal identity; token in the PATH — a
+      HubSpot quirk), /crm/v3/objects/contacts, /crm/v3/objects/deals, both paged.
+    Signals: lifecycle (stage counts) · lead_quality (adjacent-stage conversion) ·
+      source_quality (hs_analytics_source with CUSTOMERS per source, not just contacts)
+      · funnel (deal stages and value).
+    Judgement: stage conversion is emitted only where both sides genuinely exist —
+      no rate against a missing denominator. Movement between stages is NOT claimed:
+      one sync is one snapshot, and inferring direction from it would be invention.
+
+  Mailchimp — owned-channel intelligence:
+    Auth: OAuth 2.0. Mailchimp's quirk is that the API host is per-account, so every
+      sync first calls login.mailchimp.com/oauth2/metadata (which needs the `OAuth`
+      auth scheme, not `Bearer`) to resolve the data centre. Resolved at call time
+      rather than cached in connection_config, so a migrated account cannot leave a
+      stale host behind.
+    Resource: audiences (lists) — usually several → explicit owner selection.
+    Data: /3.0/lists · /3.0/reports · /3.0/lists/{id} · /3.0/lists/{id}/segments.
+      Reports are filtered to the SELECTED audience, so another list's campaigns
+      cannot inflate the numbers.
+    Signals: email_engagement (opens, clicks, click-to-open, unsubscribe rate,
+      bounces) · campaign_performance (ranked by click rate) · audience (+ segments).
+    Judgement: Mailchimp has no scope system — a token can technically send campaigns.
+      The narrower boundary is LaunchMind's: no execute_* method, GET-only, and a
+      READ + RECOMMEND grant. The token is never placed in a query string, where it
+      would land in provider access logs.
+
+  Insight rules (+6):
+    hubspot.weakest_stage_conversion (names the narrowest funnel step, ≥25 at stage) ·
+      volume_quality_mismatch (biggest source ≠ best source) · deal_stage_pileup
+    mailchimp.unsubscribe_pressure (sending shrinks the list faster than it grows) ·
+      opens_without_clicks (subject line worked, content did not) · campaign_spread
+
+  Coverage: Mailchimp joins Performance (owned-channel reach); HubSpot joins
+    Revenue & retention (did the lead become a customer). Existing weights rebalanced
+    rather than adding dimensions, so the approved 6-dimension UX is unchanged.
+
+  Tests (+56, lifecycleProviders.test.ts):
+    Whole-registry consistency now that the set is complete: all 9 providers have an
+      adapter, NONE implements any execute_* method, every adapter shares the canonical
+      first/last step contract, and all 9 have distinct middle steps (no copy-paste
+      progress). Plus a direct registry test that ADAPTER_UNAVAILABLE still works via
+      __resetAdaptersForTest(false) — that path is no longer reachable through a route
+      now that every provider is implemented, but it must keep working for the next one.
+    Per provider: auth, enumeration, real arithmetic (HubSpot 300/30/20/14 stage
+      ladder; Mailchimp 15,000 sent filtered to the selected audience), GET-only,
+      no-token-in-URL, NO_HISTORY, PARTIAL, progress order, insight silence and
+      sensitivity, full journey, 7 recovery paths, workspace isolation, credential-leak
+      checks, and execution refusal.
+
+  Verification:
+    backend vitest: 808/809 — only the pre-existing content.test.ts mock-shape failure
+      remains. (aiPlatform.test.ts, the other long-standing flake, passed this run;
+      it is timing-dependent and still intermittent.)
+    backend tsc --noEmit: 39 errors, identical to baseline, 0 in Step 6 files
+    frontend tsc --noEmit: 0 errors
+    token parity: 23/23 against the approved HTML
+    visual screenshots: BLOCKED — no server / credentials. 17 specs now written
+      (per-provider connected-card baselines for all nine). No baseline PNGs committed.
+
+  PROVIDER API LIMITATIONS:
+    1. HubSpot exposes no lifecycle-stage TIMESTAMP on the contact object by default,
+       so LaunchMind reports stage distribution, not velocity. Velocity would need
+       hs_lifecyclestage_*_date properties requested per stage.
+    2. HubSpot deal-stage IDs are per-pipeline and often custom; labels are reported
+       as returned rather than mapped to a canonical funnel LaunchMind cannot know.
+    3. Mailchimp issues no granular scopes, so provider-side least privilege is not
+       available — enforced internally instead (above).
+    4. Mailchimp OAuth tokens do not expire and no refresh token is issued;
+       refreshAuthorization throws NEEDS_REAUTH rather than pretending to renew.
+
+  NOT started: any execution; scheduled token refresh; RLS verification against live
+    Postgres; committed visual baselines.
+
+Improve Intelligence (internal Phase 2) — Step 7: Non-provider gap closure — COMPLETE (2026-08-08)
+  Closes every remaining non-provider gap from the Phase 2 validation report.
+
+  Migrations (2, additive + idempotent):
+    085 growth_brain_learning_events — the explainability surface behind
+        "View learning log →" (spec §4.3, §16). Workspace-scoped, append-only
+        (REVOKE UPDATE, DELETE), RLS via lm_is_workspace_member. Carries prior/new
+        state, prior/new confidence, evidence, affected recommendation and mission
+        ids, and created_by_type ('system' | 'founder').
+        NOT a rename of learning_events (040): that table is the Marketing Memory
+        ingestion audit, is founder-scoped, and has no notion of a prior belief.
+    086 connection_insights.display_rank — see the ordering bug below.
+
+  1. Learning Log backend — growthBrainLearningService.ts:
+     recordLearningEvent (never throws; a log failure must not roll back an owner's
+     save), listLearningEvents (cursor paginated, batched title resolution),
+     snapshotConfidence. GET /intelligence/learning-log?limit&before&productId.
+     Confidence is recorded ONLY when both sides were measured — a one-sided value
+     renders as a movement from zero, which is the exact claim this surface exists
+     to prevent. coverage.lastLearning now reads from this table and no longer
+     defaults to a hardcoded "+5 points"; it says "No measured change" instead.
+     Write points: sync (system), connect / disconnect / reauthorize (founder),
+     context update and delta update (founder).
+
+  2. Learning Log UI — components/launchmind/LearningLog.tsx:
+     Full history with timestamp, trigger, source, evidence chips, before → after,
+     confidence movement, automatic vs founder-confirmed, linked connection,
+     affected recommendations and missions, and "Load earlier changes".
+     A reference belonging to another tenant is filtered server-side and never
+     rendered, rather than appearing as a dangling link.
+
+  3. Recovery UX — components/launchmind/RecoveryNotice.tsx:
+     One component for all seven cases (PERMISSION_DENIED · WRONG_ACCOUNT ·
+     NEEDS_REAUTH · PARTIAL · NO_HISTORY · PROVIDER_UNAVAILABLE · SYNC_FAILED,
+     plus ADAPTER_UNAVAILABLE). Each states what happened, what LaunchMind can and
+     cannot do as a result, and the next action. NO_HISTORY is styled as healthy,
+     not as a failure (§14.5). Used in the connect modal and on connected cards.
+     recoveryKindFromError() matches the server's machine code.
+
+  4. Action-boundary UI: AuthorityPanel shows the real persisted grant per action
+     with ✓/✗ symbols, plus request / approve / decline. New route
+     POST /connections/:id/permissions/deny-upgrade — denyAuthorityUpgrade existed
+     in the service but had no route, so the permission history could only ever
+     record decisions that WIDENED access.
+
+  5. Accessibility — components/launchmind/Dialog.tsx is now the one modal shell:
+     role="dialog", aria-modal, accessible name, real focus trap (Tab wraps both
+     ways), focus restoration to the exact trigger, Escape where safe
+     (dismissible={false} during an in-flight sync), body scroll lock, visible
+     focus ring. AsyncStatus announces progress. Account selection is a keyboard
+     radiogroup (arrows/Home/End). Progress has role="progressbar" with
+     aria-valuenow. Health is always accompanied by a word or symbol.
+     Growth Brain's three modals and the AuthorityPanel were converted to it.
+
+  6+7. Analytics: all 21 spec §20 events now emitted (was 11). trackIntelligence
+     drops credential-shaped keys, strings over 120 chars, and non-primitives.
+     lib/__tests__/analytics.test.ts (6 tests) proves it.
+
+  8. Responsive: dialog CSS moved to globals.css so real media queries apply —
+     full-screen panels, stacked actions, collapsing rail and account rows below
+     640px. Footer grid is single-column below lg; compact source cards stack their
+     action cluster; the health strip uses auto-fit.
+
+  9. Freshness: computeFreshness() derives from the age of the last sync and is
+     never 'fresh' for a connection needing attention. The stored freshness_status
+     column was written once at sync time and would still read "fresh" a month
+     later. FRESHNESS_LABELS gives owner-facing wording, shown on both card types.
+
+  10. Update Context / Edit Delta now persist, audit, and re-evaluate:
+     recordContextChange() writes audit_logs, appends a learning-log entry, and
+     calls generateRecommendations(). Previously the delta route did none of these.
+
+  BUGS FOUND AND FIXED (all real, all found by observation):
+    a. Nothing read next_initiative / primary_goal / target_window back.
+       intelligenceService selected only audience_confirmed, context_delta,
+       working_style, and took the newest founder_context row — but the delta
+       editor writes the SESSION-LESS row. A saved delta never reached the page it
+       was edited on. Now merges across rows, founder-entered values winning.
+    b. ApiError discarded the server's machine `code`, forcing callers to branch on
+       substrings of the human message — a copy edit silently changed which recovery
+       screen an owner saw.
+    c. connection_insights rows from one sync share created_at exactly (one INSERT),
+       so ORDER BY created_at alone made "latest insight" an arbitrary pick; the
+       connected card, first-insight screen and Growth Brain could disagree.
+       Migration 086 persists the deriver's own ordering. Confidence was rejected as
+       the tiebreak: it scales with sample size, so it measures certainty, not
+       importance.
+    d. MemoryDb kept only the LAST .order() clause, which is what hid (c).
+       It now accumulates clauses and compares numbers numerically.
+    e. /login and /signup called useSearchParams() with no Suspense boundary, so
+       `next build` failed to prerender both. `next dev` worked, which is why it
+       went unnoticed. Both wrapped; build is green.
+    f. playwright.config.ts hardcoded baseURL, so a visual run could not target
+       another port. Now reads PLAYWRIGHT_BASE_URL.
+
+  Verification:
+    backend vitest: 825/826 — only the documented pre-existing content.test.ts
+      mock-shape failure. (aiPlatform.test.ts, the intermittent one, passed.)
+      +17 new in tests/learningLog.test.ts.
+    frontend vitest: 20/20 (6 new analytics-redaction tests).
+    backend tsc --noEmit: 39 errors, identical to baseline, 0 in Step 7 files.
+    frontend tsc --noEmit: 0 errors.  next build: passes (was failing, bug e).
+    token parity: 23/23 executed IN A BROWSER against
+      LaunchMind_Production_UX_July18_2026(21).html.
+    screenshot baselines + 7 new accessibility specs: written (24 specs), SKIPPED —
+      they need TEST_EMAIL / TEST_PASSWORD. No baseline PNGs committed.
+
+  NOTE: the run requested LaunchMind_Production_UX_July18_2026.html. No file with
+  that exact name exists; (21) is the latest approved revision and was used.
 
 ---
 

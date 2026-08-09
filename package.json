@@ -9,7 +9,30 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test": "vitest run",
+    "test:frontend": "vitest run",
+    "test:backend": "npm --prefix backend run test",
+    "test:integration": "npm --prefix backend run test:integration",
+    "test:providers": "npm --prefix backend run test:providers",
+    "test:security": "npm --prefix backend run test:security",
+    "test:isolation": "npm --prefix backend run test:isolation",
+    "test:visual": "playwright test --project=visual",
+    "test:visual:update": "playwright test --project=visual --update-snapshots",
+    "typecheck": "tsc --noEmit",
+    "typecheck:backend": "npm --prefix backend run type-check",
+    "lint:backend": "npm --prefix backend run lint",
+    "build:backend": "npm --prefix backend run build",
+    "verify": "npm run typecheck && npm run typecheck:backend && npm run lint && npm run lint:backend && npm run build:backend && npm run test && npm run test:backend",
+    "test:vault": "npm --prefix backend run test:vault",
+    "oci:check": "node scripts/check-oci-vault.mjs",
+    "staging:up": "supabase start && docker start lm-redis-staging 2>/dev/null || docker run -d --name lm-redis-staging -p 6380:6379 redis:7-alpine",
+    "staging:down": "supabase stop && docker stop lm-redis-staging",
+    "staging:migrate": "bash scripts/staging-migrate.sh",
+    "staging:seed": "node --env-file=.env.staging scripts/staging-seed.mjs",
+    "staging:reset": "node --env-file=.env.staging scripts/staging-reset.mjs",
+    "staging:verify": "node --env-file=.env.staging scripts/staging-verify.mjs",
+    "staging:dev": "bash scripts/staging-frontend.sh"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",
@@ -44,6 +67,7 @@
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
+    "vitest": "^4.1.10",
     "ws": "^8.20.1"
   }
 }

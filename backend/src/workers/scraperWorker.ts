@@ -14,6 +14,28 @@
 import * as cheerio from 'cheerio';
 import { ScrapedAppData, CompetitorApp, ScrapedAppDataSchema } from '../types/scraper';
 
+/**
+ * google-play-scraper's own index.d.ts declares the default export's `sort` and
+ * `collection` as enum VALUES (`sort: sort`) rather than enum objects
+ * (`sort: typeof sort`), so `gplay.sort.RATING` is a type error even though it is
+ * the library's documented API and works at runtime.
+ *
+ * These constants pin the documented values and borrow the library's OWN parameter
+ * types, so the option objects stay fully checked. Using `any` here would have
+ * removed type checking from every field of the scraper's responses, which is the
+ * data the Growth Brain later reasons over.
+ */
+type GplayDefault = Awaited<typeof import('google-play-scraper')>['default'];
+
+type GplaySortValue       = NonNullable<Parameters<GplayDefault['reviews']>[0]>['sort'];
+type GplayCollectionValue = NonNullable<Parameters<GplayDefault['list']>[0]>['collection'];
+
+/** google-play-scraper sort.RATING */
+const GPLAY_SORT_RATING = 3 as unknown as GplaySortValue;
+/** google-play-scraper collection.TOP_FREE */
+const GPLAY_COLLECTION_TOP_FREE = 'TOP_FREE' as unknown as GplayCollectionValue;
+
+
 const APP_STORE_HOST = 'apps.apple.com';
 const PLAY_STORE_HOST = 'play.google.com';
 
@@ -140,7 +162,7 @@ export async function scrapePlayStore(url: string): Promise<ScrapedAppData> {
 
   const [appData, reviewResult] = await Promise.all([
     gplay.app({ appId, lang: 'en', country: 'us' }),
-    gplay.reviews({ appId, lang: 'en', country: 'us', num: 10, sort: gplay.sort.RATING })
+    gplay.reviews({ appId, lang: 'en', country: 'us', num: 10, sort: GPLAY_SORT_RATING })
       .then((r: { data: Array<{ text?: string; score?: number; date?: Date | string }> }) => r.data)
       .catch(() => [] as Array<{ text?: string; score?: number; date?: Date | string }>),
   ]);
@@ -171,7 +193,7 @@ export async function scrapePlayStore(url: string): Promise<ScrapedAppData> {
 }
 
 /** Converts "35.6M" → 35600000, "1.2K" → 1200, plain numbers pass through. */
-function parseMillified(s: string): number {
+function _parseMillified(s: string): number {
   const n = parseFloat(s.replace(/,/g, ''));
   if (isNaN(n)) return 0;
   const suffix = s.trim().slice(-1).toUpperCase();
@@ -243,11 +265,10 @@ export async function scrapeCompetitors(
 ): Promise<CompetitorApp[]> {
 
   if (platform === 'app_store') {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const asScraper = (await import('app-store-scraper')) as any;
-    const search: (opts: Record<string, unknown>) => Promise<Array<{
-      title: string; developer: string; score: number; free: boolean; url: string;
-    }>> = asScraper.search ?? asScraper.default?.search;
+    // Typed via src/types/app-store-scraper.d.ts. The package has no ESM default in
+    // some versions, so both shapes are tolerated — but both are typed.
+    const asScraper = await import('app-store-scraper');
+    const search = asScraper.search ?? asScraper.default?.search;
 
     const results = await search({ term: category, num: 6, country: 'us' });
     return (results ?? []).slice(0, 5).map((r) => ({
@@ -269,7 +290,7 @@ export async function scrapeCompetitors(
     title: string; developer: string; score: number; free: boolean; url: string;
   }>>)({
     category:   gpCategory,
-    collection: gp.collection.TOP_FREE,
+    collection: GPLAY_COLLECTION_TOP_FREE,
     num:        6,
     throttle:   5,
   });

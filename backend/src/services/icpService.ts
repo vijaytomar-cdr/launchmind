@@ -188,24 +188,38 @@ export async function analyseScreenshots(
 
   const sample = screenshots.slice(0, 3);
 
-  const imageBlocks: ImageBlockParam[] = sample.map((src) => {
-    if (src.startsWith('data:')) {
-      const [header, data] = src.split(',');
-      const mediaType = (header.match(/data:([^;]+);/) ?? [])[1] ?? 'image/jpeg';
-      return {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-          data,
-        },
-      };
-    }
-    return {
+  /**
+   * The installed Anthropic SDK (0.21.1) models an image source as base64 ONLY —
+   * `ImageBlockParam.Source` has no URL arm. The previous code built a
+   * `{ type: 'url' }` block for any non-data: input, which never typechecked and
+   * which the API would have rejected at request time.
+   *
+   * Rather than send a block the API cannot accept, URL screenshots are skipped and
+   * reported honestly in the result. Downloading and re-encoding them would be new
+   * behaviour, and inventing an analysis for images that were never sent would be
+   * worse than saying none could be read.
+   */
+  const imageBlocks: ImageBlockParam[] = sample.flatMap((src): ImageBlockParam[] => {
+    if (!src.startsWith('data:')) return [];
+    const [header, data] = src.split(',');
+    const mediaType = (header.match(/data:([^;]+);/) ?? [])[1] ?? 'image/jpeg';
+    return [{
       type: 'image',
-      source: { type: 'url', url: src },
-    };
+      source: {
+        type: 'base64',
+        media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+        data,
+      },
+    }];
   });
+
+  if (imageBlocks.length === 0) {
+    return {
+      summary: 'Screenshots were supplied as links, which LaunchMind cannot read directly. No visual analysis was performed.',
+      tone: 'Unknown',
+      screenshots_analysed: 0,
+    };
+  }
 
   let screenshotText: string;
   try {
@@ -222,7 +236,7 @@ export async function analyseScreenshots(
       },
     ], undefined, 512);
   } catch {
-    return { summary: 'Analysis unavailable', tone: 'Unknown', screenshots_analysed: sample.length };
+    return { summary: 'Analysis unavailable', tone: 'Unknown', screenshots_analysed: imageBlocks.length };
   }
 
   try {
@@ -232,13 +246,13 @@ export async function analyseScreenshots(
       summary: String(parsed.summary ?? ''),
       tone: String(parsed.tone ?? ''),
       primaryColor: parsed.primaryColor ?? undefined,
-      screenshots_analysed: sample.length,
+      screenshots_analysed: imageBlocks.length,
     };
   } catch {
     return {
       summary: screenshotText.slice(0, 300),
       tone: 'Unknown',
-      screenshots_analysed: sample.length,
+      screenshots_analysed: imageBlocks.length,
     };
   }
 }
@@ -287,4 +301,55 @@ export function buildStrategyContext(product: {
   if (lines.length === 0) return '';
 
   return `\n## Enriched Founder Context (use this to make strategy highly specific)\n${lines.map((l) => `- ${l}`).join('\n')}`;
+}
+
+/**
+ * Uses Claude Haiku to infer direct competitors from app context.
+ * Works with 0 reviews — uses category, description, name, and optional founder context.
+ * @param context - App name, category, description, and optional hints
+ * @returns Array of inferred competitor objects (best-effort, never throws)
+ * @security Pure AI inference — no outbound requests to competitor sites.
+ */
+export async function inferCompetitors(context: {
+  appName:             string;
+  category:            string;
+  description:         string;
+  targetUser?:         string;
+  privateDescription?: string;
+}): Promise<Array<{ name: string; websiteUrl?: string; relationship: string; discoveredBy: 'AI' }>> {
+  const { appName, category, description, targetUser, privateDescription } = context;
+  if (!appName && !category && !description) return [];
+
+  const prompt = `You are a competitive intelligence analyst. Identify the top 5-7 direct competitors for this mobile app.
+
+App name: ${appName}
+Category: ${category}
+Description: ${description.slice(0, 600)}${targetUser ? `\nTarget user: ${targetUser}` : ''}${privateDescription ? `\nFounder context: ${privateDescription.slice(0, 300)}` : ''}
+
+Return a JSON array of the 5-7 most direct competitors. Each object must have:
+- "name": company or app name (string)
+- "websiteUrl": main website URL, e.g. "https://thumbtack.com" (string or null)
+- "relationship": one of "Direct marketplace competitor", "Adjacent service provider", "Category leader", "Emerging competitor"
+
+Include well-known platforms even if large. Focus on companies competing for the same customer intent.
+Return ONLY the JSON array with no explanation.`;
+
+  try {
+    const rawText = await callMessages('haiku', [{ role: 'user', content: prompt }]);
+    const match = rawText.match(/\[[\s\S]*\]/);
+    if (!match) return [];
+    const parsed = JSON.parse(match[0]) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return (parsed as Record<string, unknown>[])
+      .slice(0, 7)
+      .map(c => ({
+        name:         String(c['name'] ?? '').trim(),
+        websiteUrl:   c['websiteUrl'] ? String(c['websiteUrl']) : undefined,
+        relationship: String(c['relationship'] ?? 'Direct competitor'),
+        discoveredBy: 'AI' as const,
+      }))
+      .filter(c => c.name.length > 0);
+  } catch {
+    return [];
+  }
 }

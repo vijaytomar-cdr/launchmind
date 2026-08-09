@@ -15,7 +15,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-const ALLOWED_NEXT_PATHS = ['/dashboard', '/reset-password', '/dashboard/products'];
+const ALLOWED_NEXT_PATHS = [
+  '/dashboard',
+  '/reset-password',
+  '/dashboard/products',
+  '/onboarding',
+];
 
 function isSafeNextPath(path: string): boolean {
   if (!path.startsWith('/')) return false;

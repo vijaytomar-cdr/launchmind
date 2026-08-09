@@ -21,7 +21,7 @@ export type LoginMfa = { needsMfa: true; factorId: string };
 
 /**
  * Sign in with email + password server-side.
- * On success: calls redirect('/dashboard') — never returns to caller.
+ * On success: calls redirect(redirectTo) — never returns to caller.
  * On MFA required: returns { needsMfa: true, factorId }.
  * On failure: returns { error: string }.
  */
@@ -32,6 +32,7 @@ export async function signInAction(
 
   const email = (formData.get('email') as string | null) ?? '';
   const password = (formData.get('password') as string | null) ?? '';
+  const redirectTo = (formData.get('redirectTo') as string | null) ?? '/dashboard';
 
   const { error: signInError } = await supabase.auth.signInWithPassword({
     email,
@@ -65,5 +66,5 @@ export async function signInAction(
   // No MFA — flush cookies into the redirect response and navigate.
   // revalidatePath ensures the dashboard layout re-renders with the new session.
   revalidatePath('/', 'layout');
-  redirect('/dashboard');
+  redirect(redirectTo);
 }

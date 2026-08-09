@@ -163,6 +163,22 @@ export default function AnalysisPage() {
             const detectedLogo = result.result?.websiteMeta?.logoUrl as string | undefined;
             if (detectedLogo) sessionStorage.setItem(INTAKE_STORAGE.logoUrl, detectedLogo);
           }
+          // Write resume hint to localStorage for the login page resume card
+          try {
+            const pid = sessionStorage.getItem(INTAKE_STORAGE.productId);
+            const resumeName = (result.result as Record<string, unknown> | undefined)?.name as string | undefined
+              ?? appName
+              ?? 'Your app';
+            if (pid) {
+              localStorage.setItem('lm_resume_hint', JSON.stringify({
+                productName: resumeName,
+                productId: pid,
+                intakeStep: 3,
+                stepLabel: 'Discovery complete',
+                updatedAt: new Date().toISOString(),
+              }));
+            }
+          } catch { /* non-fatal */ }
           router.push('/dashboard/products/new/icp');
         }
 

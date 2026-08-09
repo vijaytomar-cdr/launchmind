@@ -11,7 +11,7 @@ import { callHaiku } from '../../lib/aiPlatform';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin';
 import type { AgentFn } from '../../types/mission';
 
-const CAMPAIGN_DRAFT_SYSTEM = `You are a mobile app campaign strategist.
+const _CAMPAIGN_DRAFT_SYSTEM = `You are a mobile app campaign strategist.
 Given content assets and strategy, draft campaign configuration objects.
 Return a JSON array of campaign drafts, each with:
   channel (string), market (string), hookType (string), copyText (string),
@@ -22,7 +22,7 @@ Return a JSON array of campaign drafts, each with:
  * Returns draft campaign configs for founder approval before any platform API call.
  */
 export const campaignAgent: AgentFn = async (input, context) => {
-  const { contextPkg, founderId, productId } = context;
+  const { contextPkg: _contextPkg, founderId, productId } = context;
 
   await context.log('Campaign agent starting', 'info', { founderId });
 

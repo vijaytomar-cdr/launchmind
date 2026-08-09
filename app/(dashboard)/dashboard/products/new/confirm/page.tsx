@@ -281,7 +281,7 @@ export default function ConfirmPage() {
         <div className="flex items-center gap-2 mb-4">
           <span style={{ fontSize: 14, color: 'var(--sage)' }}>✦</span>
           <p className="font-semibold" style={{ fontSize: 13, color: 'var(--ink)' }}>
-            Strategy preview — what you're about to get
+            Strategy preview — what you&apos;re about to get
           </p>
         </div>
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>

@@ -9,6 +9,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 export default function MfaPage() {
@@ -92,7 +93,27 @@ export default function MfaPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--page)' }}>
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-md">
+        {/* Logo */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 10,
+            marginBottom: 6,
+          }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: 11,
+              background: 'linear-gradient(135deg,#2fd39f,#0b8f69)',
+              display: 'grid', placeItems: 'center',
+              fontWeight: 900, fontSize: 13, color: '#fff',
+              boxShadow: '0 8px 25px rgba(47,211,159,.25)',
+            }}>LM</div>
+            <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-0.03em', color: 'var(--ink)' }}>
+              Launch<span style={{ color: 'var(--sage)' }}>Mind</span>
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink3)' }}>Your AI marketing operating system</div>
+        </div>
+
         <div
           className="rounded-[10px] p-8"
           style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
@@ -126,13 +147,13 @@ export default function MfaPage() {
                 ref={el => { inputRefs.current[i] = el; }}
                 type="text"
                 inputMode="numeric"
-                maxLength={2}
+                maxLength={1}
                 value={d}
                 autoFocus={i === 0}
                 onChange={e => handleChange(i, e.target.value)}
                 onKeyDown={e => handleKeyDown(i, e)}
                 onPaste={handlePaste}
-                className="text-center font-mono outline-none rounded-[6px] transition-colors"
+                className="text-center font-mono outline-none rounded-[9px] transition-colors"
                 style={{
                   width: 44,
                   height: 48,
@@ -160,17 +181,17 @@ export default function MfaPage() {
             type="button"
             onClick={handleVerify}
             disabled={loading || code.length !== 6}
-            className="w-full rounded-[6px] py-2.5 font-medium mt-4 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
+            className="w-full rounded-[10px] py-2.5 font-medium mt-4 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
             style={{ background: 'var(--sage)', color: '#fff', fontSize: 13 }}
           >
             {loading ? 'Verifying…' : 'Verify →'}
           </button>
 
-          <p className="text-center mt-4">
-            <a href="#" style={{ fontSize: 12, color: 'var(--ink3)' }}>
-              Having trouble? Use a backup code
-            </a>
-          </p>
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <Link href="/login" style={{ fontSize: 12, color: 'var(--ink3)', textDecoration: 'none' }}>
+              ← Back to login
+            </Link>
+          </div>
         </div>
       </div>
     </div>

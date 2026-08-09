@@ -15,7 +15,7 @@ Return a JSON array of content assets, each with:
   channel (string), market (string), hook (string), body (string), cta (string),
   charCount (number), hookType (string: question|stat|story|social_proof).`;
 
-const SCORE_SYSTEM = `You are a marketing copy evaluator. Score each content asset:
+const _SCORE_SYSTEM = `You are a marketing copy evaluator. Score each content asset:
   relevanceScore (0-100), clarityScore (0-100), urgencyScore (0-100), overallScore (0-100).
   Return JSON array with the same items plus scores. Keep all original fields.`;
 

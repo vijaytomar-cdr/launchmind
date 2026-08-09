@@ -82,5 +82,7 @@ export async function getScrapeJob(
   jobId: string
 ): Promise<Job<ScrapeJobData, ScrapeJobResult> | null> {
   const queue = getScrapeQueue();
-  return Job.fromId(queue, jobId);
+  // BullMQ resolves to undefined for a missing job; this function's contract is
+  // `| null`, and callers branch on null.
+  return (await Job.fromId<ScrapeJobData, ScrapeJobResult>(queue, jobId)) ?? null;
 }

@@ -122,7 +122,7 @@ export function FeedbackWidget() {
               style={{ borderBottom: '1px solid var(--border)' }}
             >
               <p className="font-display font-semibold" style={{ fontSize: 14, color: 'var(--ink)' }}>
-                How's it going?
+                How&apos;s it going?
               </p>
               <button
                 onClick={handleClose}

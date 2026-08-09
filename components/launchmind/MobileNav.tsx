@@ -31,7 +31,7 @@ export function MobileNav() {
     <nav
       className="grid lg:hidden fixed bottom-0 inset-x-0 z-40 border-t"
       style={{
-        background: 'var(--sidebar)',
+        background: 'linear-gradient(180deg,var(--nav),#10201c)',
         borderColor: 'rgba(255,255,255,0.1)',
         paddingBottom: 'env(safe-area-inset-bottom)',
         gridTemplateColumns: 'repeat(5, 1fr)',

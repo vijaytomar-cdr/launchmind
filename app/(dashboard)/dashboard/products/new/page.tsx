@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import { IntakeSteps } from '@/components/launchmind/IntakeSteps';
@@ -25,6 +25,7 @@ function detectPlatform(url: string): 'play_store' | 'app_store' | 'website' | n
 
 export default function NewProductPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
 
   const [token, setToken] = useState('');
@@ -40,7 +41,18 @@ export default function NewProductPage() {
     });
     // Clear any previous intake state
     Object.values(INTAKE_STORAGE).forEach((k) => sessionStorage.removeItem(k));
-  }, []);
+    // Clear any stale resume hint when starting a fresh intake
+    try { localStorage.removeItem('lm_resume_hint'); } catch { /* ignore */ }
+
+    // Pre-fill URL from ?url= param (e.g. passed from homepage hero input or modal)
+    const incomingUrl = searchParams.get('url');
+    if (incomingUrl) {
+      const platform = detectPlatform(incomingUrl);
+      if (platform === 'play_store') setPlayStoreUrl(incomingUrl);
+      else if (platform === 'app_store') setAppStoreUrl(incomingUrl);
+      else setWebsiteUrl(incomingUrl);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasStoreUrl = !!(playStoreUrl.trim() || appStoreUrl.trim());
   const playPlatform = detectPlatform(playStoreUrl);

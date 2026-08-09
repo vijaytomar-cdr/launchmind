@@ -1,441 +1,634 @@
 /**
  * @file app/page.tsx
- * @description Public marketing landing page + waitlist signup.
- *   Matches launchmind-homepage.html reference exactly.
- *   Authenticated users redirected to /dashboard via middleware.
- * @security No auth required. Email submitted to POST /waitlist.
+ * @description Cinematic marketing homepage.
+ *   Matches LaunchMind_Production_UX_July18_2026(15).html — lm-cinematic-scroll spec.
+ *   Sections: hero · promise · discovery · report · teach · brain · morning · trust · evolution · final.
+ * @security No auth required. Public page — visible to all. Authenticated users who click "Log in" are redirected to /dashboard by middleware.
  */
 
 'use client';
 
-import { useState } from 'react';
-import {
-  IconSparkles, IconRoute, IconBrandWhatsapp, IconFileAnalytics,
-  IconRefresh, IconBook, IconLock, IconKey, IconShield, IconEyeOff,
-  IconChevronRight, IconCheck, IconX, IconPlayerPlay, IconShieldCheck,
-  IconCreditCard, IconWorld, IconQuote, IconChartBar,
-  IconBrandGooglePlay,
-} from '@tabler/icons-react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { MeetAICMOModal } from '@/components/launchmind/MeetAICMOModal';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+// ── Reveal hook ───────────────────────────────────────────────────────────────
 
-const s: Record<string, React.CSSProperties> = {
-  navLogo:    { fontFamily: 'var(--font-display, Syne, sans-serif)', fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: '#fff', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 0 },
-  sectionLabel: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 500, letterSpacing: '.06em', textTransform: 'uppercase' as const, color: 'var(--sage)', marginBottom: 14 },
-  h2:         { fontFamily: 'Syne, sans-serif', fontSize: 'clamp(28px,4vw,42px)', fontWeight: 700, color: 'var(--ink)', letterSpacing: '-0.025em', lineHeight: 1.15, marginBottom: 14 },
-  heroBadge:  { display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 99, background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.28)', color: '#34d399', marginBottom: 28 },
+function useReveal() {
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('cr-visible'); }),
+      { threshold: 0.1, rootMargin: '0px 0px -60px 0px' },
+    );
+    document.querySelectorAll('.cr').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+}
+
+// ── Shared constants ──────────────────────────────────────────────────────────
+
+const SAGE   = '#2ed39f';
+const DARK   = '#07120f';
+const DARKER = '#050d0b';
+
+const eyebrow: React.CSSProperties = {
+  display: 'inline-block', fontSize: 10, letterSpacing: '0.2em', color: '#54e0b5',
+  fontWeight: 900, marginBottom: 22, textTransform: 'uppercase',
 };
 
-export default function LandingPage() {
-  const [email, setEmail] = useState('');
-  const [ctaEmail, setCtaEmail] = useState('');
-  const [status, setStatus] = useState<'idle'|'loading'|'success'|'duplicate'|'error'>('idle');
-  const [ctaStatus, setCtaStatus] = useState<'idle'|'loading'|'success'|'duplicate'|'error'>('idle');
+const scene: React.CSSProperties = {
+  minHeight: '100vh', position: 'relative', display: 'grid', alignContent: 'center',
+  padding: 'clamp(100px,10vh,140px) max(28px,calc((100vw - 1120px)/2)) clamp(80px,8vh,120px)',
+  overflow: 'hidden',
+};
 
-  async function submit(em: string, setter: typeof setStatus) {
-    if (!em) return;
-    setter('loading');
-    try {
-      const res = await fetch(`${API_URL}/waitlist`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: em.trim().toLowerCase(), source: 'landing' }),
-      });
-      setter(res.status === 201 ? 'success' : res.status === 409 ? 'duplicate' : 'error');
-    } catch { setter('error'); }
+const cineH2: React.CSSProperties = {
+  fontSize: 'clamp(38px,5vw,68px)', lineHeight: 1.04, letterSpacing: '-0.045em',
+  margin: 0, fontWeight: 800,
+};
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function LandingPage() {
+  const router = useRouter();
+  const [showModal, setShowModal] = useState(false);
+  const [heroUrl,   setHeroUrl]   = useState('');
+  const [bottomUrl, setBottomUrl] = useState('https://apps.apple.com/us/app/allignx/id6621240477');
+
+  useReveal();
+
+  function goAnalyze(u: string) {
+    const q = u.trim();
+    router.push(q ? `/signup?url=${encodeURIComponent(q)}` : '/signup');
   }
 
   return (
-    <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 15, color: 'var(--ink)', background: 'var(--page)', lineHeight: 1.6 }}>
+    <div style={{
+      fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      background: DARK, color: '#eef8f4', lineHeight: 1.6, fontSize: 15,
+    }}>
+      {/* Reveal styles */}
+      <style>{`
+        .cr { opacity: 0; transform: translateY(42px); transition: opacity .9s ease, transform .9s cubic-bezier(.22,.75,.23,1); }
+        .cr-visible { opacity: 1 !important; transform: none !important; }
+        @keyframes scrollCue { 0%{transform:scaleY(.2);transform-origin:top} 50%{transform:scaleY(1);transform-origin:top} 100%{transform:scaleY(.2);transform-origin:bottom} }
+        @keyframes loadBar { from{width:0} }
+        @keyframes brainDash { to{stroke-dashoffset:-100} }
+        @keyframes brainPulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+      `}</style>
+
+      {/* Meet Your AI CMO modal */}
+      {showModal && (
+        <MeetAICMOModal
+          onClose={() => setShowModal(false)}
+          onStart={() => {
+            const q = heroUrl.trim();
+            router.push(q ? `/signup?url=${encodeURIComponent(q)}` : '/signup');
+          }}
+        />
+      )}
 
       {/* ── NAV ── */}
-      <nav style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(40,48,74,0.97)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '0 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 60 }}>
-        <a href="#" style={s.navLogo}>Launch<span style={{ color: '#34d399' }}>Mind</span></a>
-        <div style={{ display: 'flex', gap: 28, alignItems: 'center' }}>
-          {['How it works', 'Features', 'Markets', 'Pricing', 'Security'].map((l, i) => (
-            <a key={l} href={['#how-it-works','#features','#markets','#pricing','#security'][i]} style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>{l}</a>
+      <header style={{
+        height: 72, position: 'fixed', top: 0, left: 0, right: 0, zIndex: 80,
+        display: 'flex', alignItems: 'center',
+        padding: '0 max(24px,calc((100vw - 1240px)/2))',
+        background: 'rgba(7,18,15,0.72)', backdropFilter: 'blur(18px)',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff' }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: 11,
+            background: 'linear-gradient(135deg,#2fd39f,#0b8f69)',
+            display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 14, color: '#fff',
+            boxShadow: '0 8px 25px rgba(47,211,159,.25)',
+          }}>LM</div>
+          <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-0.03em' }}>
+            Launch<span style={{ color: '#4adbb0' }}>Mind</span>
+          </span>
+        </div>
+
+        <nav style={{ display: 'flex', gap: 28, margin: '0 auto' }}>
+          {[
+            ['How it works','#cinePromise'],['Growth Brain','#cineBrain'],
+            ['Trust','#cineTrust'],['Journey','#cineEvolution'],
+          ].map(([label, href]) => (
+            <a key={label} href={href} style={{
+              color: '#9db2aa', textDecoration: 'none', fontSize: 12, fontWeight: 700,
+            }}>{label}</a>
           ))}
+        </nav>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a href="/login" style={{
+            height: 38, display: 'flex', alignItems: 'center', padding: '0 16px',
+            borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)',
+            background: 'transparent', color: '#c7d8d2', fontSize: 13, fontWeight: 600,
+            textDecoration: 'none', cursor: 'pointer',
+          }}>Log in</a>
+          <button onClick={() => router.push('/signup')} style={{
+            height: 38, padding: '0 16px', borderRadius: 8, border: 0,
+            background: SAGE, color: '#04110d', fontSize: 13, fontWeight: 900, cursor: 'pointer',
+          }}>Analyze my product</button>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <a href="/login" style={{ padding: '7px 16px', borderRadius: 6, fontSize: 12, fontWeight: 500, border: '1px solid rgba(255,255,255,0.18)', background: 'transparent', color: 'rgba(255,255,255,0.75)', textDecoration: 'none' }}>Sign in</a>
-          <a href="/signup" style={{ padding: '7px 18px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: '#059669', color: '#fff', textDecoration: 'none' }}>Start free →</a>
-        </div>
-      </nav>
+      </header>
 
       {/* ── HERO ── */}
-      <div style={{ background: 'var(--sidebar)', padding: '100px 40px 0', textAlign: 'center', overflow: 'hidden' }}>
-        <div style={s.heroBadge}><IconSparkles size={13} />AI marketing OS for app founders</div>
-        <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 'clamp(40px,6vw,68px)', fontWeight: 800, color: '#fff', letterSpacing: '-0.03em', lineHeight: 1.08, maxWidth: 800, margin: '0 auto 22px' }}>
-          Stop guessing how to<br /><span style={{ color: '#34d399' }}>market your app</span>
-        </h1>
-        <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', maxWidth: 560, margin: '0 auto 36px', lineHeight: 1.65, fontWeight: 300 }}>
-          Paste your App Store or Play Store URL. LaunchMind builds your strategy, writes your content, runs your campaigns, and tells you what's working — every week.
-        </p>
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-          <a href="/signup" style={{ padding: '14px 32px', borderRadius: 8, fontSize: 15, fontWeight: 500, background: '#059669', color: '#fff', textDecoration: 'none' }}>Start free — no card required →</a>
-          <button style={{ padding: '13px 24px', borderRadius: 8, fontSize: 14, fontWeight: 500, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
-            <IconPlayerPlay size={14} />See it in 90 seconds
-          </button>
-        </div>
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.28)', marginBottom: 32 }}>Free forever · No credit card · 3-minute setup</div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 48 }}>
-          <span style={{ fontSize: 11, padding: '4px 12px', borderRadius: 99, fontWeight: 500, background: 'rgba(5,150,105,0.12)', border: '1px solid rgba(5,150,105,0.28)', color: '#34d399' }}>🇺🇸 USA · Stripe · USD</span>
-          <span style={{ fontSize: 11, padding: '4px 12px', borderRadius: 99, fontWeight: 500, background: 'rgba(217,119,6,0.12)', border: '1px solid rgba(217,119,6,0.28)', color: '#fbbf24' }}>🇮🇳 India · Razorpay · INR</span>
+      <section id="homeStory" style={{
+        ...scene,
+        textAlign: 'center', placeItems: 'center',
+        background: 'radial-gradient(circle at 50% 36%,rgba(40,212,157,.16),transparent 32%),linear-gradient(180deg,#07120f,#0a1713)',
+      }}>
+        {/* Orbs */}
+        <div style={{ position:'absolute', width:380, height:380, borderRadius:'50%', filter:'blur(3px)', opacity:.55, background:'radial-gradient(circle,rgba(54,214,165,.28),transparent 65%)', top:'4%', right:'6%' }} />
+        <div style={{ position:'absolute', width:320, height:320, borderRadius:'50%', filter:'blur(3px)', opacity:.55, background:'radial-gradient(circle,rgba(87,102,236,.18),transparent 65%)', bottom:'4%', left:'5%' }} />
+
+        <div className="cr" style={{ maxWidth: 980, position: 'relative', zIndex: 2 }}>
+          <span style={eyebrow}>YOUR PRODUCT ALREADY HAS A BUILDER</span>
+          <h1 style={{
+            fontSize: 'clamp(48px,7.4vw,96px)', lineHeight: 0.98,
+            letterSpacing: '-0.06em', margin: 0, fontWeight: 800,
+          }}>
+            You built the product.<br />
+            <em style={{ fontStyle: 'normal', color: '#44d8aa' }}>We&apos;ll build the marketing engine.</em>
+          </h1>
+          <p style={{ maxWidth: 700, margin: '26px auto 0', color: '#a8bbb4', fontSize: 17, lineHeight: 1.65 }}>
+            No prompt engineering. No agency dependency. No marketing degree.
+            Just an AI CMO that studies your business before asking for access.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, margin: '34px 0 15px' }}>
+            <button onClick={() => router.push('/signup')} style={{
+              border: 0, background: SAGE, color: '#04110d', borderRadius: 9,
+              padding: '15px 22px', fontWeight: 900, cursor: 'pointer',
+              boxShadow: '0 14px 40px rgba(46,211,159,.2)', fontSize: 15,
+              fontFamily: 'inherit',
+            }}>Analyze my product</button>
+            <button onClick={() => setShowModal(true)} style={{
+              border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.04)',
+              color: '#eaf4f0', borderRadius: 9, padding: '14px 20px',
+              fontWeight: 750, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit',
+            }}>Meet Your AI CMO →</button>
+          </div>
+          <small style={{ color: '#789087', fontSize: 12 }}>
+            Public data first · No credit card · No account connections
+          </small>
         </div>
 
-        {/* Mini dashboard mockup */}
-        <div style={{ background: '#f2f3f6', borderRadius: '12px 12px 0 0', border: '1px solid rgba(255,255,255,0.10)', borderBottom: 'none', maxWidth: 900, margin: '0 auto', overflow: 'hidden', display: 'flex', height: 360 }}>
-          <div style={{ width: 160, flexShrink: 0, background: '#28304a', borderRight: '1px solid rgba(255,255,255,0.07)', padding: '14px 10px' }}>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: '#fff', marginBottom: 18, padding: '0 4px' }}>Launch<span style={{ color: '#34d399' }}>Mind</span></div>
-            {['Dashboard','Strategy','Campaigns','Weekly brief','Channels','Settings'].map((item, i) => (
-              <div key={item} style={{ padding: '5px 8px', borderRadius: 5, fontSize: 10, marginBottom: 2, ...(i === 0 ? { background: 'rgba(5,150,105,0.18)', border: '1px solid rgba(52,211,153,0.28)', color: '#34d399' } : { color: 'rgba(255,255,255,0.35)' }) }}>{item}</div>
+        {/* Scroll cue */}
+        <div style={{
+          position: 'absolute', bottom: 26, display: 'grid', gap: 9,
+          placeItems: 'center', color: '#698178', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase',
+        }}>
+          <span>Scroll through the founder journey</span>
+          <i style={{ width: 1, height: 36, background: 'linear-gradient(#38d4a3,transparent)', animation: 'scrollCue 1.8s infinite', display:'block' }} />
+        </div>
+      </section>
+
+      {/* ── PROMISE ── */}
+      <section id="cinePromise" style={{ ...scene, background: '#eef4f1', color: '#12231d' }}>
+        <div className="cr" style={{ maxWidth: 850, textAlign: 'center', margin: '0 auto 55px' }}>
+          <span style={{ ...eyebrow, color: '#0b8f69' }}>IN ABOUT 40 SECONDS</span>
+          <h2 style={cineH2}>LaunchMind does the homework<br />founders never have time to finish.</h2>
+          <p style={{ maxWidth: 700, margin: '26px auto 0', color: '#66766f', fontSize: 17, lineHeight: 1.65 }}>
+            Paste one public product link. Watch LaunchMind turn scattered market signals into a useful first point of view—before signup.
+          </p>
+        </div>
+        <div className="cr" style={{
+          width: 'min(780px,100%)', margin: 'auto', background: '#fff',
+          border: '1px solid #dce6e1', borderRadius: 22, padding: 24,
+          boxShadow: '0 35px 80px rgba(17,51,40,.12)',
+        }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            background: '#f3f6f4', border: '1px solid #dce4df', borderRadius: 11,
+            padding: 14, color: '#718078',
+          }}>
+            <span style={{ fontSize: 13 }}>apps.apple.com/your-product</span>
+            <span style={{
+              background: '#1ac08c', color: '#fff', padding: '8px 12px',
+              borderRadius: 7, fontWeight: 800, fontSize: 13,
+            }}>Analyze</span>
+          </div>
+          <div style={{ height: 5, background: '#e8efeb', borderRadius: 999, margin: '20px 0', overflow: 'hidden' }}>
+            <div style={{
+              width: '92%', height: '100%',
+              background: 'linear-gradient(90deg,#21b987,#56dfb6)',
+              animation: 'loadBar 2.5s ease both', borderRadius: 999,
+            }} />
+          </div>
+          <div style={{ display: 'grid', gap: 5 }}>
+            {[
+              { label: 'Reading product page',         sub: 'Positioning, screenshots, pricing', done: true },
+              { label: 'Reading customer language',    sub: 'Reviews, objections, outcomes',     done: true },
+              { label: 'Finding competitors',          sub: 'Direct, indirect, attention rivals', done: true },
+              { label: 'Building Growth Brain',        sub: 'Facts, assumptions, confidence',    done: true },
+              { label: 'Prioritizing first opportunity', sub: 'Evidence-weighted recommendation', done: false },
+            ].map(({ label, sub, done }) => (
+              <div key={label} style={{
+                display: 'grid', gridTemplateColumns: '28px 1fr', alignItems: 'center',
+                gap: 10, padding: 11, borderRadius: 9,
+                background: done ? 'transparent' : '#f3faf7',
+              }}>
+                <span style={{
+                  width: 24, height: 24, borderRadius: '50%', display: 'grid',
+                  placeItems: 'center', background: '#dcf7ed', color: '#0d8e68',
+                  fontSize: 11, fontWeight: 900,
+                }}>
+                  {done ? '✓' : '●'}
+                </span>
+                <div>
+                  <b style={{ fontSize: 13, fontWeight: 700, color: '#13231d' }}>{label}</b>
+                  <small style={{ display: 'block', color: '#87938d', fontSize: 11, marginTop: 1 }}>{sub}</small>
+                </div>
+              </div>
             ))}
           </div>
-          <div style={{ flex: 1, padding: '14px 16px', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: 600, color: '#1b1f2e' }}>Dashboard</div>
-              <div style={{ display: 'flex', gap: 5 }}>
-                <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 99, background: 'rgba(5,150,105,0.10)', border: '1px solid rgba(5,150,105,0.25)', color: '#059669' }}>Sunday brief delivered</span>
-                <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 99, background: 'rgba(79,70,229,0.10)', border: '1px solid rgba(79,70,229,0.22)', color: '#4f46e5' }}>2 active</span>
-              </div>
+        </div>
+      </section>
+
+      {/* ── DISCOVERY ── */}
+      <section style={{ ...scene, background: '#f8fbf9', color: '#13231d' }}>
+        <div className="cr" style={{ maxWidth: 850, textAlign: 'center', margin: '0 auto 55px' }}>
+          <span style={{ ...eyebrow, color: '#0b8f69' }}>DISCOVERY</span>
+          <h2 style={cineH2}>It does not tell you it understands.<br />It shows you what it found.</h2>
+        </div>
+        <div className="cr" style={{
+          width: 'min(980px,100%)', margin: 'auto', background: '#fff',
+          border: '1px solid #dee7e2', borderRadius: 22, padding: 25,
+          boxShadow: '0 32px 80px rgba(17,51,40,.1)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 13, borderBottom: '1px solid #e6ece8', paddingBottom: 20 }}>
+            <div style={{
+              width: 50, height: 50, borderRadius: 14, background: '#132820',
+              color: '#51dfb2', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 22,
+            }}>A</div>
+            <div style={{ flex: 1 }}>
+              <small style={{ color: '#0b8f69', fontSize: 9, fontWeight: 850, letterSpacing: '0.12em' }}>PRODUCT FOUND</small>
+              <h3 style={{ fontSize: 22, margin: '3px 0', fontWeight: 800 }}>AllignX</h3>
+              <p style={{ color: '#77847e', margin: 0, fontSize: 13 }}>Home-services marketplace · Arizona</p>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 5, marginBottom: 8 }}>
-              {[['Total installs','847','#059669'],['Avg CPI','$1.82','#1b1f2e'],['Campaigns','6','#4f46e5'],['Top channel','WhatsApp','#1b1f2e']].map(([l,v,c]) => (
-                <div key={l} style={{ background: '#eceef3', borderRadius: 5, padding: '7px 8px' }}>
-                  <div style={{ fontSize: 7, color: '#9ca4be', marginBottom: 2, textTransform: 'uppercase' }}>{l}</div>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: c }}>{v}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 7 }}>
-              <div style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.07)', borderRadius: 7, padding: '8px 9px' }}>
-                <div style={{ fontSize: 8, fontWeight: 500, color: '#1b1f2e', marginBottom: 5 }}>Products</div>
-                {[['ClientPulse','+34%','#059669'],['Allignx','+18%','#4f46e5']].map(([n,d,c]) => (
-                  <div key={n} style={{ background: '#eceef3', borderRadius: 3, padding: '4px 6px', marginBottom: 3, display: 'flex', justifyContent: 'space-between', fontSize: 7 }}>
-                    <span>{n}</span><span style={{ color: c }}>{d}</span>
-                  </div>
-                ))}
+            <strong style={{ fontSize: 28, color: '#0b8f69', textAlign: 'right' }}>
+              92%<small style={{ display: 'block', color: '#7e8b85', fontSize: 11, fontWeight: 500 }}>match</small>
+            </strong>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 18 }}>
+            {[
+              { label: 'CATEGORY',          value: 'Local services marketplace', note: 'Fact' },
+              { label: 'PRIMARY AUDIENCE',   value: 'Busy homeowners',           note: 'Inference · 84%' },
+              { label: 'COMPETITORS',        value: 'Thumbtack · Angi · Taskrabbit', note: '12 mapped' },
+              { label: 'LIKELY CONSTRAINT',  value: 'Provider density before demand', note: 'Inference · 78%' },
+            ].map(({ label, value, note }) => (
+              <div key={label} style={{ background: '#f5f8f6', borderRadius: 12, padding: 17 }}>
+                <small style={{ color: '#89958f', fontSize: 9, fontWeight: 850, letterSpacing: '0.12em' }}>{label}</small>
+                <b style={{ display: 'block', fontSize: 15, margin: '7px 0', fontWeight: 700 }}>{value}</b>
+                <span style={{ fontSize: 10, color: '#0b8f69' }}>{note}</span>
               </div>
-              <div style={{ background: '#fff', border: '1px solid rgba(5,150,105,0.28)', borderRadius: 7, padding: '8px 9px' }}>
-                <div style={{ fontSize: 8, fontWeight: 500, color: '#1b1f2e', marginBottom: 5, display: 'flex', justifyContent: 'space-between' }}>
-                  Sunday brief <span style={{ fontSize: 7, padding: '1px 5px', borderRadius: 99, background: 'rgba(5,150,105,0.10)', border: '1px solid rgba(5,150,105,0.25)', color: '#059669' }}>New</span>
-                </div>
-                {[['#059669','Worked','WhatsApp 68% of installs'],['#dc2626','Kill','LinkedIn — $48 CPI'],['#4f46e5','Next','3 actions ready to approve']].map(([c,l,t]) => (
-                  <div key={l} style={{ borderLeft: `2px solid ${c}`, paddingLeft: 5, marginBottom: 4 }}>
-                    <div style={{ fontSize: 7, color: '#9ca4be' }}>{l}</div>
-                    <div style={{ fontSize: 7, color: '#1b1f2e', lineHeight: 1.4 }}>{t}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.07)', borderRadius: 7, overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', background: '#eceef3', padding: '4px 7px', fontSize: 7, color: '#9ca4be' }}>
-                {['Channel','Market','Installs','Status'].map(h => <div key={h}>{h}</div>)}
-              </div>
-              {[['WhatsApp','India','423','#d97706','Scaling','#059669'],['Google UAC','India','198','#d97706','Active','#059669'],['Meta Ads','USA','156','#059669','Active','#059669']].map(([ch,mk,ins,mc,st,sc]) => (
-                <div key={ch} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '5px 7px', borderTop: '1px solid rgba(0,0,0,0.05)', fontSize: 7, color: '#626880', alignItems: 'center' }}>
-                  <div>{ch}</div>
-                  <div><span style={{ fontSize: 7, padding: '1px 5px', borderRadius: 99, background: `${mc}1a`, color: mc }}>{mk}</span></div>
-                  <div style={{ color: '#059669', fontWeight: 500 }}>{ins}</div>
-                  <div><span style={{ fontSize: 7, padding: '1px 5px', borderRadius: 99, background: 'rgba(5,150,105,0.10)', color: sc }}>{st}</span></div>
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* ── LOGOS ── */}
-      <div style={{ background: 'var(--surface)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '28px 40px', textAlign: 'center' }}>
-        <div style={{ fontSize: 12, color: 'var(--ink3)', marginBottom: 18 }}>Trusted by founders launching on App Store and Play Store in 🇺🇸 USA and 🇮🇳 India</div>
-        <div style={{ display: 'flex', gap: 40, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
-          {['ClientPulse','Allignx','TutorFlow','HealthTrackr','PayEase','StudyMate'].map(n => (
-            <span key={n} style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink3)', padding: '6px 18px', borderRadius: 99, border: '1px solid var(--border)', background: 'var(--raised)' }}>{n}</span>
+      {/* ── REPORT ── */}
+      <section style={{
+        ...scene,
+        background: 'radial-gradient(circle at 50% 50%,rgba(55,213,165,.12),transparent 38%),#081411',
+      }}>
+        <div className="cr" style={{
+          width: 'min(950px,100%)', margin: 'auto',
+          border: '1px solid rgba(255,255,255,.13)',
+          background: 'rgba(18,36,30,.78)', backdropFilter: 'blur(18px)',
+          borderRadius: 26, padding: 38, boxShadow: '0 40px 100px rgba(0,0,0,.3)',
+        }}>
+          <div style={{ color: '#53deb3', fontSize: 10, fontWeight: 900, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+            YOUR FIRST GROWTH REPORT
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid rgba(255,255,255,.1)', padding: '22px 0' }}>
+            <span style={{ color: '#9bb0a8', fontSize: 14 }}>Launch readiness</span>
+            <strong style={{ fontSize: 54, fontWeight: 800 }}>
+              82<small style={{ fontSize: 17, color: '#789087', fontWeight: 400 }}>/100</small>
+            </strong>
+          </div>
+          <div style={{ padding: '34px 0' }}>
+            <small style={{ color: '#53deb3', fontWeight: 850, fontSize: 10, letterSpacing: '0.12em' }}>BIGGEST OPPORTUNITY</small>
+            <h2 style={{ fontSize: 'clamp(34px,4.5vw,58px)', lineHeight: 1.07, letterSpacing: '-0.04em', margin: '12px 0', fontWeight: 800 }}>
+              Your positioning sells breadth.<br />Your strongest proof is local reliability.
+            </h2>
+            <p style={{ color: '#a9bab4', maxWidth: 760, lineHeight: 1.65, fontSize: 15 }}>
+              Start with one high-intent market and make serviceability the promise before increasing acquisition spend.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['38 reviews', '12 competitors', 'Store metadata', 'Website copy'].map((chip) => (
+              <span key={chip} style={{ padding: '8px 10px', borderRadius: 999, background: 'rgba(255,255,255,.07)', fontSize: 10 }}>{chip}</span>
+            ))}
+            <b style={{ padding: '8px 10px', borderRadius: 999, background: 'rgba(47,211,159,.15)', color: '#53deb3', fontSize: 10 }}>92% confidence</b>
+          </div>
+          <div style={{ marginTop: 22, color: '#758b83', fontSize: 10 }}>
+            Value delivered before signup, integrations, or a sales call.
+          </div>
+        </div>
+      </section>
+
+      {/* ── TEACH ── */}
+      <section style={{ ...scene, background: '#f2f6f4', color: '#13231d' }}>
+        <div className="cr" style={{ maxWidth: 850, textAlign: 'center', margin: '0 auto 55px' }}>
+          <span style={{ ...eyebrow, color: '#0b8f69' }}>TEACH YOUR AI CMO</span>
+          <h2 style={cineH2}>LaunchMind already knows the public story.<br />Now teach it what only the founder knows.</h2>
+        </div>
+        <div className="cr" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: 'min(850px,100%)', margin: '0 auto 26px' }}>
+          {[
+            {
+              label: 'ALREADY DISCOVERED',
+              items: ['✓ Product', '✓ Competitors', '✓ Reviews', '✓ Pricing', '✓ Positioning'],
+              green: true,
+            },
+            {
+              label: 'ONLY YOU CAN TEACH',
+              items: ['Next launch', 'Private strategy', 'Success target', 'Non-negotiables', 'Approval boundaries'],
+              green: false,
+            },
+          ].map(({ label, items, green }) => (
+            <div key={label} style={{
+              background: '#fff', border: '1px solid #dfe7e2', borderRadius: 16, padding: 22,
+              display: 'grid', gap: 10,
+            }}>
+              <small style={{ color: '#89958f', fontWeight: 850, fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase' }}>{label}</small>
+              {items.map((item) => (
+                <span key={item} style={{ fontWeight: 700, color: green ? '#14795e' : '#13231d', fontSize: 14 }}>{item}</span>
+              ))}
+            </div>
           ))}
         </div>
-      </div>
+        <div className="cr" style={{ width: 'min(740px,100%)', margin: 'auto', display: 'grid', gap: 12 }}>
+          {[
+            { role: 'LAUNCHMIND', text: 'What changes in the next 30–90 days?', type: 'ai' },
+            { role: 'FOUNDER', text: 'We are launching AI workflows and moving toward team accounts.', type: 'founder' },
+            { role: 'GROWTH BRAIN UPDATED', text: 'Then the strategy should test team coordination—not only individual productivity.', type: 'update' },
+          ].map(({ role, text, type }) => (
+            <div key={role} style={{
+              maxWidth: '74%', padding: '16px 18px', borderRadius: 18, lineHeight: 1.5, fontSize: 14,
+              marginLeft: type === 'founder' ? 'auto' : undefined,
+              background: type === 'ai' ? '#122820' : type === 'update' ? '#dff5ed' : '#fff',
+              color: type === 'ai' ? '#eaf5f1' : type === 'update' ? '#12352a' : '#13231d',
+              border: type === 'founder' ? '1px solid #dce5e0' : undefined,
+              borderBottomLeftRadius: type !== 'founder' ? 4 : undefined,
+              borderBottomRightRadius: type === 'founder' ? 4 : undefined,
+            }}>
+              <small style={{ display: 'block', fontSize: 8, fontWeight: 900, marginBottom: 6, letterSpacing: '0.12em', color: type === 'ai' ? '#54dab3' : type === 'update' ? '#0b8f69' : '#89958f' }}>{role}</small>
+              {text}
+            </div>
+          ))}
+        </div>
+      </section>
 
-      {/* ── HOW IT WORKS ── */}
-      <section id="how-it-works" style={{ background: 'var(--surface)', padding: '80px 40px' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto' }}>
-          <div style={{ ...s.sectionLabel }}><IconRoute size={13} />How it works</div>
-          <h2 style={s.h2}>From URL to live campaigns<br />in under 10 minutes</h2>
-          <p style={{ fontSize: 16, color: 'var(--ink2)', maxWidth: 560, lineHeight: 1.65, fontWeight: 300, marginBottom: 48 }}>LaunchMind does the work a fractional CMO would — but in minutes, not months.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
+      {/* ── BRAIN ── */}
+      <section id="cineBrain" style={{ ...scene, background: DARK }}>
+        <div className="cr" style={{ maxWidth: 850, textAlign: 'center', margin: '0 auto 55px' }}>
+          <span style={eyebrow}>THE GROWTH BRAIN</span>
+          <h2 style={{ ...cineH2, color: '#eef8f4' }}>A living model of your business—<br />not a folder of prompts.</h2>
+          <p style={{ maxWidth: 700, margin: '26px auto 0', color: '#94aaa2', fontSize: 17, lineHeight: 1.65 }}>
+            Every node has evidence, confidence, history, and a reason it changed.
+          </p>
+        </div>
+        <div className="cr" style={{ width: 'min(920px,100%)', height: 400, margin: 'auto', position: 'relative' }}>
+          {/* SVG connection lines */}
+          <svg viewBox="0 0 920 400" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+            {/* Cross-connections between outer nodes */}
+            <path d="M184 85 L460 58" stroke="rgba(52,211,153,0.2)" strokeWidth="1" fill="none" />
+            <path d="M736 85 L756 277" stroke="rgba(52,211,153,0.2)" strokeWidth="1" fill="none" />
+            <path d="M164 277 L460 342" stroke="rgba(52,211,153,0.2)" strokeWidth="1" fill="none" />
+            <g stroke="rgba(74,221,177,.38)" strokeWidth="2" fill="none" strokeDasharray="8 8" style={{ animation: 'brainDash 10s linear infinite' }}>
+              <path d="M460 200 L184 90" /><path d="M460 200 L460 55" /><path d="M460 200 L736 90" />
+              <path d="M460 200 L164 310" /><path d="M460 200 L460 345" /><path d="M460 200 L756 310" />
+            </g>
+          </svg>
+          {/* Nodes */}
+          {[
+            { key:'center', label:'Growth Brain', sub:'91% confidence', pos:{ left:'50%',top:'50%',transform:'translate(-50%,-50%)',width:190,height:100,borderColor:'#44d8aa',boxShadow:'0 0 80px rgba(53,214,165,.2)' } },
+            { key:'n1', label:'Audience', sub:'Founder-confirmed',    pos:{ left:'8%',   top:'7%'  } },
+            { key:'n2', label:'Positioning', sub:'Public evidence',    pos:{ left:'50%',  top:'0',   transform:'translateX(-50%)' } },
+            { key:'n3', label:'Competitors', sub:'12 mapped',          pos:{ right:'7%',  top:'7%'  } },
+            { key:'n4', label:'Roadmap', sub:'Private context',        pos:{ left:'5%',   bottom:'8%' } },
+            { key:'n5', label:'Goals', sub:'Target + timeframe',       pos:{ left:'50%',  bottom:'0', transform:'translateX(-50%)' } },
+            { key:'n6', label:'Boundaries', sub:'Explicit control',    pos:{ right:'5%',  bottom:'8%' } },
+          ].map(({ key, label, sub, pos }) => (
+            <div key={key} style={{
+              position: 'absolute', width: 150, minHeight: 74,
+              border: '1px solid rgba(74,221,177,.25)', background: 'rgba(16,38,31,.88)',
+              borderRadius: 16, display: 'grid', placeContent: 'center',
+              textAlign: 'center', boxShadow: '0 0 50px rgba(45,210,159,.08)',
+              ...pos,
+            }}>
+              <b style={{ fontSize: key === 'center' ? 18 : 14, color: key === 'center' ? '#51deb3' : '#eef8f4', fontWeight: 800 }}>{label}</b>
+              <span style={{ color: '#7e9a91', fontSize: 9, marginTop: 5 }}>{sub}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── MORNING ── */}
+      <section style={{ ...scene, background: '#f1f5f3', color: '#14231e' }}>
+        <div className="cr" style={{
+          width: 'min(1040px,100%)', margin: 'auto', background: '#fff',
+          border: '1px solid #dde6e1', borderRadius: 24, padding: 30,
+          boxShadow: '0 35px 80px rgba(17,51,40,.1)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e3e9e5', paddingBottom: 24 }}>
+            <div>
+              <small style={{ color: '#0b8f69', fontWeight: 850, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase' }}>MONDAY · 8:00 AM</small>
+              <h2 style={{ fontSize: 38, margin: '7px 0', fontWeight: 800, letterSpacing: '-0.03em' }}>Good morning, Adam.</h2>
+              <p style={{ color: '#73817a', margin: 0, fontSize: 14 }}>Here is what changed—and what deserves your attention.</p>
+            </div>
+            <span style={{
+              height: 'max-content', background: '#e3f7f0', color: '#0b8f69',
+              padding: '8px 10px', borderRadius: 999, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap',
+            }}>Growth Brain 94%</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1fr', gap: 12, marginTop: 22 }}>
             {[
-              { n: '01', icon: '🔍', title: 'Discover', body: 'Paste your App Store or Play Store URL. LaunchMind scrapes your app, reads 50+ reviews, and identifies your top 5 competitors — automatically.' },
-              { n: '02', icon: '✅', title: 'Confirm ICP', body: 'Review the pre-built ICP brief — your target user, pain points, competitor gaps, and recommended markets. Edit anything. Confirm in one click.' },
-              { n: '03', icon: '🚀', title: 'Execute', body: 'Get a 30/60/90 day channel strategy plus all content assets: WhatsApp broadcasts, App Store copy, email sequences, Meta and Google ad copy.' },
-              { n: '04', icon: '📊', title: 'Learn', body: 'Every Sunday, LaunchMind tells you what worked, what to kill, and generates next week\'s assets. The system gets smarter every week.' },
-            ].map((step, i) => (
-              <div key={step.n} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 24, position: 'relative' }}>
-                {i < 3 && (
-                  <div style={{ position: 'absolute', right: -12, top: '50%', transform: 'translateY(-50%)', width: 24, height: 24, borderRadius: '50%', background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
-                    <IconChevronRight size={12} color="var(--ink3)" />
-                  </div>
+              { label: 'SINCE YOUR LAST VISIT', title: 'Competitors increased team-plan pricing.', body: 'This strengthens your opportunity to lead with simpler team adoption.', recommended: false },
+              { label: 'MY RECOMMENDATION',      title: 'Approve a team-workflow positioning test.', body: 'One landing-page variant. No campaign spend. Review results in seven days.', recommended: true  },
+              { label: 'WHY NOW',               title: 'Customer language is shifting.',            body: 'Mentions of "team," "workflow," and "handoff" rose across recent reviews.', recommended: false },
+            ].map(({ label, title, body, recommended }) => (
+              <article key={label} style={{
+                background: recommended ? '#10271f' : '#f5f8f6',
+                borderRadius: 14, padding: 20,
+                color: recommended ? '#fff' : '#13231d',
+              }}>
+                <small style={{ color: recommended ? '#53deb3' : '#0b8f69', fontWeight: 850, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</small>
+                <h3 style={{ fontSize: 15, margin: '10px 0', fontWeight: 700, lineHeight: 1.3 }}>{title}</h3>
+                <p style={{ color: recommended ? '#9eb2aa' : '#7d8983', lineHeight: 1.5, fontSize: 12, margin: 0 }}>{body}</p>
+                {recommended && (
+                  <button style={{
+                    marginTop: 14, border: 0, background: SAGE, color: DARK,
+                    padding: '10px', borderRadius: 8, fontWeight: 800, cursor: 'pointer',
+                    fontSize: 12, fontFamily: 'inherit', width: '100%',
+                  }}>Review recommendation →</button>
                 )}
-                <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 500, background: 'var(--sidebar)', color: '#34d399', border: '1px solid rgba(52,211,153,0.28)', marginBottom: 14 }}>{step.n}</div>
-                <div style={{ fontSize: 22, marginBottom: 10 }}>{step.icon}</div>
-                <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>{step.title}</h3>
-                <p style={{ fontSize: 13, color: 'var(--ink2)', lineHeight: 1.6 }}>{step.body}</p>
-              </div>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── FEATURES ── */}
-      <section id="features" style={{ background: 'var(--sidebar)', padding: '80px 40px' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto' }}>
-          <div style={{ ...s.sectionLabel, color: '#34d399' }}><IconSparkles size={13} />Features</div>
-          <h2 style={{ ...s.h2, color: 'rgba(255,255,255,0.9)' }}>Everything a CMO does.<br />At $49 a month.</h2>
-          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.45)', maxWidth: 560, lineHeight: 1.65, fontWeight: 300, marginBottom: 48 }}>No agency fees. No guesswork. No more posting and hoping.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-            {[
-              { Icon: IconBrandGooglePlay, color: '#34d399', bg: 'rgba(5,150,105,0.18)', br: 'rgba(52,211,153,0.25)', title: 'App Store intelligence', body: 'Scrapes your listing, competitor reviews, and keyword rankings. Surfaces the exact copy signals your real users use.', tags: ['App Store','Play Store','ASO'] },
-              { Icon: IconRoute, color: '#a5b4fc', bg: 'rgba(79,70,229,0.18)', br: 'rgba(79,70,229,0.25)', title: '30/60/90 day strategy', body: 'Not generic advice — a specific channel plan built on your ICP, your competitor gaps, and what\'s worked for similar apps.', tags: ['USA plan','India plan','Playbook AI'] },
-              { Icon: IconBrandWhatsapp, color: '#fbbf24', bg: 'rgba(217,119,6,0.18)', br: 'rgba(217,119,6,0.25)', title: 'Multi-channel campaigns', body: 'WhatsApp broadcasts, Meta Ads, Google UAC, LinkedIn, email — all generated, approved, and posted through LaunchMind.', tags: ['WhatsApp','Meta','Google UAC'] },
-              { Icon: IconFileAnalytics, color: '#34d399', bg: 'rgba(5,150,105,0.18)', br: 'rgba(52,211,153,0.25)', title: 'Sunday weekly brief', body: 'Every Sunday evening: what worked, what to kill, and next week\'s assets ready to approve. One tap to deploy.', tags: ['Every Sunday','Auto-generated'] },
-              { Icon: IconRefresh, color: '#a5b4fc', bg: 'rgba(79,70,229,0.18)', br: 'rgba(79,70,229,0.25)', title: 'Weekly retargeting', body: 'Every Tuesday, underperforming campaigns are paused and winners are scaled — automatically. You approve before anything changes.', tags: ['Auto-retarget','Spend caps'] },
-              { Icon: IconBook, color: '#fbbf24', bg: 'rgba(217,119,6,0.18)', br: 'rgba(217,119,6,0.25)', title: 'Playbook intelligence', body: 'Learns from every campaign across all founders (anonymised). Knows what works for apps like yours in your market.', tags: ['Anonymous','Compounding'] },
-            ].map(f => (
-              <div key={f.title} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 22 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', background: f.bg, border: `1px solid ${f.br}` }}>
-                  <f.Icon size={18} color={f.color} />
-                </div>
-                <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.88)', marginBottom: 8 }}>{f.title}</h3>
-                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.42)', lineHeight: 1.6, marginBottom: 12 }}>{f.body}</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                  {f.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.35)' }}>{t}</span>)}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* ── TRUST ── */}
+      <section id="cineTrust" style={{ ...scene, background: '#fff', color: '#13231d' }}>
+        <div className="cr" style={{ maxWidth: 850, textAlign: 'center', margin: '0 auto 55px' }}>
+          <span style={{ ...eyebrow, color: '#0b8f69' }}>ACCESS IS EARNED</span>
+          <h2 style={cineH2}>A real CMO earns responsibility.<br />LaunchMind should too.</h2>
+          <p style={{ maxWidth: 700, margin: '26px auto 0', color: '#6e7b75', fontSize: 17, lineHeight: 1.65 }}>
+            Observation, editing, publishing, launching, and spending are separate permissions—never one &quot;connect everything&quot; request.
+          </p>
+        </div>
+        <div className="cr" style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8, width: 'min(1040px,100%)', margin: 'auto' }}>
+          {[
+            { n: '1', label: 'DAY 1',          title: 'Public intelligence',  body: 'No account access.', on: true  },
+            { n: '2', label: 'FOUNDER SESSION', title: 'Alignment',            body: 'Goals and boundaries.', on: true  },
+            { n: '3', label: 'WHEN USEFUL',     title: 'Read-only intelligence', body: 'Revenue and performance.', on: false },
+            { n: '4', label: 'AFTER APPROVAL',  title: 'Execution',            body: 'Action-specific access.', on: false },
+            { n: '5', label: 'ONLY IF EARNED',  title: 'Autonomy',             body: 'Budgets and policies.', on: false },
+          ].map(({ n, label, title, body, on }) => (
+            <article key={n} style={{
+              border: '1px solid', borderColor: on ? '#10271f' : '#dfe6e2',
+              borderRadius: 15, padding: 20, minHeight: 190,
+              background: on ? '#10271f' : '#fff',
+              color: on ? '#fff' : '#13231d',
+            }}>
+              <b style={{
+                width: 31, height: 31, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                background: on ? SAGE : '#edf2ef', color: on ? DARK : '#13231d',
+                fontSize: 14, fontWeight: 900,
+              }}>{n}</b>
+              <small style={{ display: 'block', color: on ? '#9eb2aa' : '#8b9791', fontSize: 8, margin: '19px 0 7px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</small>
+              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{title}</h3>
+              <p style={{ color: on ? '#9eb2aa' : '#85918b', fontSize: 11, lineHeight: 1.5, margin: 0 }}>{body}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      {/* ── PLAYBOOK ── */}
-      <section style={{ background: 'var(--surface)', padding: '80px 40px' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 48, alignItems: 'center' }}>
-          <div>
-            <div style={s.sectionLabel}><IconChartBar size={13} />Playbook intelligence</div>
-            <h2 style={s.h2}>Gets smarter with<br />every launch</h2>
-            <p style={{ fontSize: 16, color: 'var(--ink2)', lineHeight: 1.65, fontWeight: 300, marginBottom: 28 }}>Every campaign run through LaunchMind — anonymised — enriches a shared intelligence layer. After 100 app launches, the recommendations aren't generic. They're grounded in what actually works.</p>
-            {[
-              { num: '+31%', label: 'Average install increase from WhatsApp pain-first hooks in India', source: 'From 47 productivity apps, weeks 2–4' },
-              { num: '2.3×', label: 'Google UAC outperforms Meta for Indian app installs under ₹500/mo', source: 'From 31 utility apps, India market' },
-              { num: '+18%', label: 'App Store subtitle rewrite improves install conversion rate', source: 'Average across 89 apps, weeks 3–5' },
-            ].map(stat => (
-              <div key={stat.num} style={{ background: 'var(--raised)', borderRadius: 10, padding: 20, marginBottom: 12 }}>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 32, fontWeight: 700, color: 'var(--sage)', marginBottom: 4 }}>{stat.num}</div>
-                <div style={{ fontSize: 13, color: 'var(--ink2)' }}>{stat.label}</div>
-                <div style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 2 }}>{stat.source}</div>
-              </div>
-            ))}
-          </div>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink2)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '.05em' }}>Live playbook signals</div>
-            {[
-              { label: 'WhatsApp · pain-first · India', delta: '+34% installs', meta: 'Productivity apps · $1–5/mo · week 3 · 47 similar apps', dc: 'var(--sage)' },
-              { label: 'Google UAC · India', delta: 'CPI $0.82', meta: 'CRM apps · $3–12/mo · week 2 · 31 similar apps', dc: 'var(--sage)' },
-              { label: 'ASO subtitle rewrite · USA', delta: '+18% conversion', meta: 'All categories · week 4 · 89 apps', dc: 'var(--sage)' },
-              { label: 'LinkedIn · USA · B2B apps', delta: 'High CPI', meta: 'Most solo founders pause by week 2 · 44 apps', dc: 'var(--danger)' },
-              { label: 'Meta lookalike · USA', delta: '2.1× vs broad', meta: 'Based on existing user list · productivity · 22 apps', dc: 'var(--sage)' },
-            ].map(sig => (
-              <div key={sig.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--ink)' }}>{sig.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: sig.dc }}>{sig.delta}</span>
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--ink3)' }}>{sig.meta}</div>
-              </div>
-            ))}
-            <div style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 10 }}>All signals are anonymised. No founder data is ever identifiable.</div>
-          </div>
+      {/* ── EVOLUTION ── */}
+      <section id="cineEvolution" style={{ ...scene, background: '#0a1713' }}>
+        <div className="cr" style={{ maxWidth: 850, textAlign: 'center', margin: '0 auto 55px' }}>
+          <span style={eyebrow}>YOUR AI CMO EVOLVES WITH YOU</span>
+          <h2 style={{ ...cineH2, color: '#eef8f4' }}>It begins with understanding.<br />It compounds through learning.</h2>
         </div>
-      </section>
-
-      {/* ── MARKETS ── */}
-      <section id="markets" style={{ background: 'var(--page)', padding: '80px 40px' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ ...s.sectionLabel, justifyContent: 'center' }}><IconWorld size={13} />Built for two markets</div>
-          <h2 style={{ ...s.h2, textAlign: 'center', maxWidth: 600, margin: '0 auto 14px' }}>USA and India — from day one</h2>
-          <p style={{ fontSize: 16, color: 'var(--ink2)', maxWidth: 560, margin: '0 auto 36px', lineHeight: 1.65, fontWeight: 300 }}>Not adapted for India. Built for India alongside USA — with separate strategy, separate channels, and separate pricing that founders there actually pay.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {[
-              { flag: '🇺🇸', title: 'USA market', border: 'var(--sage)', body: 'LinkedIn, Product Hunt, cold email to Sun Belt professionals, App Store Search Ads, Meta Ads with lookalike audiences. English copy optimised for US pain points.', chips: [['Stripe · USD','usa'],['Meta Ads','usa'],['Google UAC','usa'],['LinkedIn','usa'],['Product Hunt','usa'],['App Store Search Ads','usa']] },
-              { flag: '🇮🇳', title: 'India market', border: 'var(--amber)', body: 'WhatsApp broadcasts, Google UAC, YouTube Shorts scripts, founder community groups. Hindi + English copy. Pricing in INR that Indian founders actually find affordable.', chips: [['Razorpay · UPI · INR','india'],['WhatsApp Business','india'],['Google UAC','india'],['YouTube Shorts','india'],['Hindi + English','india']] },
-            ].map(m => (
-              <div key={m.title} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderTop: `3px solid ${m.border}`, borderRadius: 10, padding: 28, textAlign: 'left' }}>
-                <div style={{ fontSize: 28, marginBottom: 12 }}>{m.flag}</div>
-                <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 600, color: 'var(--ink)', marginBottom: 6 }}>{m.title}</h3>
-                <p style={{ fontSize: 13, color: 'var(--ink2)', lineHeight: 1.6, marginBottom: 14 }}>{m.body}</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {m.chips.map(([l, t]) => (
-                    <span key={l} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 99, fontWeight: 500, ...(t === 'usa' ? { background: 'var(--sage-d)', border: '1px solid var(--sage-b)', color: '#046c4e' } : { background: 'var(--amber-d)', border: '1px solid var(--amber-b)', color: '#92400e' }) }}>{l}</span>
-                  ))}
-                </div>
+        <div className="cr" style={{
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr auto 1fr auto 1fr auto 1fr auto 1fr auto',
+          alignItems: 'center', gap: 10, width: 'min(1040px,100%)', margin: 'auto',
+        }}>
+          {[
+            { b: 'Day 1', span: 'Discovery' },
+            null,
+            { b: 'Session 1', span: 'Founder alignment' },
+            null,
+            { b: 'Week 1', span: 'Morning Brief' },
+            null,
+            { b: 'When ready', span: 'Campaign learning' },
+            null,
+            { b: 'As you grow', span: 'Customer + revenue learning' },
+            null,
+            { b: 'Earned', span: 'AI CMO' },
+          ].map((item, i) =>
+            item === null ? (
+              <i key={i} style={{ height: 1, background: 'linear-gradient(90deg,#2dd19d,#315046)' }} />
+            ) : (
+              <div key={i} style={{ textAlign: 'center' }}>
+                <b style={{ display: 'block', color: '#52deb3', fontSize: 11, fontWeight: 700 }}>{item.b}</b>
+                <span style={{ display: 'block', fontSize: 12, marginTop: 7, color: '#eef8f4' }}>{item.span}</span>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── TESTIMONIALS ── */}
-      <section style={{ background: 'var(--surface)', padding: '80px 40px' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ ...s.sectionLabel, justifyContent: 'center' }}><IconQuote size={13} />From founders</div>
-          <h2 style={{ ...s.h2, textAlign: 'center', margin: '0 auto 40px' }}>Built by a founder,<br />for founders</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
-            {[
-              { stars: '★★★★★', text: '"I was the product, engineer, and CMO at once. LaunchMind gave me back 10 hours a week and tripled my India installs in 6 weeks."', initials: 'VK', name: 'Vijay K.', role: 'ClientPulse · Phoenix, USA', bg: 'var(--sage-d)', br: 'var(--sage-b)', c: 'var(--sage)' },
-              { stars: '★★★★★', text: '"The Sunday brief is the one thing I actually look forward to. It tells me exactly what to do on Monday — no guessing, no agency invoices."', initials: 'RA', name: 'Rahul A.', role: 'StudyMate · Bangalore, India', bg: 'var(--indigo-d)', br: 'var(--indigo-b)', c: 'var(--indigo)' },
-              { stars: '★★★★★', text: '"The WhatsApp broadcast it generated converted better than anything I\'d written myself. ₹999 a month for a fractional CMO is insane value."', initials: 'PS', name: 'Priya S.', role: 'HealthTrackr · Mumbai, India', bg: 'var(--amber-d)', br: 'var(--amber-b)', c: 'var(--amber)' },
-            ].map(t => (
-              <div key={t.name} style={{ background: 'var(--page)', border: '1px solid var(--border)', borderRadius: 10, padding: 22, textAlign: 'left' }}>
-                <div style={{ color: 'var(--amber)', fontSize: 13, marginBottom: 10, letterSpacing: 1 }}>{t.stars}</div>
-                <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.7, marginBottom: 14, fontStyle: 'italic' }}>{t.text}</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, background: t.bg, border: `1px solid ${t.br}`, color: t.c }}>{t.initials}</div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{t.name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--ink3)' }}>{t.role}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── PRICING ── */}
-      <section id="pricing" style={{ background: 'var(--page)', padding: '80px 40px' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ ...s.sectionLabel, justifyContent: 'center' }}><IconCreditCard size={13} />Pricing</div>
-          <h2 style={{ ...s.h2, textAlign: 'center', margin: '0 auto 14px' }}>Start free. Scale as you grow.</h2>
-          <p style={{ fontSize: 16, color: 'var(--ink2)', maxWidth: 560, margin: '0 auto 40px', lineHeight: 1.65, fontWeight: 300 }}>No agency fees. No long-term contracts. Cancel anytime.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
-            {[
-              { name: 'Free', price: '$0', period: 'forever', inr: '₹0 / month', featured: false, features: [['yes','1 product'],['yes','Store scrape + ICP brief'],['yes','Strategy preview'],['yes','3 content assets'],['no','No campaign posting'],['no','No weekly brief']], cta: 'Start free', primary: false },
-              { name: 'Solo', price: '$19', period: '/ month', inr: '₹999 / month in India', featured: false, features: [['yes','1 product'],['yes','Full 30/60/90 strategy'],['yes','Unlimited content assets'],['yes','Sunday weekly brief'],['yes','1 channel (WA or email)'],['no','No Meta / Google Ads']], cta: 'Start Solo', primary: false },
-              { name: 'Builder', price: '$49', period: '/ month', inr: '₹2,499 / month in India', featured: true, features: [['yes','3 products'],['yes','All channels connected'],['yes','Meta + Google Ads posting'],['yes','USA + India dual strategy'],['yes','Weekly retargeting loop'],['yes','Competitor re-scrape']], cta: 'Start Builder', primary: true },
-              { name: 'Studio', price: '$99', period: '/ month', inr: '₹4,999 / month in India', featured: false, features: [['yes','10 products'],['yes','Everything in Builder'],['yes','Client workspaces'],['yes','White-label briefs'],['yes','Brand voice training'],['yes','API access']], cta: 'Start Studio', primary: false },
-            ].map(tier => (
-              <div key={tier.name} style={{ background: 'var(--surface)', border: tier.featured ? '1.5px solid var(--indigo-b)' : '1px solid var(--border)', borderRadius: 10, padding: 22, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                {tier.featured && <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', fontSize: 10, fontWeight: 500, padding: '3px 12px', borderRadius: 99, background: 'var(--indigo)', color: '#fff', whiteSpace: 'nowrap' }}>Most popular</div>}
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>{tier.name}</div>
-                <div style={{ fontSize: 30, fontWeight: 500, color: tier.featured ? 'var(--indigo)' : 'var(--ink)', lineHeight: 1, marginBottom: 2 }}>{tier.price}</div>
-                <div style={{ fontSize: 12, color: 'var(--ink3)' }}>{tier.period}</div>
-                <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 2, marginBottom: 16 }}>{tier.inr}</div>
-                <div style={{ height: 1, background: 'var(--border)', margin: '0 0 14px' }} />
-                {tier.features.map(([t, l]) => (
-                  <div key={l} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 12, color: t === 'yes' ? 'var(--ink2)' : 'var(--ink3)', marginBottom: 7 }}>
-                    {t === 'yes' ? <IconCheck size={13} color="var(--sage)" style={{ flexShrink: 0, marginTop: 1 }} /> : <IconX size={13} style={{ flexShrink: 0, marginTop: 1 }} />}
-                    {l}
-                  </div>
-                ))}
-                <div style={{ marginTop: 'auto', paddingTop: 16 }}>
-                  <a href="/signup" style={{ display: 'block', width: '100%', padding: 10, borderRadius: 6, fontSize: 13, fontWeight: 500, textAlign: 'center', textDecoration: 'none', ...(tier.primary ? { background: 'var(--sage)', color: '#fff', border: 'none' } : { border: '1px solid var(--border2)', color: 'var(--ink2)', background: 'transparent' }) }}>{tier.cta}</a>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ textAlign: 'center', marginTop: 20, fontSize: 12, color: 'var(--ink3)' }}>
-            All plans include a 14-day trial of the full Builder tier. No credit card required.<br />
-            Token top-up packs: 500 tokens ($9 / ₹749) · 1,500 ($19 / ₹1,499) · 5,000 ($49 / ₹3,999)
-          </div>
-        </div>
-      </section>
-
-      {/* ── SECURITY ── */}
-      <section id="security" style={{ background: 'var(--sidebar)', padding: '60px 40px', textAlign: 'center' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto' }}>
-          <div style={{ ...s.sectionLabel, color: '#34d399', justifyContent: 'center' }}><IconShieldCheck size={13} />Security</div>
-          <h2 style={{ ...s.h2, color: '#fff', textAlign: 'center' }}>Your ad accounts are safe with us</h2>
-          <p style={{ color: 'rgba(255,255,255,0.45)', maxWidth: 520, margin: '0 auto 36px', fontSize: 15, fontWeight: 300, lineHeight: 1.65 }}>Connecting your Meta and Google accounts is a big deal. We built the security infrastructure before the product features.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, textAlign: 'left' }}>
-            {[
-              { Icon: IconLock, title: 'OAuth only', desc: 'We never ask for your password. OAuth tokens are your credentials — and we never store them in plaintext.' },
-              { Icon: IconKey, title: 'AES-256 + AWS KMS', desc: 'Every OAuth token is encrypted with AES-256. The encryption key lives in AWS KMS — never in the same database.' },
-              { Icon: IconShield, title: 'Campaign scope only', desc: 'We request the minimum permissions needed: campaign management only. Never billing, never account admin, never personal data.' },
-              { Icon: IconEyeOff, title: 'Spend caps enforced', desc: 'You set a weekly spend cap per platform. LaunchMind enforces it server-side — it can never be overridden by anyone.' },
-            ].map(sec => (
-              <div key={sec.title} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 18 }}>
-                <sec.Icon size={20} color="#34d399" style={{ marginBottom: 10 }} />
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.88)', marginBottom: 5 }}>{sec.title}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.38)', lineHeight: 1.55 }}>{sec.desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA ── */}
-      <section style={{ background: 'var(--surface)', padding: '80px 40px', textAlign: 'center' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto' }}>
-          <div style={{ marginBottom: 8 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 500, padding: '2px 9px', borderRadius: 99, background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.28)', color: '#059669' }}>
-              <IconSparkles size={11} />Free to start · No card required
-            </span>
-          </div>
-          <h2 style={{ ...s.h2, textAlign: 'center', maxWidth: 600, margin: '0 auto 14px' }}>Ready to stop guessing?</h2>
-          <p style={{ fontSize: 16, color: 'var(--ink2)', maxWidth: 460, margin: '0 auto 32px', fontWeight: 300 }}>Paste your App Store URL and see your ICP brief, competitor gaps, and first strategy in under 3 minutes.</p>
-          {ctaStatus === 'success' ? (
-            <div style={{ maxWidth: 460, margin: '0 auto 12px', background: 'var(--sage-d)', border: '1px solid var(--sage-b)', borderRadius: 8, padding: '14px 20px', color: 'var(--sage)', fontWeight: 500 }}>You're on the list! We'll email you when early access opens.</div>
-          ) : (
-            <form onSubmit={e => { e.preventDefault(); submit(ctaEmail, setCtaStatus); }} style={{ display: 'flex', gap: 8, maxWidth: 460, margin: '0 auto 12px' }}>
-              <input
-                type="email"
-                placeholder="founder@yourapp.com"
-                value={ctaEmail}
-                onChange={e => setCtaEmail(e.target.value)}
-                required
-                style={{ flex: 1, padding: '12px 16px', borderRadius: 6, border: '1px solid var(--border2)', background: 'var(--raised)', color: 'var(--ink)', fontSize: 14, outline: 'none' }}
-              />
-              <button type="submit" style={{ padding: '12px 24px', borderRadius: 6, fontSize: 14, fontWeight: 500, border: 'none', background: 'var(--sage)', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                {ctaStatus === 'loading' ? 'Joining…' : 'Join waitlist →'}
-              </button>
-            </form>
+            )
           )}
-          {ctaStatus === 'duplicate' && <p style={{ fontSize: 12, color: 'var(--amber)' }}>Already on the list — we'll be in touch!</p>}
-          {ctaStatus === 'error' && <p style={{ fontSize: 12, color: 'var(--danger)' }}>Something went wrong. Please try again.</p>}
-          <div style={{ fontSize: 12, color: 'var(--ink3)', marginBottom: 14 }}>Already have an account? <a href="/login" style={{ color: 'var(--sage)', textDecoration: 'none' }}>Sign in →</a></div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 99, background: 'var(--sage-d)', border: '1px solid var(--sage-b)', color: '#046c4e' }}>🇺🇸 USA · Stripe</span>
-            <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 99, background: 'var(--amber-d)', border: '1px solid var(--amber-b)', color: '#92400e' }}>🇮🇳 India · Razorpay · UPI</span>
+        </div>
+
+        {/* Share proof */}
+        <div className="cr" style={{
+          marginTop: 80, border: '1px solid rgba(255,255,255,.12)', borderRadius: 20, padding: 26,
+          display: 'grid', gridTemplateColumns: '1fr 320px', gap: 30, alignItems: 'center',
+          background: 'rgba(255,255,255,.03)', width: 'min(1040px,100%)', margin: '80px auto 0',
+        }}>
+          <div>
+            <small style={{ color: '#52deb3', fontWeight: 850, fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase' }}>BUILT-IN GROWTH LOOP</small>
+            <h3 style={{ fontSize: 28, margin: '10px 0', fontWeight: 800, lineHeight: 1.2 }}>Founders share insights about themselves—not software.</h3>
+            <p style={{ color: '#8fa59d', lineHeight: 1.6, fontSize: 14 }}>
+              Turn your readiness score, Growth Brain confidence, and biggest opportunity into a founder-controlled share card with a referral link.
+            </p>
           </div>
+          <div style={{ background: '#fff', color: '#13231d', borderRadius: 16, padding: 20, display: 'grid', gap: 8 }}>
+            <span style={{ fontSize: 10, color: '#718078' }}>LaunchMind Growth Report</span>
+            <strong style={{ fontSize: 42, color: '#0b8f69', fontWeight: 800 }}>82<small style={{ fontSize: 14, color: '#6d7888', fontWeight: 400 }}>/100</small></strong>
+            <b style={{ fontSize: 14, fontWeight: 700 }}>7 opportunities discovered</b>
+            <em style={{ fontSize: 10, color: '#87938d', fontStyle: 'normal' }}>Example · You choose what is public</em>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FINAL CTA ── */}
+      <section style={{
+        ...scene,
+        textAlign: 'center', placeItems: 'center',
+        background: 'radial-gradient(circle at 50% 40%,rgba(47,211,159,.18),transparent 35%),#07120f',
+      }}>
+        <div className="cr" style={{ maxWidth: 760 }}>
+          <span style={eyebrow}>MEET YOUR AI CMO</span>
+          <h2 style={{ ...cineH2, color: '#eef8f4' }}>You are one product link away from<br />meeting your AI CMO.</h2>
+          <p style={{ maxWidth: 700, margin: '26px auto 0', color: '#a8bbb4', fontSize: 17, lineHeight: 1.65 }}>
+            Paste a public product URL. Get a useful first finding before you decide whether to create an account.
+          </p>
+          <div style={{
+            display: 'flex', maxWidth: 760, margin: '32px auto 14px',
+            background: '#fff', padding: 6, borderRadius: 12,
+          }}>
+            <input
+              type="url"
+              value={bottomUrl}
+              onChange={(e) => setBottomUrl(e.target.value)}
+              placeholder="https://apps.apple.com/us/app/your-app"
+              style={{
+                flex: 1, border: 0, padding: '0 14px', fontSize: 13, outline: 'none',
+                borderRadius: 8, color: '#13231d', background: 'transparent', fontFamily: 'inherit',
+              }}
+            />
+            <button
+              onClick={() => goAnalyze(bottomUrl)}
+              style={{
+                border: 0, background: SAGE, color: DARK, borderRadius: 8,
+                padding: '12px 18px', fontWeight: 900, cursor: 'pointer',
+                fontSize: 14, fontFamily: 'inherit',
+                boxShadow: '0 14px 40px rgba(46,211,159,.2)',
+              }}
+            >Analyze my product →</button>
+          </div>
+          <small style={{ color: '#789087', fontSize: 12 }}>
+            No credit card · Public data only · You control what happens next
+          </small>
         </div>
       </section>
 
       {/* ── FOOTER ── */}
-      <footer style={{ background: 'var(--sidebar)', padding: '48px 40px 28px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ maxWidth: 1040, margin: '0 auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 40, marginBottom: 40 }}>
-            <div>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 12 }}>Launch<span style={{ color: '#34d399' }}>Mind</span></div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6, marginBottom: 16 }}>The AI marketing operating system for app founders. Built for solo founders launching on App Store and Play Store in USA and India.</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {['USA + India','SOC 2 planned','GDPR compliant'].map(b => <span key={b} style={{ fontSize: 10, padding: '3px 10px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.35)' }}>{b}</span>)}
-              </div>
-            </div>
-            {[
-              { title: 'Product', links: ['How it works','Features','Pricing','Security','Changelog'] },
-              { title: 'Founders', links: ['Blog','Case studies','IndieHackers','Product Hunt','Community'] },
-              { title: 'Company', links: ['About','Contact','Twitter / X','LinkedIn'] },
-            ].map(col => (
-              <div key={col.title}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 14 }}>{col.title}</div>
-                {col.links.map(l => <a key={l} href="#" style={{ display: 'block', fontSize: 13, color: 'rgba(255,255,255,0.42)', textDecoration: 'none', marginBottom: 8 }}>{l}</a>)}
-              </div>
-            ))}
-          </div>
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>© 2026 LaunchMind. Built by founders, for founders. 🇺🇸 Phoenix, USA · 🇮🇳 India</div>
-            <div style={{ display: 'flex', gap: 20 }}>
-              {['Privacy Policy','Terms of Service','Security','GDPR'].map(l => <a key={l} href="#" style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', textDecoration: 'none' }}>{l}</a>)}
-            </div>
-          </div>
+      <footer style={{
+        padding: '42px max(28px,calc((100vw - 1120px)/2))',
+        background: DARKER, borderTop: '1px solid rgba(255,255,255,.08)',
+        display: 'grid', gridTemplateColumns: 'auto 1fr auto',
+        alignItems: 'center', gap: 24,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff' }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: 'linear-gradient(135deg,#2fd39f,#0b8f69)',
+            display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 11, color: '#fff',
+          }}>LM</div>
+          <span style={{ fontSize: 15, fontWeight: 800 }}>
+            Launch<span style={{ color: '#4adbb0' }}>Mind</span>
+          </span>
         </div>
+        <p style={{ color: '#83978f', fontSize: 13, textAlign: 'center', margin: 0 }}>
+          Your product already has a CTO. It deserves a CMO too.
+        </p>
+        <small style={{ color: '#60746d', fontSize: 12 }}>
+          © 2026 LaunchMind · Discover first. Confirm second. Learn continuously.
+        </small>
       </footer>
     </div>
   );

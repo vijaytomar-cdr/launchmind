@@ -61,6 +61,41 @@ export interface BudgetContext {
   estimatedMonthlyUSD: number | null;
 }
 
+export interface Phase1Goal {
+  type: string;
+  target: number;
+  unit: string;
+  horizonDays: number;
+  motivation: string | null;
+}
+
+export interface Phase1Competitor {
+  name: string;
+  relationship: string;
+  differentiator: string | null;
+}
+
+export interface Phase1Direction {
+  headline: string;
+  rationale: string;
+  primaryChannel: string | null;
+  week1: unknown;
+  week2: unknown;
+  week3: unknown;
+  week4: unknown;
+}
+
+export interface Phase1Context {
+  audience: string | null;
+  contextDelta: string | null;
+  hiddenStrengths: string[] | null;
+  recentWins: string[] | null;
+  workingStyle: string | null;
+  goal: Phase1Goal | null;
+  competitors: Phase1Competitor[];
+  direction: Phase1Direction | null;
+}
+
 export interface ContextPackage {
   founderId: string;
   productId: string | null;
@@ -73,6 +108,7 @@ export interface ContextPackage {
   campaigns: CampaignEntry[];
   analytics: AnalyticsSummary | null;
   budget: BudgetContext;
+  phase1: Phase1Context | null;
 }
 
 // ── Options ───────────────────────────────────────────────────────────────────
@@ -122,6 +158,10 @@ export async function buildContextPackage(
     nodesResult,
     campaignsResult,
     analyticsResult,
+    founderContextResult,
+    businessGoalResult,
+    competitorResult,
+    directionResult,
   ] = await Promise.allSettled([
     // 1. Founder
     supabase.from('founders').select('plan, token_balance').eq('id', founderId).single(),
@@ -136,13 +176,12 @@ export async function buildContextPackage(
           .single()
       : Promise.resolve({ data: null, error: null }),
 
-    // 3. Marketing Memories
-    includeMemories && productId
+    // 3. Marketing Memories (include founder-level memories where product_id is null)
+    includeMemories
       ? supabase
           .from('marketing_memories')
           .select('memory_type, title, confidence, content')
           .eq('founder_id', founderId)
-          .eq('product_id', productId)
           .eq('status', 'active')
           .order('confidence', { ascending: false })
           .limit(maxMemories)
@@ -179,6 +218,42 @@ export async function buildContextPackage(
           .order('collected_at', { ascending: false })
           .limit(30)
       : Promise.resolve({ data: [], error: null }),
+
+    // 7. Phase 1 founder context (audience, context delta, working style)
+    supabase
+      .from('founder_context')
+      .select('audience_confirmed, context_delta, hidden_strengths, recent_wins, working_style')
+      .eq('founder_id', founderId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+
+    // 8. Phase 1 primary business goal
+    supabase
+      .from('business_goals')
+      .select('goal_type, target_value, unit, time_horizon_days, motivation')
+      .eq('founder_id', founderId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+
+    // 9. Phase 1 confirmed competitors
+    supabase
+      .from('competitor_relationships')
+      .select('name, relationship, key_differentiator')
+      .eq('founder_id', founderId)
+      .eq('relationship', 'CONFIRMED')
+      .limit(10),
+
+    // 10. Phase 1 strategy direction (most recent non-draft)
+    supabase
+      .from('strategy_directions')
+      .select('headline, rationale, primary_channel, week_1, week_2, week_3, week_4, status')
+      .eq('founder_id', founderId)
+      .neq('status', 'draft')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   // ── Extract results with fallbacks ──────────────────────────────────────────
@@ -254,6 +329,61 @@ export async function buildContextPackage(
     estimatedMonthlyUSD: estimateMonthlyBudget(founder.plan),
   };
 
+  // ── Phase 1 context ─────────────────────────────────────────────────────────
+
+  let phase1: Phase1Context | null = null;
+  const hasPhase1Data =
+    founderContextResult.status === 'fulfilled' && founderContextResult.value.data;
+
+  if (hasPhase1Data) {
+    sources.push('phase1');
+    const fc = founderContextResult.value.data as {
+      audience_confirmed: string | null;
+      context_delta: string | null;
+      hidden_strengths: unknown;
+      recent_wins: unknown;
+      working_style: string | null;
+    };
+
+    let goal: Phase1Goal | null = null;
+    if (businessGoalResult.status === 'fulfilled' && businessGoalResult.value.data) {
+      const bg = businessGoalResult.value.data as {
+        goal_type: string; target_value: number; unit: string;
+        time_horizon_days: number; motivation: string | null;
+      };
+      goal = { type: bg.goal_type, target: bg.target_value, unit: bg.unit, horizonDays: bg.time_horizon_days, motivation: bg.motivation };
+    }
+
+    const competitors: Phase1Competitor[] =
+      competitorResult.status === 'fulfilled' && competitorResult.value.data
+        ? (competitorResult.value.data as Array<{ name: string; relationship: string; key_differentiator: string | null }>)
+            .map(c => ({ name: c.name, relationship: c.relationship, differentiator: c.key_differentiator }))
+        : [];
+
+    let direction: Phase1Direction | null = null;
+    if (directionResult.status === 'fulfilled' && directionResult.value.data) {
+      const d = directionResult.value.data as {
+        headline: string; rationale: string; primary_channel: string | null;
+        week_1: unknown; week_2: unknown; week_3: unknown; week_4: unknown;
+      };
+      direction = {
+        headline: d.headline, rationale: d.rationale, primaryChannel: d.primary_channel,
+        week1: d.week_1, week2: d.week_2, week3: d.week_3, week4: d.week_4,
+      };
+    }
+
+    phase1 = {
+      audience:       fc.audience_confirmed,
+      contextDelta:   fc.context_delta,
+      hiddenStrengths: Array.isArray(fc.hidden_strengths) ? fc.hidden_strengths as string[] : null,
+      recentWins:      Array.isArray(fc.recent_wins) ? fc.recent_wins as string[] : null,
+      workingStyle:    fc.working_style,
+      goal,
+      competitors,
+      direction,
+    };
+  }
+
   return {
     founderId,
     productId,
@@ -266,6 +396,7 @@ export async function buildContextPackage(
     campaigns,
     analytics,
     budget,
+    phase1,
   };
 }
 
@@ -325,6 +456,29 @@ export function formatContextForPrompt(ctx: ContextPackage): string {
     if (active.length > 0) {
       lines.push(`\nActive campaigns (${active.length}): ${active.map(c => `${c.channel}/${c.market}`).join(', ')}`);
     }
+  }
+
+  if (ctx.phase1) {
+    lines.push('\n=== PHASE 1 FOUNDER ALIGNMENT ===');
+    if (ctx.phase1.audience) lines.push(`Confirmed audience: ${ctx.phase1.audience}`);
+    if (ctx.phase1.contextDelta) lines.push(`Next major change: ${ctx.phase1.contextDelta}`);
+    if (ctx.phase1.hiddenStrengths?.length) lines.push(`Hidden strengths: ${ctx.phase1.hiddenStrengths.slice(0, 3).join(', ')}`);
+    if (ctx.phase1.recentWins?.length) lines.push(`Recent wins: ${ctx.phase1.recentWins.slice(0, 2).join(', ')}`);
+    if (ctx.phase1.workingStyle) lines.push(`Working style: ${ctx.phase1.workingStyle}`);
+    if (ctx.phase1.goal) {
+      lines.push(`Primary goal: ${ctx.phase1.goal.type} → ${ctx.phase1.goal.target} ${ctx.phase1.goal.unit} in ${ctx.phase1.goal.horizonDays} days`);
+      if (ctx.phase1.goal.motivation) lines.push(`  Motivation: ${ctx.phase1.goal.motivation.slice(0, 120)}`);
+    }
+    if (ctx.phase1.competitors.length > 0) {
+      lines.push(`Competitors (${ctx.phase1.competitors.length}): ${ctx.phase1.competitors.slice(0, 5).map(c => c.name).join(', ')}`);
+    }
+    if (ctx.phase1.direction) {
+      lines.push(`Strategic direction: ${ctx.phase1.direction.headline}`);
+      if (ctx.phase1.direction.primaryChannel) lines.push(`  Primary channel: ${ctx.phase1.direction.primaryChannel}`);
+      const w1 = ctx.phase1.direction.week1 as Record<string, unknown> | null;
+      if (w1?.focus) lines.push(`  Week 1 focus: ${w1.focus}`);
+    }
+    lines.push('=== END PHASE 1 ===');
   }
 
   lines.push(`Plan: ${ctx.founder.plan}${ctx.founder.tokenBalance !== null ? ` | Tokens: ${ctx.founder.tokenBalance}` : ' (unlimited)'}`);

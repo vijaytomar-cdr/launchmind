@@ -13,6 +13,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { validatePublicUrl } from '../services/onboardingService';
 import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { detectPlatform, scrapeAppStore, scrapePlayStore, scrapeCompetitors } from '../workers/scraperWorker';
@@ -27,9 +28,6 @@ import { previewBrandVoice } from '../services/brandVoiceService';
 import { InsufficientTokensError } from '../types/errors';
 import { enqueueScrapeJob, getScrapeJob } from '../lib/scraperQueue';
 import {
-  ScrapedAppDataSchema,
-  ICPBriefSchema,
-  CompetitorAppSchema,
   ConfirmProductBodySchema,
   FounderContextSchema,
   IntakeScrapeBodySchema,
@@ -296,6 +294,16 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
 
       if (detectPlatform(url)) {
         return reply.status(400).send({ error: 'Use POST /products/scrape for App Store or Play Store URLs' });
+      }
+
+      // SSRF gate. This route fetches an owner-supplied URL and returns the response
+      // body to the caller, so without it the endpoint is a read primitive against
+      // anything the server can reach — including the cloud metadata service, which
+      // under OCI Instance Principal vends this workload's identity.
+      try {
+        validatePublicUrl(url);
+      } catch {
+        return reply.status(422).send({ error: 'That URL is not publicly reachable.' });
       }
 
       try {
@@ -689,7 +697,6 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
       .select('*')
       .eq('founder_id', founderId)
       .is('archived_at', null)
-      .not('confirmed_icp', 'is', null)
       .order('created_at', { ascending: false });
 
     if (error) {

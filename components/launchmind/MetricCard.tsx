@@ -1,8 +1,8 @@
 /**
  * @file MetricCard.tsx
  * @description Single KPI display block — value, label, optional delta trend.
- *   Used in Home dashboard, Results page, Growth Brain.
- *   Uses DM Mono for values (CLAUDE.md §6.2).
+ *   Used in Morning Brief, Results, Growth Brain.
+ *   DM Mono for values (CLAUDE.md §6.2). Spec values: 27px/780 value, 14px radius.
  */
 
 interface MetricCardProps {
@@ -12,11 +12,10 @@ interface MetricCardProps {
   delta?: string;
   /** Secondary context line */
   sub?: string;
-  /** Tailwind / inline accent color key */
   accent?: 'sage' | 'indigo' | 'amber' | 'danger';
-  /** LaunchMind's interpretation of this metric. Renders in violet (AI provenance). */
+  /** LaunchMind's AI interpretation — renders in violet */
   insight?:    string;
-  /** 0–100 confidence in the insight. Only shown if insight is provided. */
+  /** 0–100 confidence in the insight */
   confidence?: number;
 }
 
@@ -36,8 +35,8 @@ export function MetricCard({ label, value, delta, sub, accent, insight, confiden
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
-        borderRadius: 10,
-        padding: '14px 16px',
+        borderRadius: 14,
+        padding: 16,
       }}
     >
       <div
@@ -45,18 +44,20 @@ export function MetricCard({ label, value, delta, sub, accent, insight, confiden
           fontSize: 11,
           color: 'var(--ink3)',
           marginBottom: 6,
-          fontWeight: 500,
+          fontWeight: 750,
           textTransform: 'uppercase',
-          letterSpacing: '0.06em',
+          letterSpacing: '0.08em',
         }}
       >
         {label}
       </div>
       <div className="flex items-end gap-2">
         <div
-          className="font-mono font-medium"
+          className="font-mono"
           style={{
-            fontSize: 22,
+            fontSize: 27,
+            fontWeight: 780,
+            letterSpacing: '-.8px',
             color: accent ? accentColor[accent] : 'var(--ink)',
             lineHeight: 1,
           }}
@@ -69,7 +70,7 @@ export function MetricCard({ label, value, delta, sub, accent, insight, confiden
             style={{
               fontSize: 11,
               color: isPositive ? 'var(--sage)' : isNegative ? 'var(--danger)' : 'var(--ink3)',
-              marginBottom: 1,
+              marginBottom: 2,
             }}
           >
             {delta}
@@ -86,13 +87,7 @@ export function MetricCard({ label, value, delta, sub, accent, insight, confiden
           className="mt-2 pt-2"
           style={{ borderTop: '1px solid var(--border)' }}
         >
-          <p
-            style={{
-              fontSize: 12,
-              color: 'var(--ai)',
-              lineHeight: 1.5,
-            }}
-          >
+          <p style={{ fontSize: 12, color: 'var(--ai)', lineHeight: 1.5 }}>
             {insight}
           </p>
           {confidence != null && (
@@ -100,12 +95,13 @@ export function MetricCard({ label, value, delta, sub, accent, insight, confiden
               <span
                 style={{
                   fontSize: 10,
-                  padding: '1px 5px',
+                  padding: '2px 6px',
                   borderRadius: 'var(--r3)',
-                  background: 'var(--ai-d)',
-                  border: '1px solid var(--ai-b)',
+                  background: 'var(--violet2)',
+                  border: '1px solid #d7d0ff',
                   color: 'var(--ai)',
                   fontFamily: 'DM Mono, monospace',
+                  fontWeight: 800,
                 }}
               >
                 {Math.round(confidence)}%

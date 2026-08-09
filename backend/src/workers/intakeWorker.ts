@@ -12,6 +12,7 @@
  */
 
 import { Worker, Job } from 'bullmq';
+import { validatePublicUrl } from '../services/onboardingService';
 import IORedis from 'ioredis';
 import * as Sentry from '@sentry/node';
 import { SCRAPE_QUEUE_NAME, type ScrapeJobData, type ScrapeJobResult } from '../lib/scraperQueue';
@@ -98,7 +99,14 @@ export function startIntakeWorker(): void {
 
         let websiteMeta: unknown = null;
         if (websiteUrl) {
-          websiteMeta = await scrapeWebsite(websiteUrl).catch(() => null);
+          // SSRF gate, same reasoning as the discovery worker: an owner-supplied URL
+          // must never let the server fetch a private or metadata address on their
+          // behalf. Failing soft (null) matches this worker's existing behaviour —
+          // a bad website URL degrades intake, it does not fail the whole job.
+          websiteMeta = await (async () => {
+            try { validatePublicUrl(websiteUrl); } catch { return null; }
+            return scrapeWebsite(websiteUrl).catch(() => null);
+          })();
         }
 
         // Collect and permanently store marketing images (best-effort, never fails the job)

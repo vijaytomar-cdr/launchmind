@@ -13,19 +13,19 @@
 
 export const colors = {
   // Backgrounds
-  page:    '#f2f3f6',
+  page:    '#f5f6f4',
   surface: '#ffffff',
-  raised:  '#eceef3',
+  raised:  '#f8f9f7',
 
   // Sidebar
   sidebar:  '#28304a',
   sidebarHover: '#323c58',
 
   // Primary — Sage
-  sage:       '#059669',
+  sage:       '#0b8f69',
   sageLight:  '#34d399',
-  sageBg:     'rgba(5,150,105,0.12)',
-  sageBorder: 'rgba(5,150,105,0.28)',
+  sageBg:     'rgba(11,143,105,0.12)',
+  sageBorder: 'rgba(11,143,105,0.28)',
 
   // Accent — Indigo
   indigo:       '#4f46e5',
@@ -43,13 +43,13 @@ export const colors = {
   dangerBorder: 'rgba(220,38,38,0.22)',
 
   // Text
-  ink:  '#1b1f2e',
-  ink2: '#626880',
-  ink3: '#9ca4be',
+  ink:  '#17211d',
+  ink2: '#42504a',
+  ink3: '#7a8781',
 
   // Borders
-  border:  'rgba(0,0,0,0.07)',
-  border2: 'rgba(0,0,0,0.12)',
+  border:  '#e2e7e3',
+  border2: '#cfd7d1',
 
   // Sidebar internals
   sBorder: 'rgba(255,255,255,0.07)',
@@ -62,8 +62,8 @@ export const colors = {
 
 export const radius = {
   default: '10px',
-  md:      '6px',
-  sm:      '4px',
+  md:      '14px',
+  sm:      '20px',
   full:    '9999px',
 } as const;
 

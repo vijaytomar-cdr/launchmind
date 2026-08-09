@@ -4,6 +4,7 @@
  *   All tokens mirror the CSS custom properties in globals.css.
  *   shadcn/ui is NOT installed — do not import from @/components/ui/*.
  *   See CLAUDE.md §6 and LaunchMind Design System §6 for the full reference.
+ *   Token values updated 2026-07-23 to match spec LaunchMind_Production_UX_July18_2026(15).html.
  */
 import type { Config } from 'tailwindcss';
 
@@ -18,17 +19,18 @@ const config: Config = {
     extend: {
       colors: {
         /* ── Backgrounds ───────────────────────── */
-        page:    '#f2f3f6',
+        page:    '#f5f6f4',
         surface: '#ffffff',
-        raised:  '#eceef3',
-        sidebar: { DEFAULT: '#28304a', 2: '#323c58' },
+        raised:  '#f8f9f7',
 
         /* ── Sage — primary action & success ───── */
         sage: {
-          DEFAULT: '#059669',
+          DEFAULT: '#0b8f69',
           light:   '#34d399',
-          bg:      'rgba(5,150,105,0.12)',
-          border:  'rgba(5,150,105,0.28)',
+          bg:      'rgba(11,143,105,0.12)',
+          border:  'rgba(11,143,105,0.28)',
+          2:       '#dff4ec',
+          3:       '#b9e6d7',
         },
 
         /* ── Indigo — accent ────────────────────── */
@@ -38,41 +40,56 @@ const config: Config = {
           border:  'rgba(79,70,229,0.22)',
         },
 
-        /* ── Amber — India market badge ─────────── */
+        /* ── Amber — India market badge & warnings ── */
         amber: {
-          DEFAULT: '#d97706',
-          bg:      'rgba(217,119,6,0.10)',
-          border:  'rgba(217,119,6,0.22)',
+          DEFAULT: '#b86808',
+          bg:      'rgba(184,104,8,0.10)',
+          border:  'rgba(184,104,8,0.22)',
+          2:       '#fff2dd',
         },
 
         /* ── Danger — errors & kill signals ─────── */
         danger: {
-          DEFAULT: '#dc2626',
-          bg:      'rgba(220,38,38,0.09)',
-          border:  'rgba(220,38,38,0.22)',
+          DEFAULT: '#c33f43',
+          bg:      'rgba(195,63,67,0.09)',
+          border:  'rgba(195,63,67,0.22)',
+          2:       '#feeceb',
+        },
+
+        /* ── Blue ───────────────────────────────── */
+        blue: {
+          DEFAULT: '#2468cc',
+          2:       '#eaf2ff',
         },
 
         /* ── AI — LaunchMind judgment (violet) ─── */
         ai: {
-          DEFAULT: '#7c5cff',
-          light:   '#a78bfa',
-          bg:      'rgba(124,92,255,0.10)',
-          border:  'rgba(124,92,255,0.24)',
+          DEFAULT: '#6956d9',
+          light:   '#9b8ee8',
+          bg:      'rgba(105,86,217,0.10)',
+          border:  'rgba(105,86,217,0.24)',
+        },
+
+        /* ── Violet (alias for ai) ──────────────── */
+        violet: {
+          DEFAULT: '#6956d9',
+          2:       '#efedff',
         },
 
         /* ── Ink — body text hierarchy ───────────── */
         ink: {
-          DEFAULT: '#1b1f2e',
-          2:       '#626880',
-          3:       '#9ca4be',
+          DEFAULT: '#17211d',
+          2:       '#42504a',
+          3:       '#7a8781',
         },
 
-        /* ── Fallback border (for @apply border-*) ── */
-        border: 'rgba(27,31,46,0.10)',
+        /* ── Border ──────────────────────────────── */
+        border:  '#e2e7e3',
+        border2: '#cfd7d1',
       },
 
       fontFamily: {
-        sans:    ['DM Sans', 'sans-serif'],
+        sans:    ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
         display: ['Syne', 'sans-serif'],
         mono:    ['DM Mono', 'monospace'],
       },
@@ -89,7 +106,9 @@ const config: Config = {
       },
 
       borderRadius: {
-        DEFAULT: '10px',
+        DEFAULT: '10px',   /* --r  / --r1 — nav items, badges */
+        r2:      '14px',   /* --r2 — cards, buttons */
+        r3:      '20px',   /* --r3 — pills, chips */
         sm:      '6px',
         xs:      '4px',
         full:    '9999px',
@@ -102,9 +121,11 @@ const config: Config = {
       },
 
       boxShadow: {
-        e1: '0 1px 2px rgba(27,31,46,0.04)',
-        e2: '0 2px 8px rgba(27,31,46,0.06)',
-        e3: '0 8px 24px rgba(27,31,46,0.10)',
+        e1:     '0 1px 2px rgba(27,31,46,0.04)',
+        e2:     '0 2px 8px rgba(27,31,46,0.06)',
+        e3:     '0 8px 24px rgba(27,31,46,0.10)',
+        shadow: '0 8px 30px rgba(22,33,29,0.08)',
+        shadow2:'0 18px 60px rgba(18,35,31,0.14)',
       },
 
       keyframes: {

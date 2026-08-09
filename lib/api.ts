@@ -16,23 +16,41 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    /**
+     * Machine-readable error code from the server envelope (e.g. 'NEEDS_REAUTH').
+     *
+     * The server has always sent this; it used to be dropped here, which forced
+     * callers to branch on substrings of the human message. Matching on prose meant
+     * a copy edit silently changed which recovery screen an owner saw.
+     */
+    public code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
+/**
+ * Header carrying the workspace the UI is currently showing.
+ *
+ * This is CONTEXT, not authorization. The backend independently verifies that the
+ * authenticated actor is a member of this workspace and returns 404 otherwise —
+ * setting it never grants access to a workspace the caller is not in.
+ */
+export const WORKSPACE_HEADER = 'x-launchmind-workspace-id';
+
 async function request<T>(
   path: string,
-  options: RequestInit & { token?: string } = {}
+  options: RequestInit & { token?: string; workspaceId?: string } = {}
 ): Promise<T> {
-  const { token, ...fetchOptions } = options;
+  const { token, workspaceId, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(fetchOptions.headers as Record<string, string>),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (workspaceId) headers[WORKSPACE_HEADER] = workspaceId;
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...fetchOptions,
@@ -41,10 +59,23 @@ async function request<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
-    throw new ApiError(response.status, body.error ?? response.statusText);
+    throw new ApiError(response.status, body.error ?? response.statusText, body.code);
   }
 
   return response.json() as Promise<T>;
+}
+
+/**
+ * Like `request<T>` but for routes that use the ok() envelope.
+ * Automatically strips `{ ok: true, data: T }` and returns just T.
+ */
+async function requestData<T>(
+  path: string,
+  options: RequestInit & { token?: string; workspaceId?: string } = {}
+): Promise<T> {
+  const envelope = await request<{ ok: boolean; data: T; error?: string; code?: string }>(path, options);
+  if (!envelope.ok) throw new ApiError(0, envelope.error ?? 'Request failed', envelope.code);
+  return envelope.data;
 }
 
 export const api = {
@@ -194,6 +225,14 @@ export const api = {
     intakeStatus: (id: string, token: string) =>
       request<{ id: string; name: string; step: number; complete: boolean; complete_at: string | null }>(
         `/products/${id}/intake/status`, { token },
+      ),
+    updateContext: (productId: string, body: { positioning?: string; audience?: string; topSignal?: string }, token: string) =>
+      request<{ ok: boolean; data: { id: string; confirmed_icp: Record<string, unknown> } }>(
+        `/products/${productId}/context`, { method: 'PATCH', body: JSON.stringify(body), token }
+      ),
+    updateContextDelta: (productId: string, body: { nextInitiative?: string; primaryGoal?: string; targetWindow?: string }, token: string) =>
+      request<{ ok: boolean; data: Record<string, unknown> }>(
+        `/products/${productId}/context-delta`, { method: 'PATCH', body: JSON.stringify(body), token }
       ),
   },
 
@@ -518,6 +557,10 @@ export const api = {
   integrations: {
     list: (token: string) =>
       request<{ integrations: Integration[] }>('/integrations', { token }),
+    connections: (token: string) =>
+      request<{ connections: Phase2Connections }>('/integrations/connections', { token }),
+    capabilityStatus: (token: string) =>
+      request<{ status: CapabilityStatus }>('/integrations/capability-status', { token }),
     connectGa4: (data: { api_key: string; integration_config: Record<string, unknown> }, token: string) =>
       request<{ integration: { id: string; platform: string } }>('/integrations/ga4', {
         method: 'POST', body: JSON.stringify(data), token,
@@ -530,6 +573,18 @@ export const api = {
       request<{ integration: { id: string; platform: string } }>('/integrations/website', {
         method: 'POST', body: JSON.stringify(data), token,
       }),
+    connectAppStoreConnect: (data: { api_key: string; issuer_id?: string; key_id?: string }, token: string) =>
+      request<{ integration: { id: string; platform: string } }>('/integrations/app-store-connect', {
+        method: 'POST', body: JSON.stringify(data), token,
+      }),
+    connectRevenueCat: (data: { api_key: string; app_id?: string }, token: string) =>
+      request<{ integration: { id: string; platform: string } }>('/integrations/revenue-cat', {
+        method: 'POST', body: JSON.stringify(data), token,
+      }),
+    googleAdsOAuthInit: (token: string) =>
+      request<{ url: string }>('/integrations/google-ads/oauth/init', { token }),
+    metaAdsOAuthInit: (token: string) =>
+      request<{ url: string }>('/integrations/meta-ads/oauth/init', { token }),
     disconnect: (platform: string, token: string) =>
       request<void>(`/integrations/${platform}`, { method: 'DELETE', token }),
   },
@@ -575,6 +630,8 @@ export const api = {
       request<{ revoked: boolean }>('/auth/revoke-sessions', { method: 'POST', body: '{}', token }),
     tokenUsage: (token: string) =>
       request<TokenUsage>('/founders/me/token-usage', { token }),
+    resume: (token: string) =>
+      requestData<{ hasResume: boolean; product?: { id: string; name: string; intake_step: number; step_label: string; store_url: string; updated_at: string } }>('/founders/me/resume', { token }),
   },
 
   brandVoice: {
@@ -971,6 +1028,230 @@ export const api = {
         method: 'POST', body: JSON.stringify({ rating, comment }), token,
       }),
   },
+
+  onboarding: {
+    /** Returns the active session (creates one if none exists). */
+    getSession: (token: string) =>
+      requestData<{ session: OnboardingSession; nextRoute: string }>('/onboarding/session', { token }),
+
+    getSessionById: (sessionId: string, token: string) =>
+      requestData<{ session: OnboardingSession; nextRoute: string }>(`/onboarding/sessions/${sessionId}`, { token }),
+
+    saveWorkspace: (sessionId: string, workspaceName: string, token: string) =>
+      requestData<{ session: OnboardingSession; nextRoute: string }>(`/onboarding/sessions/${sessionId}/workspace`, {
+        method: 'POST', body: JSON.stringify({ workspaceName }), token,
+      }),
+
+    startDiscovery: (sessionId: string, urls: string[], token: string, privateDescription?: string) =>
+      requestData<{ job: OnboardingDiscoveryJob }>(`/onboarding/sessions/${sessionId}/discovery`, {
+        method: 'POST', body: JSON.stringify({ urls, privateDescription }), token,
+      }),
+
+    getDiscovery: (sessionId: string, token: string) =>
+      requestData<{ job: OnboardingDiscoveryJob; sessionState: string }>(`/onboarding/sessions/${sessionId}/discovery`, { token }),
+
+    retryDiscovery: (sessionId: string, token: string) =>
+      requestData<{ job: OnboardingDiscoveryJob }>(`/onboarding/sessions/${sessionId}/discovery/retry`, {
+        method: 'POST', body: '{}', token,
+      }),
+
+    selectMatch: (sessionId: string, matchId: string, token: string) =>
+      requestData<{ job: OnboardingDiscoveryJob }>(`/onboarding/sessions/${sessionId}/discovery/select`, {
+        method: 'POST', body: JSON.stringify({ matchId }), token,
+      }),
+
+    getReport: (sessionId: string, token: string) =>
+      requestData<{ report: PreliminaryReport | null; acknowledged: boolean }>(`/onboarding/sessions/${sessionId}/report`, { token }),
+
+    acknowledgeReport: (sessionId: string, token: string, rating?: 'useful' | 'partly_useful' | 'not_useful', feedback?: string) =>
+      requestData<{ acknowledged: boolean }>(`/onboarding/sessions/${sessionId}/report/acknowledge`, {
+        method: 'POST', body: JSON.stringify({ acknowledged: true, rating, feedback }), token,
+      }),
+
+    getClaims: (sessionId: string, token: string) =>
+      requestData<{ claims: ProductClaim[] }>(`/onboarding/sessions/${sessionId}/claims`, { token }),
+
+    reviewClaim: (
+      sessionId: string,
+      claimId: string,
+      data: { status: 'CONFIRMED' | 'CORRECTED' | 'REJECTED'; correctedValue?: string; founderNote?: string },
+      token: string,
+    ) =>
+      requestData<{ claim: ProductClaim }>(`/onboarding/sessions/${sessionId}/claims/${claimId}`, {
+        method: 'PATCH', body: JSON.stringify(data), token,
+      }),
+
+    regenerateClaims: (sessionId: string, token: string) =>
+      requestData<{ regenerated: number }>(`/onboarding/sessions/${sessionId}/claims/regenerate`, {
+        method: 'POST', token, body: '{}',
+      }),
+    completeBeliefReview: (sessionId: string, token: string) =>
+      requestData<{ nextState: string }>(`/onboarding/sessions/${sessionId}/claims/complete`, {
+        method: 'POST', body: '{}', token,
+      }),
+
+    saveAudience: (sessionId: string, data: Record<string, unknown>, token: string) =>
+      requestData<{ saved: boolean; nextState: string }>(`/onboarding/sessions/${sessionId}/audience`, {
+        method: 'PUT', body: JSON.stringify(data), token,
+      }),
+
+    saveContextDelta: (sessionId: string, data: Record<string, unknown>, token: string) =>
+      requestData<{ saved: boolean; nextState: string }>(`/onboarding/sessions/${sessionId}/context-delta`, {
+        method: 'PUT', body: JSON.stringify(data), token,
+      }),
+
+    saveGoal: (sessionId: string, data: Record<string, unknown>, token: string) =>
+      requestData<{ saved: boolean; nextState: string }>(`/onboarding/sessions/${sessionId}/goal`, {
+        method: 'PUT', body: JSON.stringify(data), token,
+      }),
+
+    saveCompetitors: (sessionId: string, data: { competitors: Array<{ id: string; name: string; storeUrl?: string; relationship: string; keyDifferentiator?: string; discoveredBy: string }> }, token: string) =>
+      requestData<{ saved: boolean; nextState: string }>(`/onboarding/sessions/${sessionId}/competitors`, {
+        method: 'PUT', body: JSON.stringify(data), token,
+      }),
+
+    saveBoundaries: (sessionId: string, data: Record<string, unknown>, token: string) =>
+      requestData<{ saved: boolean; nextState: string }>(`/onboarding/sessions/${sessionId}/boundaries`, {
+        method: 'PUT', body: JSON.stringify(data), token,
+      }),
+
+    generateDirection: (sessionId: string, token: string) =>
+      requestData<{ direction: OnboardingStrategyDirection }>(`/onboarding/sessions/${sessionId}/direction`, {
+        method: 'POST', body: '{}', token,
+      }),
+
+    getDirection: (sessionId: string, token: string) =>
+      requestData<{ direction: OnboardingStrategyDirection | null }>(`/onboarding/sessions/${sessionId}/direction`, { token }),
+
+    completePhase1: (sessionId: string, data: { directionId: string; acknowledgedDirection: true }, token: string) =>
+      requestData<{ session: OnboardingSession; nextRoute: string }>(`/onboarding/sessions/${sessionId}/complete`, {
+        method: 'POST', body: JSON.stringify(data), token,
+      }),
+  },
+
+  intelligence: {
+    // workspaceId is optional context; the server resolves the caller's own
+    // workspace when it is omitted and rejects one they are not a member of.
+    coverage: (token: string, workspaceId?: string) =>
+      requestData<GrowthBrainCoverage>('/intelligence/coverage', { token, workspaceId }),
+
+    /**
+     * Full learning history behind "View learning log →".
+     * @param before - ISO cursor from the previous page's `nextCursor`
+     */
+    learningLog: (
+      token: string,
+      opts: { limit?: number; before?: string; productId?: string; workspaceId?: string } = {},
+    ) => {
+      const qs = new URLSearchParams();
+      if (opts.limit)     qs.set('limit', String(opts.limit));
+      if (opts.before)    qs.set('before', opts.before);
+      if (opts.productId) qs.set('productId', opts.productId);
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return requestData<{ entries: LearningLogEntry[]; nextCursor: string | null }>(
+        `/intelligence/learning-log${suffix}`,
+        { token, workspaceId: opts.workspaceId },
+      );
+    },
+  },
+
+  // Every /connections route replies with the ok() envelope, so these use
+  // requestData<T> to unwrap `data`. Using request<T> here silently yields
+  // `{ ok, data }` where the caller expects the payload.
+  connections: {
+    /** Providers that can actually be connected right now (a real adapter exists). */
+    providers: (token: string) =>
+      requestData<{ available: string[] }>('/connections/providers', { token }),
+    list: (token: string, workspaceId?: string) =>
+      requestData<WorkspaceConnection[]>('/connections', { token, workspaceId }),
+    get: (id: string, token: string) =>
+      requestData<WorkspaceConnection>(`/connections/${id}`, { token }),
+    /** Records interest in a source. Grants no access and stores no credential. */
+    preview: (provider: string, token: string) =>
+      requestData<{ connection: WorkspaceConnection; adapterAvailable: boolean }>(
+        `/connections/${provider}/preview`,
+        { method: 'POST', body: '{}', token },
+      ),
+    connect: (provider: string, body: Record<string, string>, token: string) =>
+      requestData<ConnectResult>(`/connections/${provider}/connect`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        token,
+      }),
+    listAccounts: (id: string, token: string) =>
+      requestData<ProviderAccount[]>(`/connections/${id}/accounts`, { token }),
+    selectResource: (id: string, resourceId: string, resourceName: string, token: string) =>
+      requestData<WorkspaceConnection>(`/connections/${id}/select-resource`, {
+        method: 'POST',
+        body: JSON.stringify({ resourceId, resourceName }),
+        token,
+      }),
+    /** Queues a sync; returns immediately. Poll syncRuns for progress. */
+    sync: (id: string, token: string) =>
+      requestData<{ syncRunId: string; status: string; traceId: string }>(
+        `/connections/${id}/sync`,
+        { method: 'POST', body: '{}', token },
+      ),
+    refresh: (id: string, token: string) =>
+      requestData<{ syncRunId: string; status: string; traceId: string }>(
+        `/connections/${id}/refresh`,
+        { method: 'POST', body: '{}', token },
+      ),
+    reauthorize: (id: string, token: string) =>
+      requestData<WorkspaceConnection>(`/connections/${id}/reauthorize`, {
+        method: 'POST',
+        body: '{}',
+        token,
+      }),
+    /** Begins a provider OAuth flow. Returns only the authorization URL. */
+    oauthStart: (provider: string, token: string, body: Record<string, unknown> = {}) =>
+      requestData<{ authorizationUrl: string; expiresAt: string }>(
+        `/connections/${provider}/oauth/start`,
+        { method: 'POST', body: JSON.stringify(body), token },
+      ),
+    /** Current permission grant plus the immutable change history. */
+    permissions: (id: string, token: string) =>
+      requestData<{
+        granted: PermissionLevel[];
+        history: ConnectionPermissionHistoryEntry[];
+        levels: PermissionLevel[];
+        executionLevels: PermissionLevel[];
+      }>(`/connections/${id}/permissions`, { token }),
+    /** Records a request to widen authority. Grants nothing by itself. */
+    requestAuthorityUpgrade: (id: string, levels: PermissionLevel[], reason: string, token: string) =>
+      requestData<{
+        requested: PermissionLevel[]; current: PermissionLevel[];
+        affectsSpend: boolean; approvalStillRequired: boolean;
+      }>(`/connections/${id}/permissions/request-upgrade`, {
+        method: 'POST', body: JSON.stringify({ levels, reason }), token,
+      }),
+    /** The only path by which CHANGE / PUBLISH / SPEND can be granted. */
+    approveAuthorityUpgrade: (id: string, levels: PermissionLevel[], reason: string, token: string) =>
+      requestData<{ granted: PermissionLevel[] }>(
+        `/connections/${id}/permissions/approve-upgrade`,
+        { method: 'POST', body: JSON.stringify({ levels, reason }), token },
+      ),
+    /** What this connection could and could not do, per action, with the reason. */
+    executionBoundary: (id: string, token: string) =>
+      requestData<ExecutionBoundary>(`/connections/${id}/execution-boundary`, { token }),
+    /** Records a refusal. Never changes the grant — see the route's own note. */
+    denyAuthorityUpgrade: (id: string, levels: PermissionLevel[], reason: string, token: string) =>
+      requestData<{ granted: PermissionLevel[] }>(`/connections/${id}/permissions/deny-upgrade`, {
+        method: 'POST', body: JSON.stringify({ levels, reason }), token,
+      }),
+
+    downgradeAuthority: (id: string, levels: PermissionLevel[], reason: string, token: string) =>
+      requestData<{ granted: PermissionLevel[] }>(
+        `/connections/${id}/permissions/downgrade`,
+        { method: 'POST', body: JSON.stringify({ levels, reason }), token },
+      ),
+    syncRuns: (id: string, token: string) =>
+      requestData<SyncRun[]>(`/connections/${id}/sync-runs`, { token }),
+    health: (id: string, token: string) =>
+      requestData<ConnectionHealth>(`/connections/${id}/health`, { token }),
+    disconnect: (id: string, token: string) =>
+      request<void>(`/connections/${id}`, { method: 'DELETE', token }),
+  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1201,6 +1482,63 @@ export interface Integration {
   expires_at: string | null;
   revoked_at: string | null;
   created_at: string;
+}
+
+export interface Phase2ConnectionStatus {
+  connected:   boolean;
+  connectedAt: string | null;
+  syncStatus:  'pending' | 'synced' | 'error' | null;
+}
+
+export interface Phase2Connections {
+  app_store_connect: Phase2ConnectionStatus;
+  revenue_cat:       Phase2ConnectionStatus;
+  google_analytics:  Phase2ConnectionStatus;
+  google_ads:        Phase2ConnectionStatus;
+  meta_ads:          Phase2ConnectionStatus;
+  connectedCount:    number;
+}
+
+export type MilestoneState   = 'done' | 'current' | 'pending';
+export type StatusSeverity   = 'active' | 'warning' | 'muted';
+export type ProductPlatform  = 'app_store' | 'play_store' | 'both';
+export type RecommendedSource = 'app_store_connect' | 'revenue_cat' | 'ga4';
+
+export interface RoadmapLevelStatus {
+  label:    string;
+  severity: StatusSeverity;
+  active:   boolean;
+}
+
+export interface CapabilityStatus {
+  level:            number;
+  levelName:        string;
+  confidence:       number;
+  evidenceLabel:    string;
+  completedSteps:   string[];
+  nextStep:         string;
+  activeGoal:       string | null;
+  productPlatform:  ProductPlatform;
+  recommendedFirst: RecommendedSource;
+  milestoneStates: {
+    discovery:    MilestoneState;
+    alignment:    MilestoneState;
+    intelligence: MilestoneState;
+    execution:    MilestoneState;
+    autonomy:     MilestoneState;
+  };
+  roadmapStatuses: {
+    level1:  RoadmapLevelStatus;
+    level2:  RoadmapLevelStatus;
+    level3:  RoadmapLevelStatus;
+    level45: RoadmapLevelStatus;
+  };
+  proofChecks: {
+    sourceConnected:  boolean;
+    syncComplete:     boolean;
+    insightDelivered: boolean;
+  };
+  connections: Phase2Connections;
 }
 
 export interface ApiKey {
@@ -1592,6 +1930,21 @@ export interface BriefResponse {
   growthBrain: { hasStrategy: boolean; confidence: number | null; lastUpdated: string | null };
   metrics: { weeklyInstalls: number | null; cpi: number | null; activeCampaigns: number; weekOverWeekInstallDelta: number | null };
   memories: Array<{ id: string; title: string; body: string | null; memoryType: string; confidence: number }>;
+  phase1: {
+    direction: {
+      headline: string;
+      rationale: string;
+      primaryChannel: string | null;
+      week1: unknown;
+      week2: unknown;
+      week3: unknown;
+      week4: unknown;
+    } | null;
+    audience:    string | null;
+    contextDelta: string | null;
+    workingStyle: string | null;
+    primaryGoal: { type: string; target: number; unit: string; horizonDays: number } | null;
+  } | null;
 }
 
 export interface TimelineEvent {
@@ -2011,4 +2364,415 @@ export interface ReportExport {
   content:         ReportContent;
   metricsSnapshot: Record<string, unknown> | null;
   generatedAt:     string;
+}
+
+// ── Phase 1 Onboarding Types ──────────────────────────────────────────────
+
+export type OnboardingState =
+  | 'WORKSPACE_SETUP' | 'DISCOVERY_PENDING' | 'DISCOVERY_IN_PROGRESS'
+  | 'DISCOVERY_MATCH_NEEDED' | 'DISCOVERY_FAILED' | 'PRELIMINARY_REPORT'
+  | 'BELIEF_REVIEW' | 'ALIGNMENT_AUDIENCE' | 'ALIGNMENT_CONTEXT'
+  | 'ALIGNMENT_GOAL' | 'ALIGNMENT_COMPETITORS' | 'BOUNDARIES_SETUP'
+  | 'FINAL_REVIEW' | 'DIRECTION_GENERATING' | 'DIRECTION_COMPLETE'
+  | 'PHASE_1_COMPLETE';
+
+export interface OnboardingSession {
+  id:                  string;
+  founder_id:          string;
+  workspace_id:        string | null;
+  product_id:          string | null;
+  current_state:       OnboardingState;
+  lock_version:        number;
+  step_completed:      number;
+  workspace_name:      string | null;
+  urls_submitted:      string[] | null;
+  private_description: string | null;
+  completed_at:        string | null;
+  created_at:          string;
+  updated_at:          string;
+  // Rich joined fields returned by getSessionById
+  founder_context?: {
+    audience_confirmed:  string | null;
+    audience_additions:  string | null;
+    context_delta:       string | null;
+    hidden_strengths:    string | null;
+    recent_wins:         string | null;
+    working_style:       string | null;
+  } | null;
+  business_goal?: {
+    goal_type:           string;
+    custom_metric:       string | null;
+    baseline_value:      number | null;
+    target_value:        number;
+    unit:                string | null;
+    time_horizon_days:   number;
+    motivation:          string | null;
+  } | null;
+  approval_boundary?: {
+    working_style:           string | null;
+    weekly_spend_cap_usd:    number | null;
+    founder_acknowledged:    boolean;
+  } | null;
+  competitor_set?: CompetitorRelationshipDB[] | null;
+}
+
+export interface CandidateMatch {
+  id:           string;
+  name:         string;
+  url:          string;
+  icon:         string | null;
+  rating:       number | null;
+  review_count: number | null;
+  description:  string | null;
+}
+
+export interface PreliminaryReport {
+  headline:      string;
+  summary:       string;
+  topInsights:   string[];
+  opportunities: Array<{ title: string; description: string; confidence: number }>;
+  risks:         Array<{ title: string; description: string }>;
+}
+
+export interface OnboardingDiscoveryJob {
+  id:                  string;
+  session_id:          string;
+  founder_id:          string;
+  status:              'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  progress:            number;
+  progress_stage:      number;
+  progress_message:    string | null;
+  urls_submitted:      string[];
+  detected_platform:   string | null;
+  store_url:           string | null;
+  candidate_matches:   CandidateMatch[] | null;
+  report_data:         PreliminaryReport | null;
+  report_acknowledged: boolean;
+  error_code:          string | null;
+  error_message:       string | null;
+  retry_count:         number;
+  max_retries:         number;
+  app_metadata:        Record<string, unknown> | null;
+  competitor_data:     { competitors?: Array<{ name: string; websiteUrl?: string; relationship: string; discoveredBy: 'AI' }> } | null;
+  created_at:          string;
+  updated_at:          string;
+}
+
+export interface ProductClaim {
+  id:               string;
+  session_id:       string;
+  claim_type:       'FACT' | 'INFERENCE' | 'FOUNDER_PROVIDED';
+  category:         string;
+  title:            string;
+  body:             string;
+  confidence:       number;
+  evidence_sources: Array<{ type: string; count: number; excerpt: string }>;
+  status:           'UNREVIEWED' | 'CONFIRMED' | 'CORRECTED' | 'REJECTED';
+  original_value:   string | null;
+  corrected_value:  string | null;
+  founder_note:     string | null;
+  display_order:    number;
+  created_at:       string;
+  updated_at:       string;
+}
+
+export interface WeekPlan {
+  focus:           string;
+  tasks?:          string[];
+  actions?:        string[];        // alias for tasks in direction response
+  expectedOutcome?: string;
+  success_metric?:  string;         // alias for expectedOutcome
+}
+
+export interface OnboardingStrategyDirection {
+  id:                  string;
+  session_id:          string;
+  headline:            string;
+  rationale:           string;
+  primary_channel:     string | null;
+  primary_market:      string | null;
+  week_1:              WeekPlan | null;
+  week_2:              WeekPlan | null;
+  week_3:              WeekPlan | null;
+  week_4:              WeekPlan | null;
+  key_assumptions:     string[] | null;
+  risk_flags:          string[] | null;
+  acknowledged_at:     string | null;
+  ai_tokens_consumed:  number;
+  status:              'draft' | 'generating' | 'ready' | 'acknowledged';
+  created_at:          string;
+  updated_at:          string;
+  // Extended optional fields (populated when backend provides richer output)
+  primary_objective?:  string;
+  biggest_constraint?: string;
+  first_mission?:      string;
+  immediate_action?:   string;
+  success_signal?:     string;
+  confidence_level?:   number;  // 0–100
+  evidence_used?:      string[];
+  missing_data?:       string[];
+}
+
+// CompetitorRelationshipDB: DB-shaped record returned from the API
+export interface CompetitorRelationshipDB {
+  id:                 string;
+  name:               string;
+  store_url:          string | null;
+  website_url:        string | null;
+  platform:           string | null;
+  relationship:       'CONFIRMED' | 'REJECTED' | 'MANUALLY_ADDED';
+  key_differentiator: string | null;
+  discovered_by:      'AI' | 'FOUNDER';
+}
+
+// CompetitorRelationship: camelCase payload sent to the API (save/create)
+export interface CompetitorRelationship extends CompetitorRelationshipDB {
+  storeUrl?:         string;
+  keyDifferentiator?: string;
+  discoveredBy?:     'AI' | 'FOUNDER';
+}
+
+// ── Intelligence / Improve Intelligence types ─────────────────────────────────
+
+export interface IntelligenceDimension {
+  label:       string;
+  description: string;
+  score:       number;
+  missing:     boolean;
+  provider:    string | null;
+  /** Owner-facing state, e.g. "Not connected", "Connected, no history yet". */
+  statusLabel: string;
+  /** True when the score reflects data genuinely imported from a provider. */
+  observed:    boolean;
+}
+
+/**
+ * Canonical per-provider connection state. This — not the presence of a token —
+ * is what every surface must use to decide whether a source is connected.
+ */
+export interface CanonicalConnectionState {
+  provider:         string;
+  status:           WorkspaceConnection['status'];
+  healthy:          boolean;
+  inFlight:         boolean;
+  needsAttention:   boolean;
+  noHistory:        boolean;
+  lastSyncedAt:     string | null;
+  /** Derived from the age of the last sync, not a column written once at sync time. */
+  freshness:        FreshnessLevel;
+  /** Owner-facing wording for `freshness`. Render this, never the raw level. */
+  freshnessLabel:   string;
+  signalCount:      number;
+  /** False when no real integration exists yet — do not offer a live connect. */
+  adapterAvailable: boolean;
+  errorDetail:      string | null;
+}
+
+/** One entry in the Growth Brain learning log (spec §4.3). */
+export interface LearningLogEntry {
+  id:            string;
+  createdAt:     string;
+  eventType:
+    | 'source_connected'
+    | 'source_synced'
+    | 'source_disconnected'
+    | 'source_reauthorized'
+    | 'context_updated'
+    | 'context_delta_updated'
+    | 'recommendation_updated'
+    | 'authority_changed';
+  /** Owner-facing description of what caused the change. */
+  trigger:       string;
+  provider:      string | null;
+  providerLabel: string | null;
+  connectionId:  string | null;
+  syncRunId:     string | null;
+  traceId:       string | null;
+  evidence:      Array<{ label: string; value: string | number }>;
+  previousState: string | null;
+  newState:      string | null;
+  priorConfidence: number | null;
+  newConfidence:   number | null;
+  /** null when confidence was not measured on both sides — do not render a delta. */
+  confidenceDelta: number | null;
+  changeOrigin:  'automatic' | 'founder_confirmed';
+  affectedRecommendations: Array<{ id: string; title: string | null }>;
+  affectedMissions:        Array<{ id: string; title: string | null }>;
+}
+
+export interface GrowthBrainCoverage {
+  overallScore:  number;
+  overallCopy:   string;
+  dimensions:    IntelligenceDimension[];
+  connectionStates: Record<string, CanonicalConnectionState>;
+  connections:   {
+    app_store_connect: { connected: boolean; connectedAt: string | null; syncStatus: string | null };
+    revenue_cat:       { connected: boolean; connectedAt: string | null; syncStatus: string | null };
+    google_analytics:  { connected: boolean; connectedAt: string | null; syncStatus: string | null };
+    google_ads:        { connected: boolean; connectedAt: string | null; syncStatus: string | null };
+    meta_ads:          { connected: boolean; connectedAt: string | null; syncStatus: string | null };
+    connectedCount:    number;
+  };
+  recommendedSource: {
+    key:             string;
+    name:            string;
+    logoChar:        string;
+    description:     string;
+    decisionImproved: string;
+    expectedGain:    string;
+    accessType:      string;
+    /** False when no real integration exists yet. */
+    available:       boolean;
+    connectionStatus: string;
+  } | null;
+  contextSummary: {
+    positioning:    string;
+    audience:       string;
+    topSignal:      string;
+    nextInitiative: string;
+    primaryGoal:    string;
+    targetWindow:   string;
+  };
+  lastLearning: {
+    trigger:        string;
+    actionTaken:    string;
+    /** "No measured change" when confidence was not measured on both sides. */
+    confidenceLift: string;
+    /** Whether LaunchMind concluded this itself or a person confirmed it. */
+    origin:         'automatic' | 'founder_confirmed';
+  } | null;
+  /**
+   * Evidence-backed insights derived from connected sources. The same persisted
+   * rows feed Growth Brain, the Morning Brief, and Improve Intelligence, so the
+   * three surfaces cannot disagree.
+   */
+  liveInsights: Array<{
+    id:         string;
+    provider:   string;
+    headline:   string;
+    detail:     string;
+    evidence:   unknown;
+    confidence: number | null;
+    createdAt:  string;
+  }>;
+}
+
+// ── Connections (Improve Intelligence) ────────────────────────────────────────
+
+export interface WorkspaceConnection {
+  id: string;
+  provider: string;
+  status: 'NOT_CONNECTED'|'PREVIEWING'|'AUTHORIZING'|'AUTHORIZED'|'SELECTING_SOURCE'|
+          'SYNC_QUEUED'|'SYNCING'|'PARTIAL'|'HEALTHY'|'NO_HISTORY'|'NEEDS_REAUTH'|
+          'PERMISSION_DENIED'|'WRONG_ACCOUNT'|'PROVIDER_UNAVAILABLE'|'SYNC_FAILED'|'DISCONNECTED';
+  external_account_name?: string;
+  selected_resource_name?: string;
+  freshness_status?: 'fresh'|'stale'|'unknown';
+  last_synced_at?: string;
+  error_detail?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderAccount {
+  id: string;
+  name: string;
+  accessLevel?: string;
+}
+
+/**
+ * Canonical permission ladder. A connection is granted READ + RECOMMEND at connect
+ * time; CHANGE, PUBLISH, and SPEND require an explicit, audited authority upgrade.
+ */
+export type PermissionLevel = 'READ' | 'RECOMMEND' | 'DRAFT' | 'CHANGE' | 'PUBLISH' | 'SPEND';
+
+/**
+ * Per-action execution boundary for a connection.
+ * `allowed` is false for every action today: no adapter implements execution, so even
+ * a granted authority cannot produce an external change.
+ */
+export interface ExecutionBoundary {
+  granted: PermissionLevel[];
+  actions: Array<{
+    action: string;
+    requires: PermissionLevel;
+    allowed: boolean;
+    blockedBy: string | null;
+  }>;
+  providerExecutionImplemented: boolean;
+}
+
+/** One immutable entry in a connection's permission audit trail. */
+export interface ConnectionPermissionHistoryEntry {
+  id: string;
+  connection_id: string;
+  workspace_id: string;
+  permission_snapshot: PermissionLevel[];
+  previous_snapshot: PermissionLevel[];
+  action: 'granted' | 'upgrade_requested' | 'upgrade_approved' | 'upgrade_denied'
+        | 'downgraded' | 'revoked' | 'reauthorized';
+  changed_by: string | null;
+  actor_type: 'founder' | 'system';
+  reason: string | null;
+  created_at: string;
+}
+
+export interface SyncRun {
+  id: string;
+  status: 'queued'|'running'|'completed'|'partial'|'failed';
+  progress: number;
+  current_step?: string;
+  steps_completed: string[];
+  signals_imported: number;
+  error_message?: string;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+/**
+ * Result of POST /connections/:provider/connect.
+ * There is deliberately no `firstInsight` here — an insight only exists once the
+ * worker has imported real provider data. Poll sync-runs, then read the signals.
+ */
+export interface ConnectResult {
+  connection: WorkspaceConnection;
+  accounts: ProviderAccount[];
+  syncRunId: string;
+  traceId: string;
+  syncQueued: boolean;
+  needsResourceSelection: boolean;
+}
+
+/** How current a connection's imported data is. */
+export type FreshnessLevel = 'fresh' | 'recent' | 'stale' | 'outdated' | 'unknown';
+
+export interface ConnectionHealth {
+  status: string;
+  freshness: FreshnessLevel;
+  /** Owner-facing wording for `freshness`. */
+  freshness_label: string;
+  last_synced_at?: string;
+  signals_count: number;
+  provider: string;
+  adapter_available: boolean;
+  needs_attention: boolean;
+  /** Persisted grant. Never inferred from provider token scopes. */
+  permissions_granted: PermissionLevel[];
+  /** Non-secret credential metadata. No token material is ever returned. */
+  credential_expires_at: string | null;
+  external_account_name: string | null;
+  /** The app / property / account the owner selected at this provider. */
+  selected_resource_name: string | null;
+  /**
+   * Most recent evidence-backed insight derived from this connection's imported
+   * data, or null when the data has not yet supported a conclusion.
+   */
+  latest_insight: {
+    headline: string;
+    detail: string;
+    evidence: unknown;
+    confidence: number | null;
+    created_at: string;
+  } | null;
 }

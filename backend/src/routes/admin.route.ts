@@ -13,6 +13,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { timingSafeEqual } from 'crypto';
 import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { triggerBriefNow, scheduleWeeklyBrief } from '../lib/scheduler';
@@ -47,7 +48,7 @@ function verifyAdminSecret(request: FastifyRequest, reply: FastifyReply): boolea
   try {
     const expected = Buffer.from(secret, 'utf-8');
     const actual = Buffer.from(provided, 'utf-8');
-    if (expected.length !== actual.length || !require('crypto').timingSafeEqual(expected, actual)) {
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
       reply.status(401).send({ error: 'Invalid admin secret' });
       return false;
     }

@@ -10,6 +10,7 @@
 
 // Load .env.local from project root before anything else (local dev only — no-op in prod).
 import { existsSync, readFileSync } from 'fs';
+import { warnOnMetaConfigAtStartup } from './services/providers/metaCredentials';
 import { resolve } from 'path';
 const envPath = resolve(__dirname, '..', '..', '.env.local');
 if (existsSync(envPath)) {
@@ -59,12 +60,15 @@ import { recommendationsRoutes }  from './routes/recommendations.route';
 import { benchmarksRoutes }       from './routes/benchmarks.route';
 import analyticsRoutes            from './routes/analytics.route';
 import reportsRoutes              from './routes/reports.route';
+import { onboardingRoutes }       from './routes/onboarding.route';
 import { InsufficientTokensError } from './types/errors';
 import { checkAnomaly, extractFounderIdFromHeader } from './middleware/auth.middleware';
 import { startBriefWorker } from './workers/weeklyBriefWorker';
 import { startIntakeWorker }  from './workers/intakeWorker';
 import { startContentWorker }  from './workers/contentWorker';
 import { startMissionWorker }  from './workers/missionWorker';
+import { startDiscoveryWorker } from './workers/discoveryWorker';
+import { startConnectionSyncWorker } from './workers/connectionSyncWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
 
 /**
@@ -93,6 +97,10 @@ export async function buildServer(): Promise<FastifyInstance> {
     allowList: process.env.NODE_ENV !== 'production' ? ['127.0.0.1', '::1', '::ffff:127.0.0.1'] : [],
   });
 
+  // Surface a deprecated or half-configured Meta setup at startup, not at the
+  // moment an owner tries to connect. Prints variable names and a state only.
+  warnOnMetaConfigAtStartup();
+
   server.get('/health', async () => ({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -106,6 +114,7 @@ export async function buildServer(): Promise<FastifyInstance> {
    */
   server.get('/health/detailed', async (_request, reply) => {
     const checks: Record<string, 'ok' | 'error'> = {};
+    let vaultDetail: { status: string; detail: string } | null = null;
     let allOk = true;
 
     // Supabase probe — simple count query
@@ -131,9 +140,32 @@ export async function buildServer(): Promise<FastifyInstance> {
       allOk = false;
     }
 
+    // Credential vault probe. Encrypts and decrypts a fixed sentinel — non-
+    // destructive, creates nothing, stores nothing. It is checked here because a
+    // reachable database and queue with a dead vault still means no provider can be
+    // connected, and that failure was previously invisible until an owner tried.
+    try {
+      const { checkVaultHealth } = await import('./lib/tokenVault');
+      const vault = await checkVaultHealth();
+      // Distinguishes the operator-actionable cases without exposing OCIDs,
+      // endpoints, or SDK text.
+      checks.credential_vault = vault.status === 'healthy' ? 'ok' : 'error';
+      vaultDetail = { status: vault.status, detail: vault.detail };
+      if (vault.status !== 'healthy') allOk = false;
+    } catch {
+      checks.credential_vault = 'error';
+      vaultDetail = { status: 'unavailable', detail: 'Credential vault probe failed.' };
+      allOk = false;
+    }
+
     return reply
       .status(allOk ? 200 : 503)
-      .send({ status: allOk ? 'ok' : 'degraded', checks, timestamp: new Date().toISOString() });
+      .send({
+        status: allOk ? 'ok' : 'degraded',
+        checks,
+        vault: vaultDetail,
+        timestamp: new Date().toISOString(),
+      });
   });
 
   await server.register(productsRoutes);
@@ -159,6 +191,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await server.register(benchmarksRoutes);
   await server.register(analyticsRoutes);
   await server.register(reportsRoutes);
+  await server.register(onboardingRoutes);
 
   // Anomaly detection — fires on every request with an Authorization header.
   // Decodes JWT payload (no re-verification) to extract founderId, then fires
@@ -212,6 +245,10 @@ async function start(): Promise<void> {
       startIntakeWorker();
       startContentWorker();
       startMissionWorker();
+      startDiscoveryWorker();
+      // Canonical execution path for Improve Intelligence provider syncs.
+      // Without this, /connections/:id/sync enqueues jobs no consumer ever runs.
+      startConnectionSyncWorker();
       await scheduleWeeklyBrief();
     } else {
       console.warn('[server] REDIS_URL not configured — BullMQ workers skipped (set a real URL to enable)');

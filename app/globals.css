@@ -8,31 +8,35 @@
    ═══════════════════════════════════════════════════════════════ */
 :root {
   /* ── Backgrounds ──────────────────────────── */
-  --page:      #f2f3f6;
+  --page:      #f5f6f4;
   --surface:   #ffffff;
-  --raised:    #eceef3;
-  --sidebar:   #28304a;
-  --sidebar-2: #323c58;
+  --raised:    #f8f9f7;
+
+  /* ── Cinematic homepage nav + sidebar gradient ── */
+  --nav:       #13231f;
+  --nav-2:     #1b302a;
 
   /* ── Borders ──────────────────────────────── */
-  --border:    rgba(27,31,46,0.10);
-  --border2:   rgba(27,31,46,0.06);
+  --border:    #e2e7e3;
+  --border2:   #cfd7d1;
   --s-border:  rgba(255,255,255,0.07);
   --s-border2: rgba(255,255,255,0.12);
 
   /* ── Ink (text) ──────────────────────────── */
-  --ink:    #1b1f2e;
-  --ink2:   #626880;
-  --ink3:   #9ca4be;   /* decorative only — never body text (contrast 2.8:1) */
+  --ink:    #17211d;
+  --ink2:   #42504a;
+  --ink3:   #7a8781;   /* decorative only — never body text (contrast 2.8:1) */
   --s-text:  rgba(255,255,255,0.88);
   --s-text2: rgba(255,255,255,0.42);
   --s-text3: rgba(255,255,255,0.22);
 
   /* ── Sage — primary action & success ─────── */
-  --sage:   #059669;
+  --sage:   #0b8f69;
   --sage-l: #34d399;
-  --sage-d: rgba(5,150,105,0.12);
-  --sage-b: rgba(5,150,105,0.28);
+  --sage-d: rgba(11,143,105,0.12);
+  --sage-b: rgba(11,143,105,0.28);
+  --sage2:  #dff4ec;
+  --sage3:  #b9e6d7;
 
   /* ── Indigo — accent & plan badges ──────── */
   --indigo:   #4f46e5;
@@ -40,33 +44,48 @@
   --indigo-b: rgba(79,70,229,0.22);
 
   /* ── Amber — India market & warnings ─────── */
-  --amber:   #d97706;
-  --amber-d: rgba(217,119,6,0.10);
-  --amber-b: rgba(217,119,6,0.22);
+  --amber:   #b86808;
+  --amber-d: rgba(184,104,8,0.10);
+  --amber-b: rgba(184,104,8,0.22);
+  --amber2:  #fff2dd;
 
   /* ── Danger ──────────────────────────────── */
-  --danger:   #dc2626;
-  --danger-d: rgba(220,38,38,0.09);
-  --danger-b: rgba(220,38,38,0.22);
+  --danger:   #c33f43;
+  --danger-d: rgba(195,63,67,0.09);
+  --danger-b: rgba(195,63,67,0.22);
+  --danger2:  #feeceb;
+
+  /* ── Blue ────────────────────────────────── */
+  --blue:  #2468cc;
+  --blue2: #eaf2ff;
 
   /* ── AI — LaunchMind's judgment (violet) ─── */
   /* Permitted: AI badge, confidence, evidence chips, Why panel, Ask surface */
   /* Forbidden: buttons, gradients, decoration */
-  --ai:   #7c5cff;
-  --ai-d: rgba(124,92,255,0.10);
-  --ai-b: rgba(124,92,255,0.24);
-  --ai-l: #a78bfa;
+  --ai:   #6956d9;
+  --ai-d: rgba(105,86,217,0.10);
+  --ai-b: rgba(105,86,217,0.24);
+  --ai-l: #9b8ee8;
+
+  /* Spec name aliases (--violet = --ai) */
+  --violet:  #6956d9;
+  --violet2: #efedff;
 
   /* ── Radius ──────────────────────────────── */
   --r:      10px;
-  --r2:      6px;
-  --r3:      4px;
+  --r1:     10px;   /* spec alias */
+  --r2:      14px;
+  --r3:      20px;
   --r-full:  9999px;
 
   /* ── Elevation — restrained (not a gradient app) ─── */
   --e1: 0 1px 2px rgba(27,31,46,0.04);
   --e2: 0 2px 8px rgba(27,31,46,0.06);
   --e3: 0 8px 24px rgba(27,31,46,0.10);   /* modals only */
+
+  /* ── Named shadows (spec) ───────────────────────── */
+  --shadow:  0 8px 30px rgba(22,33,29,0.08);
+  --shadow2: 0 18px 60px rgba(18,35,31,0.14);
 
   /* ── Motion ──────────────────────────────── */
   --dur-fast: 120ms;
@@ -81,8 +100,8 @@
 .autofill-light:-webkit-autofill:hover,
 .autofill-light:-webkit-autofill:focus,
 .autofill-light:-webkit-autofill:active {
-  -webkit-box-shadow: 0 0 0px 1000px #eceef3 inset !important;
-  -webkit-text-fill-color: #1b1f2e !important;
+  -webkit-box-shadow: 0 0 0px 1000px #f8f9f7 inset !important;
+  -webkit-text-fill-color: #17211d !important;
   transition: background-color 9999s ease-in-out 0s;
 }
 
@@ -102,12 +121,164 @@
   html, body {
     background: var(--page);
     color: var(--ink);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 13px;
+    font-family: var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
   h1, h2, h3 {
     font-family: 'Syne', sans-serif;
   }
+}
+
+/* ── Onboarding two-panel shell ───────────────────────────────────────── */
+/* body-lock added/removed by OnboardingLayout useEffect — prevents macOS  */
+/* rubber-band overscroll on the window while onboarding is mounted.       */
+/* Shell grows with content — spec uses min-height:720px not fixed 100vh   */
+.ob-outer {
+  min-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--page);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.ob-shell {
+  width: min(1220px, 97vw);
+  min-height: 720px;
+  display: grid;
+  grid-template-columns: .84fr 1.16fr;
+  grid-template-rows: auto;
+  background: rgba(255,255,255,.94);
+  border: 1px solid rgba(207,220,214,.9);
+  border-radius: 26px;
+  box-shadow: 0 28px 80px rgba(20,48,39,.16);
+  overflow: hidden;
+}
+.ob-side {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Right panel no longer scrolls independently — whole page scrolls */
+.ob-main {
+  padding: 42px 46px;
+  display: flex;
+  flex-direction: column;
+}
+.ob-top  { flex-shrink: 0; }
+.ob-prog { flex-shrink: 0; margin-top: 25px; }
+@media (max-width: 700px) {
+  .ob-outer { height: auto; min-height: 100vh; overflow: visible; padding: 0; }
+  .ob-shell { width: 100%; height: auto; min-height: 100vh; grid-template-columns: 1fr;
+              border-radius: 0; border: none; box-shadow: none; }
+  .ob-side  { display: none; }
+  .ob-main  { padding: 28px 22px; overflow-y: visible; }
+}
+@media (max-width: 900px) and (min-width: 701px) {
+  .ob-shell { grid-template-columns: 240px 1fr; }
+  .ob-main  { padding: 32px 28px; }
+}
+
+/* ── Modal shell (components/launchmind/Dialog.tsx) ─────────────
+   Inline styles cannot express media queries, so every responsive rule for
+   dialogs lives here. Spec §22: no clipped modals, full-width bottom actions on
+   mobile, and provider permission text is never shrunk below readable size. */
+
+.lm-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.lm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(7, 17, 14, 0.72);
+  backdrop-filter: blur(8px);
+  overflow-y: auto;
+}
+
+.lm-dialog-panel {
+  background: #fff;
+  border-radius: 18px;
+  width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  outline: none;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+/* Visible focus state is mandatory (spec §21) — never remove the ring. */
+.lm-dialog-panel :is(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Two-column connect modal: the dark benefit rail collapses on narrow screens
+   rather than forcing the content column below its readable width. */
+.lm-conn-split { display: flex; }
+.lm-conn-rail  { width: 260px; flex-shrink: 0; }
+.lm-conn-body  { flex: 1; min-width: 0; padding: 32px; overflow: auto; }
+
+/* Account rows stack rather than clip (spec §22). */
+.lm-account-row { display: grid; grid-template-columns: 20px 1fr auto; gap: 12px; align-items: center; }
+
+@media (max-width: 640px) {
+  .lm-dialog-backdrop { padding: 0; align-items: stretch; }
+  .lm-dialog-panel {
+    max-width: 100% !important;
+    min-height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  .lm-conn-split { flex-direction: column; }
+  .lm-conn-rail  { width: 100%; }
+  .lm-conn-body  { padding: 22px 18px; }
+  .lm-account-row { grid-template-columns: 20px 1fr; }
+  .lm-account-row > :last-child { grid-column: 1 / -1; }
+  /* Bottom actions go full width and stack. */
+  .lm-dialog-actions { flex-direction: column; align-items: stretch; }
+  .lm-dialog-actions > * { width: 100%; }
+}
+
+/* Permission copy has a floor, regardless of viewport (spec §22). */
+.lm-permission-copy { font-size: 12px; line-height: 1.55; }
+
+/* The provider learning animation is decorative; reduced-motion users get the
+   same information without the movement. The global reduced-motion block above
+   neutralises duration, and this removes the pulse entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .lm-sync-pulse { animation: none !important; opacity: 1 !important; }
+  .lm-dialog-panel { transition: none !important; }
+}
+
+/* Standard interior padding for content dialogs. */
+.lm-modal-pad { padding: 28px; }
+@media (max-width: 640px) { .lm-modal-pad { padding: 22px 18px; } }
+
+/* Compact intelligence-source row: logo · description · actions.
+   On a phone the action cluster moves to its own full-width line instead of
+   being squeezed against the description (spec §22, single-column cards). */
+.lm-source-card {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+}
+@media (max-width: 640px) {
+  .lm-source-card { grid-template-columns: 42px 1fr; }
+  .lm-source-card > :last-child { grid-column: 1 / -1; flex-wrap: wrap; }
 }

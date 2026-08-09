@@ -4,6 +4,7 @@
  *   Accepts unknown (jsonb) and coerces safely via toStringArray.
  *   Shows max 3 chips + "+N more" overflow.
  *   See LaunchMind Design System §10.3.
+ *   Spec: neutral raised/border/ink2 palette — NOT violet. Padding 6px 9px.
  * @dependencies lib/coerce.ts
  */
 'use client';
@@ -31,11 +32,12 @@ export function EvidenceChips({ chips, max = 3 }: EvidenceChipsProps) {
           className="inline-flex items-center"
           style={{
             fontSize: 11,
-            padding: '2px 6px',
+            fontWeight: 500,
+            padding: '6px 9px',
             borderRadius: 'var(--r3)',
-            background: 'var(--ai-d)',
-            border: '1px solid var(--ai-b)',
-            color: 'var(--ai)',
+            background: 'var(--raised)',
+            border: '1px solid var(--border)',
+            color: 'var(--ink2)',
           }}
         >
           {c}
@@ -45,7 +47,7 @@ export function EvidenceChips({ chips, max = 3 }: EvidenceChipsProps) {
         <span
           style={{
             fontSize: 11,
-            padding: '2px 6px',
+            padding: '6px 9px',
             borderRadius: 'var(--r3)',
             background: 'var(--raised)',
             border: '1px solid var(--border)',

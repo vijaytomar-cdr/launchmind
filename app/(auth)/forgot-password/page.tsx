@@ -89,7 +89,7 @@ export default function ForgotPasswordPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="autofill-light w-full rounded-[6px] px-3 py-2.5 outline-none"
+                    className="autofill-light w-full rounded-[9px] px-3 py-2.5 outline-none"
                     style={{
                       background: 'var(--raised)',
                       border: '1px solid var(--border2)',
@@ -104,7 +104,7 @@ export default function ForgotPasswordPage() {
                 <button
                   type="submit"
                   disabled={status === 'loading'}
-                  className="w-full rounded-[6px] py-2.5 font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
+                  className="w-full rounded-[10px] py-2.5 font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
                   style={{ background: 'var(--sage)', color: '#fff', fontSize: 13 }}
                 >
                   {status === 'loading' ? 'Sending…' : 'Send reset link'}

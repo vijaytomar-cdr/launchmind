@@ -110,7 +110,7 @@ export async function getAnalyticsSummary(founderId: string): Promise<AnalyticsS
     .limit(20);
 
   const products: AnalyticsSummary['products'] = [];
-  let totals: KPISummary = {
+  const totals: KPISummary = {
     totalImpressions: 0, totalClicks: 0, totalInstalls: 0,
     avgCpi: null, avgRoas: null, avgCtr: null,
     weekOverWeekInstallDelta: null, topChannel: null, topMarket: null,

@@ -54,15 +54,19 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/signup');
-  const isDashboard = pathname.startsWith('/dashboard');
-
-  if (!user && isDashboard) {
+  const isAuthRoute     = pathname.startsWith('/login') || pathname.startsWith('/signup');
+  const isDashboard     = pathname.startsWith('/dashboard');
+  const isOnboarding    = pathname.startsWith('/onboarding');
+  // Protect dashboard and onboarding routes — both require auth
+  if (!user && (isDashboard || isOnboarding)) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
+    // Preserve the intended destination for post-login redirect
+    url.searchParams.set('next', pathname);
     return NextResponse.redirect(url);
   }
 
+  // Authenticated users on auth routes → send to dashboard
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';

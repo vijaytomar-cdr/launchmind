@@ -212,13 +212,12 @@ describe('Products routes', () => {
     });
 
     it('returns array for authenticated founder', async () => {
+      // products route: .select.eq.is.order (no .not — all non-archived products returned)
       mockFrom.mockReturnValue({
         select: () => ({
           eq: () => ({
             is: () => ({
-              not: () => ({
-                order: () => Promise.resolve({ data: [{ id: PRODUCT_ID, name: 'TestApp' }], error: null }),
-              }),
+              order: () => Promise.resolve({ data: [{ id: PRODUCT_ID, name: 'TestApp' }], error: null }),
             }),
           }),
         }),

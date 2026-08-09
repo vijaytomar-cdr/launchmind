@@ -109,7 +109,7 @@ export default function CompetitorsPage() {
           Competitors we found
         </h1>
         <p style={{ fontSize: 13, color: 'var(--ink2)' }}>
-          Confirm the real ones, remove the wrong ones. Add any we missed — we'll scrape their weaknesses.
+          Confirm the real ones, remove the wrong ones. Add any we missed — we&apos;ll scrape their weaknesses.
         </p>
       </div>
 

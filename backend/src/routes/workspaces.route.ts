@@ -16,10 +16,6 @@ import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import {
-  createWorkspace,
-  listWorkspaces,
-  getWorkspace,
-  updateWorkspace,
   setActiveWorkspace,
   setActiveProduct,
   listWorkspaceMembers,

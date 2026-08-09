@@ -1,7 +1,8 @@
 /**
  * @file Sidebar.tsx
- * @description Dashboard sidebar — Architecture Baseline §6 navigation.
- *   Navigation sections: Overview · Work · Execution · Intelligence · Manage
+ * @description Dashboard sidebar — matches LaunchMind_Production_UX_July18_2026(15) spec exactly.
+ *   Navigation sections: COMMAND · EXECUTION · INTELLIGENCE · SYSTEM
+ *   Background: dark forest-green gradient linear-gradient(180deg,var(--nav),#10201c)
  *   Uses @tabler/icons-react v3 (Icon prefix, not Tb).
  * @security Logout calls supabase.auth.signOut() client-side; cookie cleared by Supabase.
  * @dependencies @supabase/ssr (browser client), @tabler/icons-react, next/link
@@ -13,27 +14,22 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
-  IconLayoutDashboard,
-  IconFileText,
-  IconSparkles,
-  IconMessageCircle,
-  IconTarget,
-  IconCircleCheck,
-  IconChartBar,
-  IconEdit,
+  IconSunrise,
+  IconBulb,
+  IconChecklist,
+  IconRoute,
+  IconPalette,
   IconSpeakerphone,
   IconFlask,
   IconCalendar,
   IconBrain,
-  IconWorld,
-  IconStar,
-  IconBulb,
-  IconTimeline,
+  IconChartBar,
   IconSettings,
-  IconCreditCard,
-  IconLayoutGrid,
   IconShieldCheck,
-  IconLogout,
+  IconDatabase,
+  IconNetwork,
+  IconBolt,
+  IconRocket,
 } from '@tabler/icons-react';
 
 type NavItem = {
@@ -41,7 +37,6 @@ type NavItem = {
   label: string;
   icon: React.ElementType;
   badge?: string;
-  children?: { href: string; label: string }[];
 };
 
 type NavSection = {
@@ -51,47 +46,40 @@ type NavSection = {
 
 const NAV_SECTIONS: NavSection[] = [
   {
-    section: 'Overview',
+    section: 'COMMAND',
     items: [
-      { href: '/dashboard', label: 'Home', icon: IconLayoutDashboard },
-      { href: '/dashboard/brief', label: 'Morning Brief', icon: IconFileText },
-      { href: '/dashboard/opportunities', label: 'Opportunities', icon: IconSparkles },
-      { href: '/dashboard/ask', label: 'Ask LaunchMind', icon: IconMessageCircle },
+      { href: '/dashboard/brief',         label: 'Morning Brief',      icon: IconSunrise },
+      { href: '/dashboard/opportunities', label: 'Opportunities',      icon: IconBulb },
+      { href: '/dashboard/approvals',     label: 'Approvals',          icon: IconChecklist },
+      { href: '/dashboard/missions',      label: 'Missions',           icon: IconRoute },
     ],
   },
   {
-    section: 'Work',
+    section: 'EXECUTION',
     items: [
-      { href: '/dashboard/missions', label: 'Missions', icon: IconTarget },
-      { href: '/dashboard/approvals', label: 'Approvals', icon: IconCircleCheck },
-      { href: '/dashboard/results', label: 'Results', icon: IconChartBar },
+      { href: '/dashboard/content',     label: 'Content Studio', icon: IconPalette },
+      { href: '/dashboard/campaigns',   label: 'Campaigns',      icon: IconSpeakerphone },
+      { href: '/dashboard/calendar',    label: 'Calendar',       icon: IconCalendar },
+      { href: '/dashboard/experiments', label: 'Experiments',    icon: IconFlask },
     ],
   },
   {
-    section: 'Execution',
+    section: 'INTELLIGENCE',
     items: [
-      { href: '/dashboard/content', label: 'Content Studio', icon: IconEdit },
-      { href: '/dashboard/campaigns', label: 'Campaigns', icon: IconSpeakerphone },
-      { href: '/dashboard/experiments', label: 'Experiments', icon: IconFlask },
-      { href: '/dashboard/calendar', label: 'Calendar', icon: IconCalendar },
+      { href: '/dashboard/intelligence/growth-brain', label: 'Growth Brain',       icon: IconBrain },
+      // No badge: a static count would imply LaunchMind has N sources ready to
+      // connect. Availability is decided by the server (GET /connections/providers).
+      { href: '/dashboard/channels',                  label: 'Improve Intelligence', icon: IconBolt },
+      { href: '/dashboard/intelligence/market',       label: 'Market Intelligence',icon: IconChartBar },
+      { href: '/dashboard/intelligence/memory',       label: 'Marketing Memory',   icon: IconDatabase },
+      { href: '/dashboard/intelligence/knowledge',    label: 'Knowledge Graph',    icon: IconNetwork },
     ],
   },
   {
-    section: 'Intelligence',
+    section: 'SYSTEM',
     items: [
-      { href: '/dashboard/intelligence/growth-brain', label: 'Growth Brain', icon: IconBrain },
-      { href: '/dashboard/intelligence/market', label: 'Market Intelligence', icon: IconWorld },
-      { href: '/dashboard/intelligence/reviews', label: 'Reviews', icon: IconStar },
-      { href: '/dashboard/intelligence/ideas', label: 'Ideas Inbox', icon: IconBulb },
-      { href: '/dashboard/intelligence/timeline', label: 'Timeline', icon: IconTimeline },
-    ],
-  },
-  {
-    section: 'Manage',
-    items: [
-      { href: '/dashboard/products', label: 'Products', icon: IconLayoutGrid },
-      { href: '/dashboard/settings', label: 'Settings', icon: IconSettings },
-      { href: '/dashboard/billing', label: 'Billing', icon: IconCreditCard },
+      { href: '/dashboard/launch-readiness', label: 'Launch Readiness', icon: IconRocket, badge: '7' },
+      { href: '/dashboard/settings',         label: 'Settings',         icon: IconSettings },
     ],
   },
 ];
@@ -105,16 +93,21 @@ interface SidebarProps {
   isAdmin?: boolean;
   tokenBalance?: number | null;
   plan?: string;
+  productName?: string;
+  productPlatform?: string;
+  productMarkets?: string[];
+  opportunityCount?: number;
+  approvalCount?: number;
 }
 
-export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free' }: SidebarProps) {
+export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free', productName, productPlatform, productMarkets, opportunityCount = 0, approvalCount = 0 }: SidebarProps) {
   const pathname = usePathname();
   const supabase = createClient();
   const adminActive = pathname.startsWith('/dashboard/admin');
 
   async function handleLogout() {
     await supabase.auth.signOut();
-    window.location.href = '/login';
+    window.location.href = '/';
   }
 
   function isActive(href: string): boolean {
@@ -122,228 +115,221 @@ export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free
     return pathname.startsWith(href);
   }
 
+  const balance = tokenBalance ?? 0;
+  const isUnlimited = tokenBalance === null || tokenBalance === undefined;
+  const max = TIER_MAX[plan] ?? 300;
+  const pct = Math.min(100, Math.round((balance / max) * 100));
+  const isLow = !isUnlimited && pct <= 20;
+
   return (
     <nav
-      className="hidden lg:flex w-56 flex-shrink-0 flex-col min-h-screen"
-      style={{ background: 'var(--sidebar)', borderRight: '1px solid var(--s-border)' }}
+      className="hidden lg:flex flex-shrink-0 flex-col min-h-screen"
+      style={{
+        width: 248,
+        background: 'linear-gradient(180deg,var(--nav),#10201c)',
+        color: '#e8f0ec',
+      }}
     >
-      {/* Logo */}
-      <div className="px-5 py-[18px]" style={{ borderBottom: '1px solid var(--s-border)' }}>
-        <div className="font-display font-bold" style={{ fontSize: 17, color: '#fff' }}>
-          Launch<span style={{ color: 'var(--sage-l)' }}>Mind</span>
+      {/* Brand */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 8px 18px', paddingTop: 20, paddingLeft: 20 }}>
+        <div style={{
+          width: 34, height: 34, borderRadius: 11, flexShrink: 0,
+          background: 'linear-gradient(135deg,#2fd39f,#0b8f69)',
+          display: 'grid', placeItems: 'center',
+          color: 'white', fontWeight: 900, fontSize: 13,
+          boxShadow: '0 8px 25px rgba(47,211,159,.25)',
+        }}>
+          LM
         </div>
-        <div style={{ fontSize: 10, color: 'var(--s-text2)', marginTop: 2 }}>
-          AI CMO for App Founders
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-.4px', color: '#fff' }}>
+            Launch<span style={{ color: '#4adbb0' }}>Mind</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#91a79e', marginTop: 2 }}>
+            Your AI Growth Operating System
+          </div>
         </div>
       </div>
 
+      {/* Workspace card */}
+      {(() => {
+        const displayName = productName ?? 'My Product';
+        const initial = displayName.charAt(0).toUpperCase();
+        const platformLabel = productPlatform === 'app_store' ? 'iOS' : productPlatform === 'play_store' ? 'Android' : 'iOS & Android';
+        const marketsLabel = productMarkets && productMarkets.length > 0
+          ? productMarkets.map(m => m.toUpperCase()).join(' & ')
+          : 'USA';
+        return (
+          <div style={{
+            margin: '0 4px 16px',
+            padding: '11px 12px',
+            border: '1px solid rgba(255,255,255,.09)',
+            background: 'rgba(255,255,255,.045)',
+            borderRadius: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 9, flexShrink: 0,
+              background: '#edf7f3', color: 'var(--sage)',
+              fontWeight: 800, fontSize: 12,
+              display: 'grid', placeItems: 'center',
+            }}>
+              {initial}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#e8f0ec', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+              <div style={{ fontSize: 11, color: '#8fa79d' }}>{marketsLabel} · {platformLabel}</div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Nav sections */}
-      <div className="flex-1 py-2 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         {NAV_SECTIONS.map(({ section, items }) => (
-          <div key={section} className="mb-1">
-            <div
-              style={{
-                fontSize: 9,
-                fontWeight: 600,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'var(--s-text3)',
-                padding: '8px 20px 3px',
-              }}
-            >
+          <div key={section}>
+            <div style={{
+              fontSize: 10, color: '#617b70',
+              letterSpacing: '.14em', fontWeight: 800,
+              margin: '12px 11px 5px',
+              textTransform: 'uppercase',
+            }}>
               {section}
             </div>
-            {items.map(({ href, label, icon: Icon, badge, children }) => {
-              const active = isActive(href);
-              const expanded = !!children && pathname.startsWith(href);
-              const navHref = children && children.length > 0 ? children[0].href : href;
-
-              return (
-                <div key={href}>
+            <div style={{ display: 'grid', gap: 3 }}>
+              {items.map(({ href, label, icon: Icon, badge: staticBadge }) => {
+                const active = isActive(href);
+                // Dynamic badge overrides for real DB counts (0 hides the badge)
+                let badge: string | undefined = staticBadge;
+                if (href === '/dashboard/opportunities') badge = opportunityCount > 0 ? String(opportunityCount) : undefined;
+                if (href === '/dashboard/approvals')     badge = approvalCount     > 0 ? String(approvalCount)     : undefined;
+                return (
                   <Link
-                    href={navHref}
-                    className="flex items-center gap-2.5 transition-colors"
+                    key={href}
+                    href={href}
                     style={{
-                      fontSize: 12.5,
-                      paddingLeft: 16,
-                      paddingRight: 16,
-                      paddingTop: 6,
-                      paddingBottom: 6,
-                      marginLeft: 4,
-                      marginRight: 4,
-                      borderRadius: 6,
-                      color: active ? '#fff' : 'var(--s-text)',
-                      background: active ? 'rgba(5,150,105,0.18)' : 'transparent',
+                      all: 'unset' as 'unset',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 11,
+                      padding: '10px 11px',
+                      borderRadius: 10,
+                      color: active ? '#fff' : '#b9c9c3',
+                      fontSize: 13,
+                      background: active ? 'rgba(47,211,159,.13)' : 'transparent',
+                      transition: 'background .15s, color .15s',
                     }}
                     onMouseEnter={e => {
-                      if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)';
+                      if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.06)';
+                      if (!active) (e.currentTarget as HTMLElement).style.color = 'white';
                     }}
                     onMouseLeave={e => {
                       if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent';
+                      if (!active) (e.currentTarget as HTMLElement).style.color = '#b9c9c3';
                     }}
                   >
                     <Icon
-                      size={14}
-                      style={{ color: active ? 'var(--sage-l)' : 'var(--s-text2)', flexShrink: 0 }}
+                      size={16}
+                      style={{ color: active ? '#47d9ae' : '#7f998f', width: 18, textAlign: 'center', flexShrink: 0 }}
                     />
                     <span style={{ flex: 1 }}>{label}</span>
                     {badge && (
-                      <span
-                        style={{
-                          fontSize: 9, fontWeight: 600,
-                          padding: '1px 5px', borderRadius: 3,
-                          background: 'var(--amber-d)', color: 'var(--amber)',
-                          border: '1px solid var(--amber-b)',
-                        }}
-                      >
+                      <span style={{
+                        marginLeft: 'auto',
+                        minWidth: 20, height: 20,
+                        borderRadius: 999,
+                        padding: '0 6px',
+                        display: 'grid', placeItems: 'center',
+                        background: '#2c5146',
+                        color: '#bff7e4',
+                        fontSize: 10, fontWeight: 800,
+                      }}>
                         {badge}
                       </span>
                     )}
-                    {active && (
-                      <span
-                        style={{
-                          width: 3, height: 3, borderRadius: '50%',
-                          background: 'var(--sage-l)', flexShrink: 0,
-                        }}
-                      />
-                    )}
                   </Link>
-
-                  {/* Sub-items */}
-                  {expanded && children && (
-                    <div style={{ paddingBottom: 2 }}>
-                      {children.map(child => {
-                        const childActive = pathname.startsWith(child.href);
-                        return (
-                          <Link
-                            key={child.href}
-                            href={child.href}
-                            className="flex items-center transition-colors"
-                            style={{
-                              fontSize: 11,
-                              paddingLeft: 34,
-                              paddingRight: 16,
-                              paddingTop: 4,
-                              paddingBottom: 4,
-                              marginLeft: 4,
-                              marginRight: 4,
-                              borderRadius: 4,
-                              color: childActive ? 'var(--sage-l)' : 'var(--s-text2)',
-                              background: childActive ? 'rgba(5,150,105,0.10)' : 'transparent',
-                            }}
-                            onMouseEnter={e => {
-                              if (!childActive)
-                                (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)';
-                            }}
-                            onMouseLeave={e => {
-                              if (!childActive)
-                                (e.currentTarget as HTMLElement).style.background = 'transparent';
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 3, height: 3, borderRadius: '50%',
-                                background: childActive ? 'var(--sage-l)' : 'var(--s-text3)',
-                                marginRight: 7, flexShrink: 0, display: 'inline-block',
-                              }}
-                            />
-                            {child.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         ))}
       </div>
 
       {/* Admin */}
       {isAdmin && (
-        <div style={{ borderTop: '1px solid var(--s-border)', paddingTop: 2 }}>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,.08)', paddingTop: 2 }}>
           <Link
             href="/dashboard/admin"
-            className="flex items-center gap-2.5 transition-colors"
             style={{
-              fontSize: 12.5,
-              padding: '6px 16px',
-              margin: '2px 4px',
-              borderRadius: 6,
-              color: adminActive ? '#fff' : 'var(--s-text)',
-              background: adminActive ? 'rgba(5,150,105,0.18)' : 'transparent',
-            }}
-            onMouseEnter={e => {
-              if (!adminActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)';
-            }}
-            onMouseLeave={e => {
-              if (!adminActive) (e.currentTarget as HTMLElement).style.background = 'transparent';
+              all: 'unset' as 'unset',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 11,
+              padding: '10px 11px',
+              borderRadius: 10,
+              color: adminActive ? '#fff' : '#b9c9c3',
+              fontSize: 13,
+              background: adminActive ? 'rgba(47,211,159,.13)' : 'transparent',
             }}
           >
-            <IconShieldCheck size={14} style={{ color: adminActive ? 'var(--sage-l)' : 'var(--s-text2)' }} />
+            <IconShieldCheck size={16} style={{ color: adminActive ? '#47d9ae' : '#7f998f' }} />
             Admin
           </Link>
         </div>
       )}
 
       {/* Token meter */}
-      {plan !== 'free' && (
-        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--s-border)' }}>
-          {(() => {
-            const isUnlimited = tokenBalance === null || tokenBalance === undefined;
-            const balance = tokenBalance ?? 0;
-            const max = TIER_MAX[plan] ?? 300;
-            const pct = Math.min(100, Math.round((balance / max) * 100));
-            const isLow = !isUnlimited && pct <= 20;
-            const barColor = isUnlimited ? 'var(--sage-l)' : isLow ? '#dc2626' : '#d97706';
-            return (
-              <>
-                <div className="flex items-center justify-between mb-1">
-                  <span style={{ fontSize: 9, color: 'var(--s-text3)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                    Tokens
-                  </span>
-                  <span className="font-mono" style={{ fontSize: 9, color: isLow ? '#dc2626' : 'var(--s-text2)' }}>
-                    {isUnlimited ? '∞' : balance.toLocaleString()}
-                  </span>
-                </div>
-                {!isUnlimited && (
-                  <div style={{ height: 2, borderRadius: 1, background: 'rgba(255,255,255,0.08)' }}>
-                    <div
-                      style={{
-                        width: `${pct}%`, height: '100%',
-                        borderRadius: 1, background: barColor,
-                        transition: 'width 0.4s ease',
-                      }}
-                    />
-                  </div>
-                )}
-                {isLow && (
-                  <a
-                    href="/dashboard/billing"
-                    style={{ display: 'block', marginTop: 4, fontSize: 9, color: '#dc2626', textDecoration: 'none' }}
-                  >
-                    Low — top up →
-                  </a>
-                )}
-              </>
-            );
-          })()}
+      <div style={{ borderTop: '1px solid rgba(255,255,255,.08)', padding: '14px 9px 4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#9cb0a8', fontSize: 11 }}>
+          <span>AI tokens</span>
+          <b style={{ color: '#34d399', fontFamily: 'DM Mono, monospace' }}>
+            {isUnlimited ? '∞' : `${balance} / ${max}`}
+          </b>
         </div>
-      )}
+        {!isUnlimited && (
+          <div style={{ height: 5, background: '#29423a', borderRadius: 999, margin: '8px 0', overflow: 'hidden' }}>
+            <div style={{
+              width: `${pct}%`, height: '100%',
+              background: isLow ? 'var(--danger)' : 'linear-gradient(90deg,#45d8ad,#f0b44c)',
+              transition: 'width 0.4s ease',
+            }} />
+          </div>
+        )}
+        {isLow && (
+          <a href="/dashboard/billing" style={{ display: 'block', fontSize: 9, color: 'var(--danger)', textDecoration: 'none' }}>
+            Low — top up →
+          </a>
+        )}
+      </div>
 
-      {/* Footer */}
-      <div className="px-4 py-3" style={{ borderTop: '1px solid var(--s-border)' }}>
-        <p className="truncate mb-2" style={{ fontSize: 10, color: 'var(--s-text2)' }}>
-          {userEmail}
-        </p>
+      {/* Profile footer */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 8px' }}>
+        <div style={{
+          width: 30, height: 30, borderRadius: 999, flexShrink: 0,
+          background: '#d8eee6', color: '#176c54',
+          fontWeight: 800, fontSize: 11,
+          display: 'grid', placeItems: 'center',
+        }}>
+          {(userEmail.charAt(0) || 'U').toUpperCase()}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#e8f0ec', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {userEmail.split('@')[0]}
+          </div>
+          <div style={{ fontSize: 11, color: '#8fa79d', marginTop: 1, textTransform: 'capitalize' }}>
+            {plan} plan
+          </div>
+        </div>
         <button
           onClick={handleLogout}
-          className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-          style={{ fontSize: 11, color: 'var(--s-text2)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#617b70', fontSize: 11, padding: '2px 6px', borderRadius: 4 }}
+          title="Log out"
         >
-          <IconLogout size={12} />
-          Log out
+          ⎋
         </button>
       </div>
     </nav>

@@ -48,7 +48,9 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
 
   use: {
-    baseURL: 'http://localhost:3000',
+    // Env-overridable so a run can target a server on another port when 3000 is
+    // already taken by a dev server.
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000',
     trace: 'on-first-retry',
     headless: true,
   },
@@ -68,6 +70,19 @@ export default defineConfig({
       name: 'regression',
       testMatch: '**/regression.spec.ts',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // Visual regression against LaunchMind_Production_UX_July18_2026(21).html.
+      // Token-parity assertions run without credentials; screenshot baselines need
+      // TEST_EMAIL / TEST_PASSWORD and skip themselves otherwise.
+      name: 'visual',
+      testMatch: '**/*.visual.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Deterministic rendering for stable snapshots.
+        deviceScaleFactor: 1,
+        colorScheme: 'light',
+      },
     },
   ],
 

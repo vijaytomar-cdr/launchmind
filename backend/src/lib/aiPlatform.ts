@@ -115,8 +115,16 @@ function sanitizeInput(input: string): string {
     // Strip triple-hash section headers (common jailbreak delimiter)
     .replace(/^#{3,}/gm, '')
     // Strip instruction override patterns
-    .replace(/ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/gi, '')
-    .replace(/disregard\s+(all\s+)?.*instructions?/gi, '')
+    // Split into quantifier-free alternatives rather than nesting a quantifier
+    // inside an optional group. `\s+(all\s+)?` has star height 2, which lets the
+    // engine split one whitespace run exponentially many ways — the classic
+    // catastrophic-backtracking shape, in the one function whose entire job is to
+    // process deliberately hostile input. Each pattern below is star height 1 and
+    // every repetition is bounded.
+    .replace(/ignore\s{1,8}all\s{1,8}(?:previous|prior|above)\s{1,8}instructions?/gi, '')
+    .replace(/ignore\s{1,8}(?:previous|prior|above)\s{1,8}instructions?/gi, '')
+    .replace(/disregard\s{1,8}all\s{1,8}[^\n]{0,120}instructions?/gi, '')
+    .replace(/disregard\s{1,8}[^\n]{0,120}instructions?/gi, '')
     // Normalize excessive whitespace
     .replace(/\s{4,}/g, '   ')
     .trim();

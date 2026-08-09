@@ -337,7 +337,7 @@ async function processExperimentResult(
 ): Promise<void> {
   const hypothesis = payload.hypothesis as string | undefined;
   const outcome    = payload.outcome as string | undefined;
-  const productName = (payload.productName as string | undefined) ?? 'Product';
+  const _productName = (payload.productName as string | undefined) ?? 'Product';
 
   if (hypothesis && outcome) {
     await upsertMemory(founderId, productId, 'experiment', `Experiment — ${hypothesis.slice(0, 60)}`, {

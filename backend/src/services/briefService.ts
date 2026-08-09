@@ -20,7 +20,7 @@ import { Resend } from 'resend';
 import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { consumeTokens } from '../lib/tokens';
-import { anonymizeAndAudit, PIIDetectedError } from './anonymizationService';
+import { anonymizeAndAudit } from './anonymizationService';
 
 function getResend(): Resend {
   return new Resend(process.env.RESEND_API_KEY);

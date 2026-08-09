@@ -168,7 +168,7 @@ export default function SetupBusinessPage() {
 
               {/* Goals */}
               <div>
-                <label style={labelStyle}>What's your primary goal for the next 90 days? <span style={{ color: 'var(--ink3)', fontWeight: 400 }}>(optional)</span></label>
+                <label style={labelStyle}>What&apos;s your primary goal for the next 90 days? <span style={{ color: 'var(--ink3)', fontWeight: 400 }}>(optional)</span></label>
                 <textarea
                   style={{ ...inputStyle, minHeight: 80, resize: 'vertical', lineHeight: 1.5 }}
                   value={goals}

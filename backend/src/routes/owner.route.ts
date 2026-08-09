@@ -191,6 +191,31 @@ async function seedOpportunitiesIfEmpty(
 
 async function ownerPlugin(server: FastifyInstance): Promise<void> {
 
+  // GET /owner/counts — Lightweight badge counts for sidebar (cached by layout)
+  server.get('/owner/counts', async (request: FastifyRequest, reply: FastifyReply) => {
+    await request.jwtVerify();
+    try {
+      const founderId = getFounderId(request);
+      const supabase  = getSupabaseAdmin();
+      const [approvalsData, opportunitiesData, notificationsData] = await Promise.all([
+        getPendingApprovals(supabase, founderId),
+        supabase.from('saved_opportunities').select('id', { count: 'exact', head: true })
+          .eq('founder_id', founderId).in('state', ['active', 'saved']),
+        supabase.from('notifications').select('id', { count: 'exact', head: true })
+          .eq('founder_id', founderId).eq('read', false),
+      ]);
+      // notifications table may not exist yet — treat error as 0
+      const unreadNotifications = notificationsData.error ? 0 : (notificationsData.count ?? 0);
+      reply.send({
+        opportunities: opportunitiesData.count ?? 0,
+        approvals: approvalsData.total,
+        notifications: unreadNotifications,
+      });
+    } catch {
+      reply.status(500).send({ opportunities: 0, approvals: 0, notifications: 0 });
+    }
+  });
+
   // GET /owner/brief — Morning Brief aggregation
   server.get('/owner/brief', async (request: FastifyRequest, reply: FastifyReply) => {
     await request.jwtVerify();
@@ -198,7 +223,7 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
       const founderId = getFounderId(request);
       const supabase  = getSupabaseAdmin();
 
-      const [founderRes, product, approvals, opportunitiesRes, timelineRes, metricsRes, memoriesRes] = await Promise.all([
+      const [founderRes, product, approvals, opportunitiesRes, timelineRes, metricsRes, memoriesRes, onboardingRes, directionRes, founderContextRes, businessGoalRes] = await Promise.all([
         supabase.from('founders').select('name, plan, token_balance').eq('id', founderId).single(),
         getActiveProduct(supabase, founderId),
         getPendingApprovals(supabase, founderId),
@@ -220,15 +245,63 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
           .order('week_start', { ascending: false })
           .limit(10),
         supabase.from('marketing_memories')
-          .select('id, title, body, memory_type, confidence')
+          .select('id, title, content, memory_type, confidence')
           .eq('founder_id', founderId)
-          .eq('archived', false)
+          .eq('status', 'active')
           .order('confidence', { ascending: false })
           .limit(3),
+        // Check if Phase 1 onboarding is complete (new onboarding flow)
+        supabase.from('onboarding_sessions')
+          .select('current_state')
+          .eq('founder_id', founderId)
+          .in('current_state', ['PHASE_1_COMPLETE', 'DIRECTION_COMPLETE'])
+          .limit(1),
+        // Fetch full strategy direction content (not just existence)
+        supabase.from('strategy_directions')
+          .select('id, headline, rationale, primary_channel, week_1, week_2, week_3, week_4, status')
+          .eq('founder_id', founderId)
+          .in('status', ['ready', 'acknowledged'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        // Phase 1 founder context (audience + context delta)
+        supabase.from('founder_context')
+          .select('audience_confirmed, context_delta, working_style')
+          .eq('founder_id', founderId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        // Phase 1 primary business goal
+        supabase.from('business_goals')
+          .select('goal_type, target_value, unit, time_horizon_days')
+          .eq('founder_id', founderId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
 
       const founder     = founderRes.data;
       const opportunities = opportunitiesRes.data ?? [];
+      const phase1Done  = (onboardingRes.data ?? []).length > 0;
+      const direction   = directionRes.data ?? null;
+      const hasDirection = direction !== null;
+      const founderCtx  = founderContextRes.data ?? null;
+      const primaryGoal = businessGoalRes.data ?? null;
+
+      // Resolve founder display name: founders.name → auth user_metadata.full_name → 'Founder'
+      let founderDisplayName = founder?.name ?? null;
+      if (!founderDisplayName) {
+        try {
+          const { data: authUser } = await supabase.auth.admin.getUserById(founderId);
+          founderDisplayName = (authUser?.user?.user_metadata?.full_name as string | undefined)
+            ?? (authUser?.user?.user_metadata?.name as string | undefined)
+            ?? null;
+          // Persist so future requests skip this admin call
+          if (founderDisplayName) {
+            await supabase.from('founders').update({ name: founderDisplayName }).eq('id', founderId);
+          }
+        } catch { /* non-fatal */ }
+      }
 
       // Seed opportunities if empty
       if (opportunities.length === 0 && product) {
@@ -300,8 +373,13 @@ Pending approvals: ${approvals.total}. Recent installs: ${contextPkg.analytics?.
         link:    l.mission_id ? `/dashboard/missions/${l.mission_id}` : null,
       }));
 
+      // Growth Brain is active when: confirmed_icp set (old intake) OR Phase 1 complete (new onboarding)
+      const growthBrainActive = !!product?.confirmed_icp || phase1Done || hasDirection;
+      // Confidence: 96 if phase1 complete, 78 if confirmed_icp only, null if neither
+      const growthBrainConfidence = phase1Done ? 96 : (product?.confirmed_icp ? 78 : null);
+
       reply.send({
-        founder:        { name: founder?.name ?? 'Founder', plan: founder?.plan ?? 'free' },
+        founder:        { name: founderDisplayName ?? 'Founder', plan: founder?.plan ?? 'free' },
         product:        product ? { id: product.id, name: product.name, platform: product.platform } : null,
         recommendation,
         pendingApprovals: approvals,
@@ -317,8 +395,8 @@ Pending approvals: ${approvals.total}. Recent installs: ${contextPkg.analytics?.
         })),
         recentTimeline:  timeline.slice(0, 5),
         growthBrain: {
-          hasStrategy:  !!product?.confirmed_icp,
-          confidence:   product?.confirmed_icp ? 78 : null,
+          hasStrategy:  growthBrainActive,
+          confidence:   growthBrainConfidence,
           lastUpdated:  null,
         },
         metrics: {
@@ -330,10 +408,33 @@ Pending approvals: ${approvals.total}. Recent installs: ${contextPkg.analytics?.
         memories: (memoriesRes.data ?? []).map(m => ({
           id:         m.id,
           title:      m.title as string,
-          body:       m.body as string | null,
+          body:       ((m.content as Record<string, unknown>)?.audienceConfirmed
+                    ?? (m.content as Record<string, unknown>)?.contextDelta
+                    ?? null) as string | null,
           memoryType: m.memory_type as string,
           confidence: m.confidence as number,
         })),
+        // Phase 1 data surfaced in brief for the UI to render direction + goal
+        phase1: (phase1Done || hasDirection || founderCtx) ? {
+          direction: direction ? {
+            headline:       direction.headline as string,
+            rationale:      direction.rationale as string,
+            primaryChannel: direction.primary_channel as string | null,
+            week1:          direction.week_1,
+            week2:          direction.week_2,
+            week3:          direction.week_3,
+            week4:          direction.week_4,
+          } : null,
+          audience:    (founderCtx as Record<string, unknown> | null)?.audience_confirmed as string | null ?? null,
+          contextDelta:(founderCtx as Record<string, unknown> | null)?.context_delta as string | null ?? null,
+          workingStyle:(founderCtx as Record<string, unknown> | null)?.working_style as string | null ?? null,
+          primaryGoal: primaryGoal ? {
+            type:        (primaryGoal as Record<string, unknown>).goal_type as string,
+            target:      (primaryGoal as Record<string, unknown>).target_value as number,
+            unit:        (primaryGoal as Record<string, unknown>).unit as string,
+            horizonDays: (primaryGoal as Record<string, unknown>).time_horizon_days as number,
+          } : null,
+        } : null,
       });
     } catch (err) {
       Sentry.captureException(err);
@@ -585,7 +686,7 @@ Recent memories: ${contextPkg.memories?.slice(0, 3).map(m => m.title).join('; ')
       const limit  = Math.min(Number(q.limit  ?? 50), 100);
       const offset = Number(q.offset ?? 0);
 
-      const [missionRes, campaignRes, approvalRes, missionLogRes] = await Promise.all([
+      const [missionRes, campaignRes, approvalRes, _missionLogRes] = await Promise.all([
         supabase.from('missions')
           .select('id, type, title, status, created_at, completed_at, failed_at')
           .eq('founder_id', founderId)

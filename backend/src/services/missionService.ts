@@ -9,9 +9,7 @@
 
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import type {
-  Mission, MissionStep, MissionLog, MissionApproval,
-  MissionStatus, StepStatus, MissionType, AgentType,
-  MissionStepTemplate, CreateMissionInput, MissionJobPayload,
+  Mission, MissionStep, MissionLog, MissionApproval, StepStatus, MissionType, MissionStepTemplate, CreateMissionInput, MissionJobPayload,
 } from '../types/mission';
 
 // ── Mission templates — step definitions per mission type ─────────────────────

@@ -17,6 +17,7 @@ import { Sidebar } from '@/components/launchmind/Sidebar';
 import { PostHogIdentify } from '@/components/launchmind/PostHogIdentify';
 import { FeedbackWidget } from '@/components/launchmind/FeedbackWidget';
 import { MobileNav } from '@/components/launchmind/MobileNav';
+import { Topbar } from '@/components/launchmind/Topbar';
 
 export default async function DashboardLayout({
   children,
@@ -38,9 +39,16 @@ export default async function DashboardLayout({
 
   let tokenBalance: number | null | undefined = undefined;
   let plan = 'free';
+  let activeProductName: string | undefined;
+  let activeProductPlatform: string | undefined;
+  let activeProductMarkets: string[] | undefined;
+  let sidebarOpportunityCount = 0;
+  let sidebarApprovalCount = 0;
+  let totalProductCount = 1;
+  let unreadNotificationCount = 0;
 
   if (session?.access_token) {
-    // Fire session init and billing fetch in parallel — both non-fatal if they fail
+    // Fire session init, billing fetch, product list, and badge counts in parallel — all non-fatal
     await Promise.allSettled([
       // Idempotent session init: ensures workspace exists, sets active_workspace_id
       fetch(`${apiBase}/founders/session`, {
@@ -50,7 +58,6 @@ export default async function DashboardLayout({
           'Content-Type': 'application/json',
         },
         body: '{}',
-        // No cache — must run on every dashboard load to handle new signups
         cache: 'no-store',
       }),
       // Billing subscription (cached 60s)
@@ -64,14 +71,56 @@ export default async function DashboardLayout({
           tokenBalance = sub.tokenBalance;
         }
       }),
+      // Active product (cached 30s) — pick first non-archived product
+      fetch(`${apiBase}/products`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        next: { revalidate: 30 },
+      }).then(async res => {
+        if (res.ok) {
+          const body = await res.json() as { products?: Array<{ name: string; platform: string; markets: string[]; archived_at: string | null }> };
+          const products = body.products ?? (Array.isArray(body) ? body : []) as Array<{ name: string; platform: string; markets: string[]; archived_at: string | null }>;
+          const active = products.find((p) => !p.archived_at);
+          totalProductCount = products.filter((p) => !p.archived_at).length;
+          if (active) {
+            activeProductName = active.name;
+            activeProductPlatform = active.platform;
+            activeProductMarkets = active.markets;
+          }
+        }
+      }),
+      // Sidebar badge counts (cached 30s) — lightweight, non-fatal
+      fetch(`${apiBase}/owner/counts`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        next: { revalidate: 30 },
+      }).then(async res => {
+        if (res.ok) {
+          const counts = await res.json() as { opportunities: number; approvals: number; notifications: number };
+          sidebarOpportunityCount  = counts.opportunities  ?? 0;
+          sidebarApprovalCount     = counts.approvals      ?? 0;
+          unreadNotificationCount  = counts.notifications  ?? 0;
+        }
+      }),
     ]);
   }
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'var(--page)' }}>
+    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--page)' }}>
       <PostHogIdentify founderId={user.id} />
-      <Sidebar userEmail={user.email ?? ''} isAdmin={isAdmin} tokenBalance={tokenBalance} plan={plan} />
-      <main className="flex-1 overflow-auto pb-16 lg:pb-0">{children}</main>
+      <Sidebar
+        userEmail={user.email ?? ''}
+        isAdmin={isAdmin}
+        tokenBalance={tokenBalance}
+        plan={plan}
+        productName={activeProductName}
+        productPlatform={activeProductPlatform}
+        productMarkets={activeProductMarkets}
+        opportunityCount={sidebarOpportunityCount}
+        approvalCount={sidebarApprovalCount}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Topbar plan={plan} productName={activeProductName} productCount={totalProductCount} unreadNotifications={unreadNotificationCount} />
+        <main className="flex-1 overflow-y-auto pb-16 lg:pb-0">{children}</main>
+      </div>
       <FeedbackWidget />
       <MobileNav />
     </div>

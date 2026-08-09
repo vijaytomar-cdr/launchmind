@@ -26,7 +26,7 @@ import {
 } from '../types/strategy';
 import type { ICPBrief } from '../types/scraper';
 
-const CHANNELS: Channel[] = ['meta', 'google', 'whatsapp', 'linkedin', 'email'];
+const _CHANNELS: Channel[] = ['meta', 'google', 'whatsapp', 'linkedin', 'email'];
 
 // ── Strategy generation ───────────────────────────────────────────────────────
 

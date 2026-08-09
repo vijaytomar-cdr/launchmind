@@ -1,7 +1,20 @@
 ##
 ## @file ci.yml
 ## @description CI pipeline. Runs on every push and PR.
-##   Blocks merge on: SAST findings, HIGH+ CVEs, failing tests.
+##   Blocks merge on: type errors, lint errors, failing tests, a failing production
+##   build, SAST findings, or HIGH+ CVEs.
+##
+## Two defects this file previously had, both of which let real failures through:
+##
+##   1. The frontend job used `working-directory: app` and cached
+##      `app/package-lock.json`. The Next.js app lives at the REPOSITORY ROOT, so
+##      that job was operating on a directory with no package.json — frontend
+##      typecheck and audit never actually ran on the frontend.
+##
+##   2. There was no backend production build step. `npm run type-check` and
+##      `npm run build` use the same tsconfig, but only the build emits, and only
+##      the build proves a deployable dist/ exists. The backend build was failing
+##      (exit 2) with CI green.
 ##
 name: CI
 on:
@@ -11,8 +24,25 @@ on:
     branches: [main, staging, dev]
 
 jobs:
+  # ── Backend: types, lint, build, and every test tier ────────────────────────
   backend:
     runs-on: ubuntu-latest
+
+    services:
+      # Real Postgres for the constraint/integration tier. MemoryDb cannot enforce a
+      # unique index, so dedup and replay protection are only genuinely verified here.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: launchmind_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,34 +50,72 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
+
       - name: Install
         working-directory: backend
         run: npm ci
+
       - name: Type check
         working-directory: backend
         run: npm run type-check
+
+      - name: Lint
+        working-directory: backend
+        run: npm run lint
+
+      # A deployable artifact is part of the contract, not an afterthought.
+      - name: Production build
+        working-directory: backend
+        run: npm run build
+
+      - name: Verify dist is deployable
+        working-directory: backend
+        run: test -f dist/server.js || (echo "backend build produced no entrypoint" && exit 1)
+
+      - name: Unit + route tests
+        working-directory: backend
+        run: npm run test:unit
+        env:
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Provider adapter tests
+        working-directory: backend
+        run: npm run test:providers
+
+      - name: Security tests (OAuth, credential vault, execution boundary)
+        working-directory: backend
+        run: npm run test:security
+
+      - name: Workspace isolation tests
+        working-directory: backend
+        run: npm run test:isolation
+
+      - name: Real-Postgres integration tests
+        working-directory: backend
+        run: npm run test:integration
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:55432/launchmind_test
+
       - name: SAST — Semgrep
         uses: semgrep/semgrep-action@v1
         with:
           config: p/nodejs-security p/typescript
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
       - name: Dependency scan
         working-directory: backend
         run: npm audit --audit-level=high
+
       - name: Snyk security scan
         working-directory: backend
         run: npx snyk test --severity-threshold=high
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      - name: Tests
-        working-directory: backend
-        run: npm run test:coverage
-        env:
-          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
+  # ── Frontend: rooted at the repository root, where the Next.js app actually is ──
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -56,13 +124,41 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: package-lock.json
+
       - name: Install
-        working-directory: app
         run: npm ci
+
       - name: Type check
-        working-directory: app
-        run: npx tsc --noEmit
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      # Catches the class of failure that only appears at export time — a
+      # useSearchParams() without a Suspense boundary builds fine in dev and fails
+      # the production prerender.
+      - name: Production build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+
       - name: Dependency scan
-        working-directory: app
         run: npm audit --audit-level=high
+
+  # ── Design-token parity against the approved UX ─────────────────────────────
+  # Cheap, deterministic, and needs no browser or credentials, so it gates every PR.
+  # Screenshot baselines are NOT gated here — see AGENTS.md; they require a seeded
+  # environment and are still pending approved baseline PNGs.
+  design-tokens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Compare :root tokens with the approved HTML
+        run: node scripts/check-design-tokens.mjs

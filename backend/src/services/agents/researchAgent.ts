@@ -9,7 +9,7 @@
 import { callHaiku } from '../../lib/aiPlatform';
 import type { AgentFn } from '../../types/mission';
 
-const RESEARCH_SYSTEM = `You are a mobile app market research analyst. Given product context,
+const _RESEARCH_SYSTEM = `You are a mobile app market research analyst. Given product context,
 summarise the key findings: core value proposition, target user pain points, main competitors,
 market positioning, and top 3 messaging opportunities. Be concise and specific.
 Return a JSON object with keys: summary, painPoints (array), competitors (array),
@@ -21,7 +21,7 @@ messagingOpportunities (array), marketPosition.`;
  * @returns Research output including summary, pain points, competitors, opportunities
  */
 export const researchAgent: AgentFn = async (input, context) => {
-  const { contextPkg, founderId, productId, missionId, stepId } = context;
+  const { contextPkg, founderId, productId, missionId, stepId: _stepId } = context;
 
   await context.log('Research agent starting', 'info', { founderId, missionId });
 

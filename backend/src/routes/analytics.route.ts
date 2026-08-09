@@ -10,7 +10,7 @@
 import { FastifyInstance } from 'fastify';
 import fp                  from 'fastify-plugin';
 import { z }               from 'zod';
-import { ok, fail }        from '../lib/response';
+import { ok, fail, ErrorCodes } from '../lib/response';
 import {
   getAnalyticsSummary,
   getKPITrend,
@@ -53,7 +53,7 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
       return reply.send(ok(summary));
     } catch (e) {
       req.log.error(e, 'analytics:summary');
-      return reply.code(500).send(fail('Failed to compute analytics summary'));
+      return reply.code(500).send(fail('Failed to compute analytics summary', ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -66,7 +66,7 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
     const founderId = (req.user as { sub: string }).sub;
 
     const parsed = WeeksQuerySchema.safeParse(req.query);
-    if (!parsed.success) return reply.code(400).send(fail('productId required'));
+    if (!parsed.success) return reply.code(400).send(fail('productId required', ErrorCodes.VALIDATION_ERROR));
 
     const { productId, weeks } = parsed.data;
     try {
@@ -74,7 +74,7 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
       return reply.send(ok({ productId, weeks: trend }));
     } catch (e) {
       req.log.error(e, 'analytics:kpi');
-      return reply.code(500).send(fail('Failed to compute KPI trend'));
+      return reply.code(500).send(fail('Failed to compute KPI trend', ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -87,14 +87,14 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
     const founderId = (req.user as { sub: string }).sub;
 
     const parsed = ProductIdQuerySchema.safeParse(req.query);
-    if (!parsed.success) return reply.code(400).send(fail('productId required'));
+    if (!parsed.success) return reply.code(400).send(fail('productId required', ErrorCodes.VALIDATION_ERROR));
 
     try {
       const attribution = await getAttribution(parsed.data.productId, founderId);
       return reply.send(ok(attribution));
     } catch (e) {
       req.log.error(e, 'analytics:attribution');
-      return reply.code(500).send(fail('Failed to compute attribution'));
+      return reply.code(500).send(fail('Failed to compute attribution', ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -107,14 +107,14 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
     const founderId = (req.user as { sub: string }).sub;
 
     const parsed = ProductIdQuerySchema.safeParse(req.query);
-    if (!parsed.success) return reply.code(400).send(fail('productId required'));
+    if (!parsed.success) return reply.code(400).send(fail('productId required', ErrorCodes.VALIDATION_ERROR));
 
     try {
       const funnel = await getFunnel(parsed.data.productId, founderId);
       return reply.send(ok(funnel));
     } catch (e) {
       req.log.error(e, 'analytics:funnel');
-      return reply.code(500).send(fail('Failed to compute funnel'));
+      return reply.code(500).send(fail('Failed to compute funnel', ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -127,14 +127,14 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
     const founderId = (req.user as { sub: string }).sub;
 
     const parsed = ProductIdQuerySchema.safeParse(req.query);
-    if (!parsed.success) return reply.code(400).send(fail('productId required'));
+    if (!parsed.success) return reply.code(400).send(fail('productId required', ErrorCodes.VALIDATION_ERROR));
 
     try {
       const roi = await getROI(parsed.data.productId, founderId);
       return reply.send(ok(roi));
     } catch (e) {
       req.log.error(e, 'analytics:roi');
-      return reply.code(500).send(fail('Failed to compute ROI'));
+      return reply.code(500).send(fail('Failed to compute ROI', ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -147,14 +147,14 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
     const founderId = (req.user as { sub: string }).sub;
 
     const parsed = OptimizeBodySchema.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send(fail('productId required'));
+    if (!parsed.success) return reply.code(400).send(fail('productId required', ErrorCodes.VALIDATION_ERROR));
 
     try {
       const result = await generateInsights(founderId, parsed.data.productId);
       return reply.code(201).send(ok(result));
     } catch (e) {
       req.log.error(e, 'analytics:optimize');
-      return reply.code(500).send(fail('Failed to generate optimization insights'));
+      return reply.code(500).send(fail('Failed to generate optimization insights', ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -167,14 +167,14 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
     const founderId = (req.user as { sub: string }).sub;
 
     const parsed = ProductIdQuerySchema.safeParse(req.query);
-    if (!parsed.success) return reply.code(400).send(fail('productId required'));
+    if (!parsed.success) return reply.code(400).send(fail('productId required', ErrorCodes.VALIDATION_ERROR));
 
     try {
       const insights = await listInsights(founderId, parsed.data.productId);
       return reply.send(ok({ insights }));
     } catch (e) {
       req.log.error(e, 'analytics:insights');
-      return reply.code(500).send(fail('Failed to fetch insights'));
+      return reply.code(500).send(fail('Failed to fetch insights', ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -188,14 +188,14 @@ async function analyticsRoutes(server: FastifyInstance): Promise<void> {
 
     const { id } = req.params as { id: string };
     const parsed = InsightStatusBodySchema.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send(fail('status (applied|dismissed) required'));
+    if (!parsed.success) return reply.code(400).send(fail('status (applied|dismissed) required', ErrorCodes.VALIDATION_ERROR));
 
     try {
       await updateInsightStatus(id, founderId, parsed.data.status, parsed.data.actionTaken);
       return reply.send(ok({ updated: true }));
     } catch (e) {
       req.log.error(e, 'analytics:insights:update');
-      return reply.code(500).send(fail('Failed to update insight'));
+      return reply.code(500).send(fail('Failed to update insight', ErrorCodes.INTERNAL_ERROR));
     }
   });
 }

@@ -1,89 +1,105 @@
 /**
  * @file tokenVault.ts
- * @description AES-256 OAuth token encryption/decryption via AWS KMS.
- *   Encrypted ciphertext is stored in platform_tokens.encrypted_token.
- *   The KMS master key never leaves AWS — only ciphertext touches this server or the DB.
- *   In local dev, LocalStack emulates KMS (AWS_KMS_ENDPOINT env var routes there).
+ * @description Public facade over the credential vault.
+ *
+ *   Every service that handles a provider credential, an OAuth access/refresh token,
+ *   or a PKCE verifier calls `encryptToken` / `decryptToken` from here. Those two
+ *   signatures are the stable contract; which cloud performs the cryptography is an
+ *   implementation detail behind {@link CredentialVault}.
+ *
+ *   This file remains the entry point specifically because twelve test suites mock
+ *   `../lib/tokenVault`. Keeping the facade meant migrating from AWS KMS to OCI Vault
+ *   without touching a single caller or a single existing test.
+ *
+ *   Backend: **OCI Vault / Key Management**. AWS KMS was removed once the database
+ *   was verified to hold zero AWS-encrypted rows across platform_tokens,
+ *   connection_credentials, and oauth_authorization_requests.
+ *
  * @security
- *   - Plaintext tokens are NEVER logged, cached, or returned to the frontend.
- *   - Every decryptToken() call writes an audit_log entry BEFORE returning the token.
- *   - founderId is verified by the caller before invoking decryptToken().
- *   - Key ID stored alongside ciphertext to support key rotation without re-auth.
- * @dependencies @aws-sdk/client-kms, supabaseAdmin, audit_logs table
+ *   - Plaintext is NEVER logged, cached, or returned to the frontend.
+ *   - Every decryptToken() call writes an audit_logs entry BEFORE returning the
+ *     token. A decrypt that returned first would be an unlogged credential read.
+ *   - The caller verifies founder/workspace ownership before invoking decryptToken.
+ *   - The key id is stored alongside each ciphertext, so keys rotate without forcing
+ *     a reconnect.
+ * @dependencies credentialVault.ts, vault/ociVault.ts, supabaseAdmin, audit_logs
  */
 
-import { KMSClient, EncryptCommand, DecryptCommand } from '@aws-sdk/client-kms';
+import { getCredentialVault } from './credentialVault';
 import { getSupabaseAdmin } from './supabaseAdmin';
 
-function getKmsClient(): KMSClient {
-  return new KMSClient({
-    region: process.env.AWS_REGION ?? 'us-east-1',
-    ...(process.env.AWS_KMS_ENDPOINT
-      ? { endpoint: process.env.AWS_KMS_ENDPOINT }
-      : {}),
-  });
-}
+// Error identity lives in vaultError.ts, which nothing mocks. Defining it in this
+// module meant `vi.mock('../lib/tokenVault')` erased the class, so route-level
+// instanceof checks resolved against undefined and every typed error became a 500.
+export {
+  CredentialVaultUnavailableError,
+  classifyVaultError,
+  isCredentialVaultUnavailable,
+} from './vaultError';
+export type { VaultFailureReason } from './vaultError';
+
+export type { CredentialVault, VaultHealth } from './credentialVault';
 
 /**
- * Encrypts an OAuth token using AWS KMS.
- * @param plaintext - Raw OAuth access or refresh token string
- * @returns         { ciphertext: base64 string, kmsKeyId: ARN of the key used }
- * @throws          {Error} If KMS_KEY_ARN is not set or KMS returns an error
- * @security        Plaintext is converted to Buffer in-memory only. Never logged.
+ * Encrypts a credential.
+ *
+ * @param plaintext - Raw credential, OAuth token, or PKCE verifier
+ * @param traceId   - Correlation id, carried onto any thrown vault error
+ * @returns `{ ciphertext, kmsKeyId }` — persist BOTH. `kmsKeyId` is the historic
+ *   column name and now holds an OCI key OCID; it is not renamed here because that
+ *   would be a cosmetic migration across four tables.
+ * @throws {CredentialVaultUnavailableError} on any vault failure. Never falls back
+ *   to plaintext.
+ * @security Plaintext exists only as an argument; it is never logged.
  */
 export async function encryptToken(
-  plaintext: string
+  plaintext: string,
+  traceId: string | null = null,
 ): Promise<{ ciphertext: string; kmsKeyId: string }> {
-  const kmsKeyId = process.env.KMS_KEY_ARN;
-  if (!kmsKeyId) throw new Error('KMS_KEY_ARN is not configured');
-
-  const client = getKmsClient();
-  const response = await client.send(
-    new EncryptCommand({
-      KeyId: kmsKeyId,
-      Plaintext: Buffer.from(plaintext, 'utf-8'),
-    })
-  );
-
-  if (!response.CiphertextBlob) throw new Error('KMS encrypt returned empty ciphertext');
-
-  return {
-    ciphertext: Buffer.from(response.CiphertextBlob).toString('base64'),
-    kmsKeyId,
-  };
+  const vault = await getCredentialVault();
+  const { ciphertext, keyId } = await vault.encrypt(plaintext, traceId);
+  return { ciphertext, kmsKeyId: keyId };
 }
 
 /**
- * Decrypts an OAuth token using AWS KMS.
- * Writes an immutable audit_log entry before returning the plaintext.
- * @param ciphertext - Base64 ciphertext from platform_tokens.encrypted_token
- * @param kmsKeyId   - KMS key ARN from platform_tokens.kms_key_id
- * @param founderId  - UUID of the token owner (for audit log)
- * @returns          Decrypted plaintext OAuth token
- * @throws           {Error} If KMS decryption fails or ciphertext is malformed
- * @security         Audit log is written before token is returned. Token never logged or cached.
+ * Decrypts a credential, writing an audit entry first.
+ *
+ * @param ciphertext - Stored ciphertext
+ * @param kmsKeyId   - The key id stored with it (OCI key OCID)
+ * @param founderId  - Owner, for the audit trail; verified by the caller
+ * @param traceId    - Correlation id
+ * @throws {CredentialVaultUnavailableError} on any vault failure
+ * @security The audit row is written BEFORE the plaintext is returned, so a
+ *   credential read cannot happen without a record of it.
  */
 export async function decryptToken(
   ciphertext: string,
   kmsKeyId: string,
-  founderId: string
+  founderId: string,
+  traceId: string | null = null,
 ): Promise<string> {
   await getSupabaseAdmin().from('audit_logs').insert({
     founder_id: founderId,
     action: 'token_decrypted',
     resource_type: 'platform_token',
-    metadata: { kmsKeyId },
+    // The key id is an identifier, not a secret; it is what makes a decrypt
+    // attributable to a specific key during an incident review.
+    metadata: { keyId: kmsKeyId },
   });
 
-  const client = getKmsClient();
-  const response = await client.send(
-    new DecryptCommand({
-      CiphertextBlob: Buffer.from(ciphertext, 'base64'),
-      KeyId: kmsKeyId,
-    })
-  );
+  const vault = await getCredentialVault();
+  return vault.decrypt(ciphertext, kmsKeyId, traceId);
+}
 
-  if (!response.Plaintext) throw new Error('KMS decrypt returned empty plaintext');
-
-  return Buffer.from(response.Plaintext).toString('utf-8');
+/**
+ * Non-destructive vault probe for /health/detailed.
+ * @returns A status the health endpoint can render. Never throws.
+ */
+export async function checkVaultHealth() {
+  try {
+    const vault = await getCredentialVault();
+    return await vault.healthCheck();
+  } catch {
+    return { status: 'unavailable' as const, detail: 'Credential vault probe failed.' };
+  }
 }

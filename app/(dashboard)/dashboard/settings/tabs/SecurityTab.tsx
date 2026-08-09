@@ -51,7 +51,7 @@ export function SecurityTab() {
   async function signOutAll() {
     setSignOutBusy(true);
     await supabase.auth.signOut({ scope: 'global' });
-    router.replace('/login');
+    window.location.href = '/';
   }
 
   return (

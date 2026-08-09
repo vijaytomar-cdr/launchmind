@@ -147,7 +147,10 @@ export async function callMessages(
   };
   if (system) req.system = system;
 
-  const message = await client.messages.create(req, { signal });
+  // create() is typed as Message | Stream because the overload is selected by the
+  // `stream` field. This call never sets it, so the runtime result is always a
+  // Message; the SDK's own non-streaming type is used rather than `any`.
+  const message = (await client.messages.create(req, { signal })) as Anthropic.Messages.Message;
 
   const content = message.content[0];
   if (content.type !== 'text') throw new Error(`${modelId} returned non-text response`);

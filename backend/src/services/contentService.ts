@@ -1128,10 +1128,10 @@ export async function generateContentAssets(
 
   // Default all section prefs to true if not configured — generate everything unless explicitly disabled
   const prefs = ctx.contentPreferences as Record<string, Record<string, boolean>>;
-  const wantsVideo      = prefs?.video      ? Object.values(prefs.video).some(Boolean)      : true;
+  const _wantsVideo      = prefs?.video      ? Object.values(prefs.video).some(Boolean)      : true;
   const wantsCommunity  = prefs?.community  ? Object.values(prefs.community).some(Boolean)  : true;
   const wantsSocialProof= prefs?.socialProof? Object.values(prefs.socialProof).some(Boolean): true;
-  const wantsVisual     = prefs?.visual     ? Object.values(prefs.visual).some(Boolean)     : true;
+  const _wantsVisual     = prefs?.visual     ? Object.values(prefs.visual).some(Boolean)     : true;
 
   // Determine which sections to generate.
   // For "generate remaining" (force=false): ignore preferences — only check DB existence.

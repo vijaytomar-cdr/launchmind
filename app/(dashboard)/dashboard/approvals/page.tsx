@@ -1,9 +1,10 @@
 /**
  * @file app/(dashboard)/dashboard/approvals/page.tsx
- * @description Unified Approvals — campaign + mission approvals in one place (ADR-038).
- *   Individual approval required for paid campaigns. Never bulk for meta/google.
- * @security JWT from Supabase session. Approval actions hit Fastify backend, never optimistic.
- * @dependencies api.missions.approvals, api.missions.respond, api.campaigns
+ * @description Unified Approvals page — campaign + mission approvals matching spec #approvals panel
+ *   (ADR-038). Individual approval required for paid campaigns (meta/google). Never bulk-approve.
+ *   Visual: risk-grid card layout with tag pills, details rows, inline reject-note flow.
+ * @security JWT from Supabase session. Approval actions hit Fastify backend; never optimistic.
+ * @dependencies api.missions.approvals, api.missions.respond, /campaigns?status=pending_approval
  */
 
 'use client';
@@ -11,27 +12,29 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { api, type MissionApproval } from '@/lib/api';
-import {
-  IconCheck,
-  IconX,
-  IconAlertCircle,
-  IconBrandFacebook,
-  IconBrandGoogle,
-  IconBolt,
-  IconFileText,
-} from '@tabler/icons-react';
 
-// A unified approval item (either mission step or campaign)
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface DetailRow {
+  label: string;
+  value: string;
+}
+
 interface ApprovalItem {
-  id:        string;
-  kind:      'mission' | 'campaign';
-  title:     string;
-  subtitle:  string;
-  preview:   string | null;
-  isPaid:    boolean;  // meta/google channels
-  missionId: string | null;
-  stepId:    string | null;
-  risk:      'high' | 'medium' | 'low';
+  id:          string;
+  kind:        'campaign' | 'mission' | 'content';
+  title:       string;
+  /** Human-readable description of what will happen if approved. */
+  description: string;
+  /** Optional raw preview block (ad copy / mission preview_data JSON). */
+  preview:     string | null;
+  isPaid:      boolean;
+  missionId:   string | null;
+  stepId:      string | null;
+  risk:        'high' | 'medium' | 'low';
+  details:     DetailRow[];
 }
 
 type CampaignRow = {
@@ -42,47 +45,114 @@ type CampaignRow = {
   copy_text: string | null;
 };
 
-function RiskBadge({ risk }: { risk: ApprovalItem['risk'] }) {
-  const cls = risk === 'high'
-    ? 'bg-[var(--danger-d)] border-[var(--danger-b)] text-[var(--danger)]'
-    : risk === 'medium'
-    ? 'bg-[var(--amber-d)] border-[var(--amber-b)] text-[#92400e]'
-    : 'bg-[var(--sage-d)] border-[var(--sage-b)] text-sage';
-  return (
-    <span className={`text-[11px] px-2 py-0.5 rounded-[4px] border font-medium capitalize ${cls}`}>
-      {risk} risk
-    </span>
-  );
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const TAG_BASE: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '.08em',
+  padding: '3px 8px',
+  borderRadius: 9999,
+  display: 'inline-flex',
+  marginBottom: 12,
+};
+
+function tagProps(kind: ApprovalItem['kind']): { style: React.CSSProperties; label: string } {
+  if (kind === 'campaign') {
+    return {
+      label: 'Campaign approval',
+      style: {
+        background: 'var(--amber-d)',
+        border: '1px solid var(--amber-b)',
+        color: 'var(--amber)',
+      },
+    };
+  }
+  if (kind === 'mission') {
+    return {
+      label: 'Mission approval',
+      style: {
+        background: 'var(--indigo-d)',
+        border: '1px solid var(--indigo-b)',
+        color: 'var(--indigo)',
+      },
+    };
+  }
+  // content
+  return {
+    label: 'Content approval',
+    style: {
+      background: 'var(--blue2)',
+      border: '1px solid rgba(36,104,204,0.22)',
+      color: 'var(--blue)',
+    },
+  };
 }
 
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// ---------------------------------------------------------------------------
+// ApprovalCard — spec .card.risk layout
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders a single approval card matching spec `.card.risk` structure.
+ * @param item    - The unified approval item (campaign or mission step).
+ * @param token   - Supabase access token for API calls.
+ * @param onDone  - Called after approve or reject succeeds; removes card from list.
+ * @security      Paid campaigns (meta/google) require window.confirm before approval.
+ *                Mission responses routed through api.missions.respond.
+ */
 function ApprovalCard({
-  item, token, onDone,
+  item,
+  token,
+  onDone,
 }: {
   item: ApprovalItem;
   token: string;
   onDone: (id: string, result: 'approved' | 'rejected') => void;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [note,    setNote]    = useState('');
-  const [showNote, setShowNote] = useState(false);
+  const [loading,        setLoading]        = useState(false);
+  const [note,           setNote]           = useState('');
+  const [rejectFlowOpen, setRejectFlowOpen] = useState(false);
 
   const respond = async (response: 'approved' | 'rejected') => {
     if (loading) return;
     if (item.isPaid && response === 'approved') {
-      // Always require individual confirmation for paid campaigns
-      if (!window.confirm(`Approve this ${item.subtitle}? This will allow it to run and may incur ad spend.`)) return;
+      if (
+        !window.confirm(
+          `Approve this campaign? This will allow it to run and may incur ad spend.`,
+        )
+      )
+        return;
     }
     setLoading(true);
     try {
       if (item.kind === 'mission' && item.missionId && item.stepId) {
-        await api.missions.respond(item.missionId, item.stepId, response, note || undefined, token);
+        await api.missions.respond(
+          item.missionId,
+          item.stepId,
+          response,
+          note || undefined,
+          token,
+        );
       } else if (item.kind === 'campaign') {
-        // Campaign approval via dedicated campaign endpoint
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/campaigns/${item.id}/approve`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ response }),
-        });
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/campaigns/${item.id}/approve`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ response }),
+          },
+        );
         if (!res.ok) throw new Error('Approval failed');
       }
       onDone(item.id, response);
@@ -91,77 +161,201 @@ function ApprovalCard({
     }
   };
 
-  const ChannelIcon = item.subtitle.toLowerCase().includes('meta') || item.subtitle.toLowerCase().includes('facebook')
-    ? IconBrandFacebook
-    : item.subtitle.toLowerCase().includes('google')
-    ? IconBrandGoogle
-    : item.kind === 'mission'
-    ? IconBolt
-    : IconFileText;
+  const { style: pillStyle, label: pillLabel } = tagProps(item.kind);
 
   return (
-    <div className="bg-surface border border-[var(--border)] rounded-[var(--r)] p-4">
-      <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-[var(--r2)] bg-raised border border-[var(--border2)] flex items-center justify-center shrink-0">
-          <ChannelIcon size={15} color="var(--ink2)" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-[14px] font-semibold text-ink leading-snug">{item.title}</p>
-            <RiskBadge risk={item.risk} />
-          </div>
-          <p className="text-[12px] text-ink2 mt-0.5">{item.subtitle}</p>
-        </div>
-      </div>
+    <div
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 14,
+        padding: 20,
+      }}
+    >
+      {/* Tag pill */}
+      <span style={{ ...TAG_BASE, ...pillStyle }}>{pillLabel}</span>
 
+      {/* Title */}
+      <h3
+        style={{
+          fontSize: 16,
+          fontFamily: 'Syne, sans-serif',
+          fontWeight: 600,
+          color: 'var(--ink)',
+          margin: '0 0 8px',
+          letterSpacing: '-0.2px',
+        }}
+      >
+        {item.title}
+      </h3>
+
+      {/* Description */}
+      <p
+        style={{
+          fontSize: 13,
+          color: 'var(--ink2)',
+          lineHeight: 1.6,
+          margin: '0 0 12px',
+        }}
+      >
+        {item.description}
+      </p>
+
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid var(--border)', margin: '12px 0' }} />
+
+      {/* Detail rows */}
+      {item.details.map(({ label, value }) => (
+        <div key={label} style={{ display: 'flex', fontSize: 11, marginBottom: 6 }}>
+          <span style={{ color: 'var(--ink3)', minWidth: 100 }}>{label}</span>
+          <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{value}</span>
+        </div>
+      ))}
+
+      {/* Optional preview block (mission preview_data) */}
       {item.preview && (
-        <div className="mt-3 p-3 bg-raised rounded-[var(--r2)] border border-[var(--border2)]">
-          <p className="text-[12px] text-ink leading-relaxed">&ldquo;{item.preview}&rdquo;</p>
+        <div
+          style={{
+            marginTop: 12,
+            padding: '10px 12px',
+            background: 'var(--raised)',
+            borderRadius: 10,
+            border: '1px solid var(--border)',
+            fontSize: 12,
+            color: 'var(--ink2)',
+            lineHeight: 1.55,
+            fontStyle: 'italic',
+          }}
+        >
+          &ldquo;{item.preview}&rdquo;
         </div>
       )}
 
-      {item.isPaid && (
-        <div className="mt-2 flex items-center gap-1.5 p-2 bg-[var(--amber-d)] border border-[var(--amber-b)] rounded-[var(--r2)]">
-          <IconAlertCircle size={13} color="var(--amber)" />
-          <p className="text-[11px] text-[#92400e]">Paid campaign — individual approval required. Cannot be bulk-approved.</p>
-        </div>
-      )}
-
-      {showNote && (
+      {/* Inline reject-note input — shown when user clicks Reject */}
+      {rejectFlowOpen && (
         <textarea
           value={note}
           onChange={e => setNote(e.target.value)}
-          placeholder="Add a note (optional)…"
-          className="mt-2 w-full bg-raised border border-[var(--border2)] rounded-[var(--r2)] px-3 py-2 text-[13px] text-ink placeholder:text-ink3 focus:outline-none focus:border-[var(--sage-b)] resize-none h-16"
+          placeholder="Reason for rejection (optional)…"
+          rows={2}
+          style={{
+            background: 'var(--raised)',
+            border: '1px solid var(--border2)',
+            borderRadius: 9,
+            padding: '8px 10px',
+            fontSize: 13,
+            width: '100%',
+            marginTop: 8,
+            resize: 'vertical',
+            color: 'var(--ink)',
+            fontFamily: 'inherit',
+            outline: 'none',
+            boxSizing: 'border-box',
+          }}
         />
       )}
 
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          onClick={() => void respond('approved')}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-sage text-white text-[12px] font-medium rounded-[var(--r2)] hover:bg-[#047857] disabled:opacity-40 transition-colors"
-        >
-          <IconCheck size={13} /> Approve
-        </button>
-        <button
-          onClick={() => void respond('rejected')}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-[var(--danger-b)] text-[var(--danger)] text-[12px] font-medium rounded-[var(--r2)] hover:bg-[var(--danger-d)] disabled:opacity-40 transition-colors"
-        >
-          <IconX size={13} /> Reject
-        </button>
-        <button
-          onClick={() => setShowNote(v => !v)}
-          className="text-[12px] text-ink2 hover:text-ink ml-auto"
-        >
-          {showNote ? 'Hide note' : '+ Note'}
-        </button>
+      {/* Action row */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          justifyContent: 'flex-end',
+          marginTop: 16,
+          flexWrap: 'wrap',
+        }}
+      >
+        {rejectFlowOpen ? (
+          <>
+            <button
+              onClick={() => {
+                setRejectFlowOpen(false);
+                setNote('');
+              }}
+              disabled={loading}
+              style={{
+                background: 'var(--raised)',
+                color: 'var(--ink2)',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                height: 36,
+                padding: '0 14px',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void respond('rejected')}
+              disabled={loading}
+              style={{
+                background: 'var(--danger-d)',
+                color: 'var(--danger)',
+                border: '1px solid var(--danger-b)',
+                borderRadius: 10,
+                height: 36,
+                padding: '0 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+              }}
+            >
+              {loading ? 'Rejecting…' : 'Confirm reject'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => setRejectFlowOpen(true)}
+              disabled={loading}
+              style={{
+                background: 'var(--danger-d)',
+                color: 'var(--danger)',
+                border: '1px solid var(--danger-b)',
+                borderRadius: 10,
+                height: 36,
+                padding: '0 14px',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Reject
+            </button>
+            <button
+              onClick={() => void respond('approved')}
+              disabled={loading}
+              style={{
+                background: 'var(--sage)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 10,
+                height: 36,
+                padding: '0 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+              }}
+            >
+              {loading ? 'Approving…' : 'Approve'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+/**
+ * ApprovalsPage — unified approval queue for campaigns and mission steps.
+ * @security Redirects to /login if no session. All approval mutations hit Fastify backend.
+ */
 export default function ApprovalsPage() {
   const [items,   setItems]   = useState<ApprovalItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -169,106 +363,184 @@ export default function ApprovalsPage() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) { window.location.href = '/login'; return; }
+    void supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) {
+        window.location.href = '/login';
+        return;
+      }
       const t = session.access_token;
       setToken(t);
 
       try {
         const [missionRes, campaignRes] = await Promise.all([
           api.missions.approvals(t),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/campaigns?status=pending_approval`, {
-            headers: { Authorization: `Bearer ${t}` },
-          }).then(r => r.json() as Promise<{ campaigns: CampaignRow[] }>),
+          fetch(
+            `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/campaigns?status=pending_approval`,
+            { headers: { Authorization: `Bearer ${t}` } },
+          ).then(r => r.json() as Promise<{ campaigns: CampaignRow[] }>),
         ]);
 
-        const missionItems: ApprovalItem[] = (missionRes.approvals ?? []).map((a: MissionApproval) => ({
-          id:        a.id,
-          kind:      'mission',
-          title:     a.title,
-          subtitle:  `Mission step · ${a.description?.slice(0, 60) ?? 'Review required'}`,
-          preview:   a.preview_data ? JSON.stringify(a.preview_data).slice(0, 100) : null,
-          isPaid:    false,
-          missionId: a.mission_id,
-          stepId:    a.step_id,
-          risk:      'medium',
+        const missionItems: ApprovalItem[] = (
+          (missionRes.approvals ?? []) as MissionApproval[]
+        ).map(a => ({
+          id:          a.id,
+          kind:        'mission' as const,
+          title:       a.title,
+          description:
+            a.description ??
+            'Review this mission step before LaunchMind continues.',
+          preview:
+            a.preview_data
+              ? JSON.stringify(a.preview_data).slice(0, 100)
+              : null,
+          isPaid:      false,
+          missionId:   a.mission_id,
+          stepId:      a.step_id,
+          risk:        'medium' as const,
+          details: [
+            { label: 'Type',   value: 'Mission step' },
+            { label: 'Status', value: 'Awaiting approval' },
+          ],
         }));
 
-        const campaignItems: ApprovalItem[] = ((campaignRes.campaigns ?? []) as CampaignRow[]).map(c => ({
-          id:        c.id,
-          kind:      'campaign',
-          title:     c.hook_type ? `${c.channel} — ${c.hook_type}` : `${c.channel} campaign`,
-          subtitle:  `${c.channel.charAt(0).toUpperCase() + c.channel.slice(1)} · ${c.market.toUpperCase()}`,
-          preview:   (c.copy_text as string | null)?.slice(0, 120) ?? null,
-          isPaid:    c.channel === 'meta' || c.channel === 'google',
-          missionId: null,
-          stepId:    null,
-          risk:      (c.channel === 'meta' || c.channel === 'google') ? 'high' : 'medium',
-        }));
-
-        // Sort: high risk first
-        const all = [...campaignItems, ...missionItems].sort((a, b) => {
-          const order = { high: 0, medium: 1, low: 2 };
-          return order[a.risk] - order[b.risk];
+        const campaignItems: ApprovalItem[] = (
+          (campaignRes.campaigns ?? []) as CampaignRow[]
+        ).map(c => {
+          const paid = c.channel === 'meta' || c.channel === 'google';
+          return {
+            id:    c.id,
+            kind:  'campaign' as const,
+            title: c.hook_type
+              ? `${cap(c.channel)} — ${c.hook_type}`
+              : `${cap(c.channel)} campaign`,
+            description:
+              c.copy_text
+                ? c.copy_text.slice(0, 140)
+                : `This ${cap(c.channel)} campaign targets the ${c.market.toUpperCase()} market. Approving will schedule it for launch.`,
+            preview:   null,
+            isPaid:    paid,
+            missionId: null,
+            stepId:    null,
+            risk:      (paid ? 'high' : 'medium') as 'high' | 'medium',
+            details: [
+              { label: 'Channel',  value: cap(c.channel) },
+              { label: 'Market',   value: c.market.toUpperCase() },
+              { label: 'Approval', value: paid ? 'Individual required (paid)' : 'Standard' },
+            ],
+          };
         });
 
+        // Sort: high risk first
+        const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+        const all = [...campaignItems, ...missionItems].sort(
+          (a, b) => order[a.risk] - order[b.risk],
+        );
+
         setItems(all);
-      } catch { /* ignore */ } finally {
+      } catch {
+        // Non-blocking — show empty state on error
+      } finally {
         setLoading(false);
       }
     });
   }, []);
 
-  const handleDone = (id: string) => setItems(prev => prev.filter(i => i.id !== id));
-
-  const paid     = items.filter(i => i.isPaid);
-  const nonPaid  = items.filter(i => !i.isPaid);
+  const handleDone = (id: string) =>
+    setItems(prev => prev.filter(i => i.id !== id));
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      <div className="mb-6">
-        <h1 className="text-[20px] font-semibold text-ink" style={{ fontFamily: 'Syne, sans-serif' }}>Approvals</h1>
-        <p className="text-[13px] text-ink2 mt-1">
-          {items.length === 0 ? 'All caught up — nothing awaiting approval.' : `${items.length} item${items.length > 1 ? 's' : ''} need your review`}
+      {/* Page head */}
+      <div style={{ marginBottom: 24 }}>
+        <h1
+          style={{
+            fontSize: 30,
+            fontFamily: 'Syne, sans-serif',
+            fontWeight: 700,
+            color: 'var(--ink)',
+            margin: '0 0 6px',
+            letterSpacing: '-1px',
+            lineHeight: 1.2,
+          }}
+        >
+          Approvals
+        </h1>
+        <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0 }}>
+          Everything that needs your decision before LaunchMind acts.
         </p>
       </div>
 
-      {loading ? (
-        <div className="flex items-center gap-2 text-ink2 text-[13px]">
-          <span className="w-2 h-2 rounded-full bg-sage animate-pulse" />
+      {/* Loading state */}
+      {loading && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: 'var(--ink2)',
+            fontSize: 13,
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: 'var(--sage)',
+              display: 'inline-block',
+            }}
+          />
           Loading approvals…
         </div>
-      ) : items.length === 0 ? (
-        <div className="bg-surface border border-[var(--border)] rounded-[var(--r)] p-8 text-center">
-          <div className="w-10 h-10 rounded-full bg-[var(--sage-d)] border border-[var(--sage-b)] flex items-center justify-center mx-auto mb-3">
-            <IconCheck size={20} color="var(--sage)" />
-          </div>
-          <p className="text-[14px] font-medium text-ink">All clear</p>
-          <p className="text-[13px] text-ink2 mt-1">Nothing waiting for approval right now.</p>
+      )}
+
+      {/* Empty state */}
+      {!loading && items.length === 0 && (
+        <div
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 14,
+            padding: '48px 24px',
+            textAlign: 'center',
+            maxWidth: 480,
+          }}
+        >
+          <p
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--ink)',
+              margin: '0 0 6px',
+            }}
+          >
+            No pending approvals.
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0 }}>
+            LaunchMind is waiting for your next mission.
+          </p>
         </div>
-      ) : (
-        <div className="space-y-6">
-          {paid.length > 0 && (
-            <section>
-              <p className="text-[11px] text-ink3 uppercase tracking-wide font-medium mb-2">
-                Paid campaigns — individual approval required
-              </p>
-              <div className="space-y-3">
-                {paid.map(item => token && (
-                  <ApprovalCard key={item.id} item={item} token={token} onDone={handleDone} />
-                ))}
-              </div>
-            </section>
-          )}
-          {nonPaid.length > 0 && (
-            <section>
-              {paid.length > 0 && <p className="text-[11px] text-ink3 uppercase tracking-wide font-medium mb-2">Other approvals</p>}
-              <div className="space-y-3">
-                {nonPaid.map(item => token && (
-                  <ApprovalCard key={item.id} item={item} token={token} onDone={handleDone} />
-                ))}
-              </div>
-            </section>
+      )}
+
+      {/* Risk grid */}
+      {!loading && items.length > 0 && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))',
+            gap: 16,
+          }}
+        >
+          {items.map(
+            item =>
+              token && (
+                <ApprovalCard
+                  key={item.id}
+                  item={item}
+                  token={token}
+                  onDone={handleDone}
+                />
+              ),
           )}
         </div>
       )}

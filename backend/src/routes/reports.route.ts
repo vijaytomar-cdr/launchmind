@@ -10,7 +10,7 @@
 import { FastifyInstance } from 'fastify';
 import fp                  from 'fastify-plugin';
 import { z }               from 'zod';
-import { ok, fail }        from '../lib/response';
+import { ok, fail, ErrorCodes } from '../lib/response';
 import { generateReport }  from '../services/reportingService';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 
@@ -58,7 +58,7 @@ async function reportsRoutes(server: FastifyInstance): Promise<void> {
     if (reportType) query = query.eq('report_type', reportType);
 
     const { data, error } = await query.limit(limit ?? 20);
-    if (error) return reply.code(500).send(fail('Failed to fetch reports'));
+    if (error) return reply.code(500).send(fail('Failed to fetch reports', ErrorCodes.INTERNAL_ERROR));
 
     return reply.send(ok({ reports: data ?? [] }));
   });
@@ -72,7 +72,7 @@ async function reportsRoutes(server: FastifyInstance): Promise<void> {
     const founderId = (req.user as { sub: string }).sub;
 
     const parsed = GenerateBodySchema.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send(fail(parsed.error.issues[0]?.message ?? 'Invalid body'));
+    if (!parsed.success) return reply.code(400).send(fail(parsed.error.issues[0]?.message ?? 'Invalid body', ErrorCodes.VALIDATION_ERROR));
 
     try {
       const result = await generateReport({ founderId, ...parsed.data });
@@ -80,7 +80,7 @@ async function reportsRoutes(server: FastifyInstance): Promise<void> {
     } catch (e: unknown) {
       req.log.error(e, 'reports:generate');
       const msg = e instanceof Error ? e.message : 'Generation failed';
-      return reply.code(500).send(fail(msg));
+      return reply.code(500).send(fail(msg, ErrorCodes.INTERNAL_ERROR));
     }
   });
 
@@ -102,7 +102,7 @@ async function reportsRoutes(server: FastifyInstance): Promise<void> {
       .eq('founder_id', founderId)
       .single();
 
-    if (error || !data) return reply.code(404).send(fail('Report not found'));
+    if (error || !data) return reply.code(404).send(fail('Report not found', ErrorCodes.NOT_FOUND));
     return reply.send(ok(data));
   });
 
@@ -124,7 +124,7 @@ async function reportsRoutes(server: FastifyInstance): Promise<void> {
       .eq('founder_id', founderId)
       .single();
 
-    if (error || !data) return reply.code(404).send(fail('Report not found'));
+    if (error || !data) return reply.code(404).send(fail('Report not found', ErrorCodes.NOT_FOUND));
 
     await supabase
       .from('reports')
@@ -162,7 +162,7 @@ async function reportsRoutes(server: FastifyInstance): Promise<void> {
 
     const { id } = req.params as { id: string };
     const parsed = FeedbackBodySchema.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send(fail('rating (1–5) required'));
+    if (!parsed.success) return reply.code(400).send(fail('rating (1–5) required', ErrorCodes.VALIDATION_ERROR));
 
     const supabase = getSupabaseAdmin();
 
@@ -173,7 +173,7 @@ async function reportsRoutes(server: FastifyInstance): Promise<void> {
       .eq('founder_id', founderId)
       .single();
 
-    if (!report) return reply.code(404).send(fail('Report not found'));
+    if (!report) return reply.code(404).send(fail('Report not found', ErrorCodes.NOT_FOUND));
 
     const r = report as { id: string; product_id: string; report_type: string };
 

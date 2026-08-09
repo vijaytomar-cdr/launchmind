@@ -8,13 +8,13 @@
  */
 
 import type { Metadata } from 'next';
-import { DM_Sans, Syne, DM_Mono } from 'next/font/google';
+import { Inter, Syne, DM_Mono } from 'next/font/google';
 import './globals.css';
 import { PostHogProvider } from '@/components/launchmind/PostHogProvider';
 
-const dmSans = DM_Sans({
+const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-dm-sans',
+  variable: '--font-inter',
   display: 'swap',
 });
 
@@ -44,7 +44,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} ${syne.variable} ${dmMono.variable}`}
+      className={`${inter.variable} ${syne.variable} ${dmMono.variable}`}
     >
       <body>
         <PostHogProvider>{children}</PostHogProvider>
