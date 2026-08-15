@@ -1,6 +1,6 @@
 /**
  * @file app/onboarding/context-delta/page.tsx
- * @description Phase 1 Alignment 2 of 4 — What is changing?
+ * @description Phase 1 What is changing?
  *   Founder shares their next important change (new feature, pricing, market, campaign, positioning).
  *   Matches fv-step[9] in LaunchMind_Production_UX_July18_2026(15).html.
  * @security Auth enforced by middleware. Session ID from sessionStorage.
@@ -132,7 +132,7 @@ export default function ContextDeltaPage() {
   return (
     <div>
       {/* fv-kicker */}
-      <div style={kickerStyle}>Alignment 2 of 4 · What is changing?</div>
+      <div style={kickerStyle}>What is changing?</div>
 
       {/* conversation-thread */}
       <div style={threadStyle}>

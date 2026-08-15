@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import jwt from 'jsonwebtoken';
 
 const FOUNDER_ID = 'aa500000-0000-0000-0000-000000000501';
+const WORKSPACE_ID = 'ee500000-0000-4000-8000-00000000000a';
 const PRODUCT_ID = 'bb500000-0000-0000-0000-000000000502';
 const ASSET_ID   = 'cc500000-0000-0000-0000-000000000503';
 const JWT_SECRET  = 'test-jwt-secret-min-32-chars-long!!';
@@ -62,8 +63,10 @@ const MOCK_APPROVED_ASSET = { ...MOCK_ASSET, id: 'cc500000-0000-0000-0000-000000
 vi.mock('../src/lib/supabaseAdmin', () => {
   const makeQ = (table: string) => {
     const rows: Record<string, unknown[]> = {
-      products:          [{ id: PRODUCT_ID, founder_id: FOUNDER_ID, name: 'StudioApp', confirmed_icp: { targetAudience: 'indie devs' }, brand_voice_profile: { tone: 'friendly' } }],
-      founders:          [{ id: FOUNDER_ID, plan: 'builder', name: 'Studio User', token_balance: 500 }],
+      workspaces:        [{ id: WORKSPACE_ID, founder_id: FOUNDER_ID, name: 'StudioCo' }],
+      workspace_members: [],
+      products:          [{ id: PRODUCT_ID, founder_id: FOUNDER_ID, workspace_id: WORKSPACE_ID, archived_at: null, name: 'StudioApp', confirmed_icp: { targetAudience: 'indie devs' }, brand_voice_profile: { tone: 'friendly' } }],
+      founders:          [{ id: FOUNDER_ID, plan: 'builder', name: 'Studio User', token_balance: 500, active_workspace_id: WORKSPACE_ID, active_product_id: PRODUCT_ID }],
       content_assets:    [MOCK_ASSET, MOCK_APPROVED_ASSET],
       content_versions:  [],
       publishing_targets:[],

@@ -1,6 +1,6 @@
 /**
  * @file app/onboarding/competitors/page.tsx
- * @description Phase 1 Alignment 4 of 4 — Confirm competitors.
+ * @description Phase 1 Confirm competitors
  *   Founder reviews AI-discovered competitors, removes irrelevant ones, adds missing ones.
  *   Matches fv-step[11] in LaunchMind_Production_UX_July18_2026(15).html.
  * @security Auth enforced by middleware. Session ID from sessionStorage.
@@ -166,7 +166,7 @@ export default function CompetitorsPage() {
   return (
     <div>
       {/* fv-kicker */}
-      <div style={kickerStyle}>Alignment 4 of 4 · Confirm competitors</div>
+      <div style={kickerStyle}>Confirm competitors</div>
 
       {/* conversation-thread */}
       <div style={threadStyle}>

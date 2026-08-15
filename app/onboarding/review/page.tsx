@@ -126,8 +126,51 @@ export default function ReviewPage() {
     ? `${STYLE_LABELS[workingStyleRaw] ?? workingStyleRaw}; owner approves all execution`
     : 'Not set';
 
+  // ── G1 · G2 · G5 · G7 — the owner must be able to correct these before
+  // finishing, so every newly-captured field gets its own correctable row.
+  const ctx = founderCtx as Record<string, unknown> | null;
+  const str = (k: string) => (typeof ctx?.[k] === 'string' && ctx[k] ? String(ctx[k]) : '');
+
+  const problemValue     = str('primary_customer_problem') || 'Not specified';
+  const positioningValue = [str('positioning'), str('value_proposition')]
+    .filter(Boolean).join(' · ') || 'Not specified';
+
+  const marketList = Array.isArray(ctx?.markets) ? ctx.markets as Array<{ label?: string }> : [];
+  // "Not specified" rather than a defaulted country: an unstated market is now
+  // genuinely unknown, and saying so is the point of closing G7.
+  const marketValue = marketList.length
+    ? marketList.map(m => m.label ?? '').filter(Boolean).join(', ')
+    : 'Not specified';
+
+  const channelList = Array.isArray(ctx?.current_channels)
+    ? ctx.current_channels as Array<{ channel?: string; status?: string }> : [];
+
+  // §8 · presented as TWO separate facts, because they mean different things.
+  // "LaunchMind found your App Store listing" and "you actively market on the
+  // App Store" must never read as the same statement on a review screen the
+  // owner is using to decide whether we understood their business.
+  const pretty = (c: { channel?: string; status?: string }) =>
+    `${String(c.channel ?? '').replace(/_/g, ' ')}${c.status === 'planning' ? ' (planning)' : ''}`;
+
+  const observedValue = channelList.filter(c => c.status === 'observed').length
+    ? channelList.filter(c => c.status === 'observed')
+        .map(c => String(c.channel ?? '').replace(/_/g, ' ')).join(', ')
+    : 'None detected';
+
+  const ownerChannels = channelList.filter(c => c.status === 'using' || c.status === 'planning');
+  const channelValue = ownerChannels.length
+    ? (ownerChannels[0]?.channel === 'none_yet'
+        ? 'Nothing running yet'
+        : ownerChannels.map(pretty).join(', '))
+    : 'Not specified';
+
   const rows = [
     { label: 'AUDIENCE',        value: audienceValue,     href: '/onboarding/audience' },
+    { label: 'THEIR PROBLEM',   value: problemValue,      href: '/onboarding/positioning' },
+    { label: 'POSITIONING',     value: positioningValue,  href: '/onboarding/positioning' },
+    { label: 'MARKETS',         value: marketValue,       href: '/onboarding/positioning' },
+    { label: 'FOUND BY LAUNCHMIND', value: observedValue, href: '/onboarding/positioning' },
+    { label: 'YOU ACTIVELY USE', value: channelValue,     href: '/onboarding/positioning' },
     { label: "WHAT'S CHANGING", value: contextValue,      href: '/onboarding/context-delta' },
     { label: '90-DAY SUCCESS',  value: goalValue,         href: '/onboarding/goal' },
     { label: 'COMPETITORS',     value: competitorsValue,  href: '/onboarding/competitors' },

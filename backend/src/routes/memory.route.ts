@@ -50,8 +50,15 @@ export async function memoryRoutes(server: FastifyInstance): Promise<void> {
     if (!parsed.success) return reply.status(400).send({ error: 'Invalid query', detail: parsed.error.message });
 
     try {
+      // BUSINESS SCOPE. productId was optional, so omitting it returned the
+      // founder's memories across every business — and memory is the surface
+      // most likely to carry one company's conclusions into another's advice.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId) return reply.send({ memories: [] });
       const result = await listMemories(founderId, {
-        productId:  parsed.data.product_id,
+        // The active business decides; a client hint is ignored, not trusted.
+        productId:  scopedProductId,
         memoryType: parsed.data.memory_type,
         status:     parsed.data.status,
         limit:      parsed.data.limit,
@@ -99,7 +106,15 @@ export async function memoryRoutes(server: FastifyInstance): Promise<void> {
         .order('created_at', { ascending: false })
         .limit(parseInt(query.limit ?? '30', 10));
 
-      if (query.product_id) q = q.eq('product_id', query.product_id);
+      // Was optional — omitting product_id returned the founder's events across
+      // every business.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId
+          || (query.product_id && query.product_id !== scopedProductId)) {
+        return reply.send({ events: [] });
+      }
+      q = q.eq('product_id', scopedProductId);
       if (query.offset)      q = q.range(parseInt(query.offset, 10), parseInt(query.offset, 10) + parseInt(query.limit ?? '30', 10) - 1);
 
       const { data, error, count } = await q;

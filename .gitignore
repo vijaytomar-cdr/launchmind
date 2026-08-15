@@ -43,3 +43,6 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Verification builds (see next.config.js distDir) — never dev's .next
+.next-build/

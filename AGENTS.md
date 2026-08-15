@@ -34,6 +34,8 @@ set CI gates on, minus the real-Postgres tier and the security scanners.
 | Security | `npm run test:security` | OAuth, credential vault, execution boundary |
 | Workspace isolation | `npm run test:isolation` | tenancy + connection state machine |
 | Real-Postgres integration | `npm run test:integration` | **needs a database — see below** |
+| Retrieval benchmark | `npm --prefix backend run eval:retrieval` | needs the local Supabase stack |
+| Embedding backfill (dry run) | `npm --prefix backend run embeddings:backfill` | add `-- --execute` to enqueue |
 | Playwright E2E | `npm run test:e2e` | needs a running frontend |
 | Visual regression | `npm run test:visual` | see `docs/testing/visual-regression.md` |
 
@@ -75,7 +77,9 @@ replay protection, conflict targets — is vacuous against it. Those tests run a
 a real database:
 
 ```bash
-npm --prefix backend run db:test:up      # postgres:16-alpine on :55432
+npm --prefix backend run db:test:up      # pgvector/pgvector:pg16 on :55432
+                                         # (was postgres:16-alpine; migrations 035/089
+                                         #  declare vector columns, so pgvector is required)
 npm run test:integration
 npm --prefix backend run db:test:down
 ```

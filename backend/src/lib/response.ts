@@ -41,10 +41,24 @@ export function ok<T>(data: T, meta?: ResponseMeta): SuccessResponse<T> {
 
 /**
  * Returns the standard failure envelope.
- * @param error - Human-readable message safe to show the client
+ *
+ * ARGUMENT ORDER CORRECTED. The parameters were named `(error, code)` while all
+ * 71 call sites pass `(code, message)` — `fail(ErrorCodes.VALIDATION_ERROR,
+ * 'Invalid prompt data')`. The names were wrong, not the call sites, so the
+ * envelope carried the CODE in its `error` field and the frontend, which shows
+ * `body.error`, rendered raw machine strings at owners. A founder describing
+ * their pre-launch product was told, in full:
+ *
+ *     VALIDATION_ERROR
+ *
+ * Swapping the parameters here fixes every route at once rather than editing 71
+ * call sites, and nothing reads either field positionally (checked).
+ *
  * @param code  - Machine-readable error code (e.g. 'PRODUCT_NOT_FOUND')
+ * @param error - Human-readable message safe to show the owner. Write it as
+ *   something a person can act on; the code is what software matches against.
  */
-export function fail(error: string, code: string): FailureResponse {
+export function fail(code: string, error: string): FailureResponse {
   return { ok: false, error, code };
 }
 

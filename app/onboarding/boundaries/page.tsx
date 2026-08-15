@@ -17,6 +17,41 @@ import { api } from '@/lib/api';
 
 type WorkingStyle = 'advise_only' | 'build_plans' | 'draft_prepare' | 'execute_with_approval';
 
+/**
+ * G4 — the capability ladder, shown to the owner.
+ *
+ * Previously the actions LaunchMind could take on its own were DERIVED from the
+ * working-style choice and never displayed, so a founder could not see — let
+ * alone set — their own boundaries. Style is a collaboration preference;
+ * authority is a permission boundary, and they are now separate.
+ *
+ * Same vocabulary as the Phase 2 connection permission architecture, so the
+ * product has one authority language rather than two. Showing PUBLISH and SPEND
+ * here records intent only: Phase 2's execution guard still refuses every
+ * action, and no adapter implements any write capability.
+ */
+const CAPABILITIES: Array<{ id: string; label: string; sub: string; allowAutonomous: boolean }> = [
+  { id: 'RECOMMEND', label: 'Recommend', sub: 'Suggest what to do and explain why', allowAutonomous: true },
+  { id: 'DRAFT',     label: 'Draft',     sub: 'Write campaigns and content for your review', allowAutonomous: true },
+  { id: 'CHANGE',    label: 'Change',    sub: 'Edit live campaigns or targeting', allowAutonomous: true },
+  { id: 'PUBLISH',   label: 'Publish',   sub: 'Put content or campaigns live', allowAutonomous: true },
+  { id: 'SPEND',     label: 'Spend',     sub: 'Change how much money is committed', allowAutonomous: true },
+];
+
+/** Sensible starting point per style. The owner can change any of it. */
+const DEFAULTS_BY_STYLE: Record<string, Record<string, string>> = {
+  advise_only:   { RECOMMEND: 'autonomous', DRAFT: 'approval_required', CHANGE: 'never', PUBLISH: 'never', SPEND: 'never' },
+  build_plans:   { RECOMMEND: 'autonomous', DRAFT: 'autonomous', CHANGE: 'approval_required', PUBLISH: 'approval_required', SPEND: 'never' },
+  draft_prepare: { RECOMMEND: 'autonomous', DRAFT: 'autonomous', CHANGE: 'approval_required', PUBLISH: 'approval_required', SPEND: 'never' },
+  full_autopilot:{ RECOMMEND: 'autonomous', DRAFT: 'autonomous', CHANGE: 'autonomous', PUBLISH: 'approval_required', SPEND: 'approval_required' },
+};
+
+const STANCE_LABEL: Record<string, string> = {
+  autonomous: 'On its own',
+  approval_required: 'Ask me first',
+  never: 'Never',
+};
+
 const AUTONOMY_OPTIONS: Array<{
   value:   WorkingStyle;
   icon:    string;
@@ -82,6 +117,8 @@ export default function BoundariesPage() {
   const [sessionId, setSessionId]         = useState('');
   const [workingStyle, setWorkingStyle]   = useState<WorkingStyle>('draft_prepare');
   const [acknowledged, setAcknowledged]   = useState(false);
+  const [caps, setCaps] = useState<Record<string, string>>(DEFAULTS_BY_STYLE.draft_prepare);
+  const [capsTouched, setCapsTouched] = useState(false);
   const [saving, setSaving]               = useState(false);
 
   useEffect(() => {
@@ -104,8 +141,11 @@ export default function BoundariesPage() {
     if (!session) { setSaving(false); return; }
     try {
       await api.onboarding.saveBoundaries(sessionId, {
-        workingStyle:        STYLE_API_MAP[workingStyle],
-        founderAcknowledged: true,
+        workingStyle:         STYLE_API_MAP[workingStyle],
+        founderAcknowledged:  true,
+        // Always sent: the owner has now SEEN these, so they are an explicit
+        // choice even when the style defaults were left untouched.
+        explicitCapabilities: caps,
       }, session.access_token);
       router.push('/onboarding/review');
     } catch (err) {
@@ -189,7 +229,10 @@ export default function BoundariesPage() {
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => setWorkingStyle(opt.value)}
+                onClick={() => {
+                  setWorkingStyle(opt.value);
+                  if (!capsTouched) setCaps(DEFAULTS_BY_STYLE[opt.value] ?? caps);
+                }}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '34px 1fr auto',
@@ -280,6 +323,60 @@ export default function BoundariesPage() {
       </div>
 
       {/* report-actions */}
+      {/* ── G4 · effective permissions, visible and editable ───────────── */}
+      <div style={{ marginTop: 20 }}>
+        <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink2)', display: 'block', marginBottom: 4 }}>
+          What LaunchMind may do
+        </label>
+        <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink3)', lineHeight: 1.5 }}>
+          Your choice above sets a starting point. Change anything here — these are your boundaries.
+        </p>
+        <div style={{
+          border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: '#fff',
+        }}>
+          {CAPABILITIES.map((cap, i) => (
+            <div key={cap.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px',
+              borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <b style={{ fontSize: 13 }}>{cap.label}</b>
+                <div style={{ fontSize: 11, color: 'var(--ink3)' }}>{cap.sub}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                {(['autonomous', 'approval_required', 'never'] as const).map(stance => {
+                  const on = caps[cap.id] === stance;
+                  return (
+                    <button
+                      key={stance} type="button"
+                      onClick={() => { setCaps({ ...caps, [cap.id]: stance }); setCapsTouched(true); }}
+                      style={{
+                        borderRadius: 999, padding: '5px 10px', fontSize: 11, fontWeight: 700,
+                        cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                        background: on
+                          ? (stance === 'never' ? 'var(--danger-d)' : stance === 'autonomous' ? 'var(--sage-d)' : 'var(--amber-d)')
+                          : 'var(--raised)',
+                        border: `1px solid ${on
+                          ? (stance === 'never' ? 'var(--danger-b)' : stance === 'autonomous' ? 'var(--sage-b)' : 'var(--amber-b)')
+                          : 'var(--border2)'}`,
+                        color: on
+                          ? (stance === 'never' ? 'var(--danger)' : stance === 'autonomous' ? 'var(--sage)' : 'var(--amber)')
+                          : 'var(--ink3)',
+                      }}
+                    >{STANCE_LABEL[stance]}</button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--ink3)', marginTop: 6 }}>
+          “Never” means never — not “ask me first”. LaunchMind cannot publish or spend
+          anything today regardless; these boundaries apply as those abilities arrive.
+          {capsTouched ? ' Your changes will be saved.' : ''}
+        </div>
+      </div>
+
       <div style={actionsStyle}>
         <span />
         <button

@@ -1,0 +1,117 @@
+{
+  "datasetSize": 89,
+  "incumbents": 12,
+  "noMutation": true,
+  "before": {
+    "marketing_memories": 169,
+    "marketing_memory_versions": 0,
+    "memory_challenges": 0,
+    "learning_events": 2,
+    "memory_evidence": 0
+  },
+  "after": {
+    "marketing_memories": 169,
+    "marketing_memory_versions": 0,
+    "memory_challenges": 0,
+    "learning_events": 2,
+    "memory_evidence": 0
+  },
+  "gateA": {
+    "eligible": 65,
+    "evidenceOnly": 11,
+    "rejected": 13,
+    "reasons": {
+      "INSTRUCTION_SHAPED": 8,
+      "PII_DETECTED": 2,
+      "SECRET_DETECTED": 2,
+      "NOT_DURABLE": 5,
+      "RAW_PROVIDER_PROSE": 2,
+      "NOT_GENERAL": 3,
+      "SCOPE_MISSING": 1,
+      "INSUFFICIENT_SAMPLE": 1
+    },
+    "falsePositives": 0,
+    "falseNegatives": 1
+  },
+  "gateB": {
+    "NONE": 24,
+    "CREATE_NEW": 43,
+    "NO_OP": 2,
+    "REINFORCE": 7,
+    "CHALLENGE": 3,
+    "CREATE_SCOPED_EXCEPTION": 5,
+    "KEEP_AS_EVIDENCE_ONLY": 4,
+    "SUPERSEDE": 1
+  },
+  "drafts": 41,
+  "actives": 7,
+  "accuracy": {
+    "overall": 86,
+    "eligibility": 88,
+    "outcome": 86,
+    "entryState": 88,
+    "authority": 89,
+    "founderReview": 89
+  },
+  "cost": {
+    "modelCallsTotal": 15,
+    "maxPerCandidate": 1,
+    "shortCircuited": 24,
+    "avgRelated": 7.08,
+    "p50": 12,
+    "p95": 2821
+  },
+  "mismatches": [
+    {
+      "id": "diffscope-037",
+      "group": "diffscope",
+      "errorCategory": "false_contradiction",
+      "claim": "Search converts worse than Meta",
+      "expected": {
+        "eligibility": "ELIGIBLE",
+        "outcome": "CREATE_SCOPED_EXCEPTION",
+        "entryState": null
+      },
+      "actual": {
+        "eligibility": "ELIGIBLE",
+        "reason": "OK",
+        "outcome": "CREATE_NEW",
+        "entryState": "draft"
+      }
+    },
+    {
+      "id": "decision-051",
+      "group": "decision",
+      "errorCategory": "wrong_new_memory_decision",
+      "claim": "We will prioritise retention over acquisition this quarter",
+      "expected": {
+        "eligibility": "ELIGIBLE",
+        "outcome": "CREATE_NEW",
+        "entryState": "active"
+      },
+      "actual": {
+        "eligibility": "ELIGIBLE",
+        "reason": "OK",
+        "outcome": "REINFORCE",
+        "entryState": null
+      }
+    },
+    {
+      "id": "tenancy-067",
+      "group": "tenancy",
+      "errorCategory": "authority_error",
+      "claim": "Search converts better than Meta in the other workspace",
+      "expected": {
+        "eligibility": "INELIGIBLE",
+        "outcome": "NONE",
+        "entryState": null
+      },
+      "actual": {
+        "eligibility": "ELIGIBLE",
+        "reason": "OK",
+        "outcome": "CREATE_NEW",
+        "entryState": "draft"
+      }
+    }
+  ]
+}

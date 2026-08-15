@@ -8,7 +8,8 @@ import { buildServer } from '../src/server';
 
 vi.mock('../src/lib/supabaseAdmin', () => {
   const FOUNDER  = 'aa000000-0000-0000-0000-000000000001';
-  const PRODUCT  = 'bb000000-0000-0000-0000-000000000001';
+  const WORKSPACE = 'ee500000-0000-4000-8000-000000000005';
+const PRODUCT  = 'bb000000-0000-0000-0000-000000000001';
   const EXP_ID   = 'ee000000-0000-0000-0000-000000000001';
 
   const EXPERIMENT = {
@@ -35,6 +36,13 @@ vi.mock('../src/lib/supabaseAdmin', () => {
     (c as { data: unknown; error: unknown; count: unknown }).error = null;
     (c as { data: unknown; error: unknown; count: unknown }).count = Array.isArray(data) ? data.length : 0;
     c.single = vi.fn().mockResolvedValue({ data, error: null });
+    // Business-scoped routes resolve the active business, which uses
+    // maybeSingle() and awaits chains directly. Without these the chain is not
+    // a usable client and the route 500s for a reason unrelated to its logic.
+    c.maybeSingle = vi.fn().mockResolvedValue({
+      data: Array.isArray(data) ? (data[0] ?? null) : data, error: null });
+    c.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: Array.isArray(data) ? data : [data], error: null }).then(resolve);
     return c;
   }
 
@@ -42,7 +50,12 @@ vi.mock('../src/lib/supabaseAdmin', () => {
     getSupabaseAdmin: vi.fn(() => ({
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: FOUNDER } }, error: null }) },
       from: vi.fn((table: string) => {
-        if (table === 'products') return chain({ id: PRODUCT, founder_id: FOUNDER });
+        // Business-scoped routes resolve the ACTIVE business, so the fixture
+        // must represent a founder who has selected one.
+        if (table === 'founders')   return chain({ id: FOUNDER, active_workspace_id: WORKSPACE, active_product_id: PRODUCT });
+        if (table === 'workspaces') return chain({ id: WORKSPACE, founder_id: FOUNDER, name: 'TestCo' });
+        if (table === 'workspace_members') return chain([]);
+        if (table === 'products') return chain({ id: PRODUCT, founder_id: FOUNDER, workspace_id: WORKSPACE, archived_at: null });
         if (table === 'experiments') {
           const c = chain(EXPERIMENT);
           // select chain returns list of experiments

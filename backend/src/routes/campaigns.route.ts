@@ -16,7 +16,7 @@ import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { callSonnet } from '../lib/aiPlatform';
-import { buildContextPackage } from '../lib/contextEngine';
+import { buildContextForPrompt } from '../lib/context/contextEngineAdapter';
 
 function getFounderId(req: FastifyRequest): string {
   return (req.user as { sub: string }).sub;
@@ -247,17 +247,31 @@ async function campaignPlugin(server: FastifyInstance): Promise<void> {
       const campaign = await getCampaignOwned(supabase, campaignId, founderId);
       if (!campaign) return reply.status(404).send({ error: 'Campaign not found' });
 
-      const ctx = await buildContextPackage(founderId, campaign.product_id);
+      // Phase 3.1E. Previously this dumped JSON.stringify(ctx).slice(0, 2000)
+      // into the prompt — raw JSONB serialisation truncated mid-structure, which
+      // is both the renderer anti-pattern (ADR-066 rule 10) and the mid-item
+      // truncation §9 forbids. Now a budgeted, formatted, provenance-bearing
+      // package.
+      const ctx = await buildContextForPrompt({
+        founderId,
+        productId: campaign.product_id,
+        intent: 'CAMPAIGN_PLANNING',
+        query: `Plan a ${campaign.channel} campaign in ${campaign.market}. ` +
+               `What has worked and failed on this channel and audience?`,
+      });
 
       const system = 'You are an expert growth marketer. Generate a focused campaign plan. Return JSON with: recommendedChannels (array), suggestedAssets (array of {type, description}), audienceConfig ({targetAge, interests, geographies}), estimatedBudget ({weeklyUSD, weeklyINR}), schedule ({startDate, durationDays}), expectedOutcome (string), riskFactors (array).';
 
       const user = `Campaign type: ${campaign.type ?? 'general'}. Channel: ${campaign.channel}. Market: ${campaign.market}.
 
-${ctx ? `Context: ${JSON.stringify(ctx).slice(0, 2000)}` : ''}
+${ctx.text}
 
 Generate a practical, achievable campaign plan for a bootstrapped founder.`;
 
-      const raw = await callSonnet(system, user, 1024, { founderId, promptId: 'campaign_plan_generation', action: 'campaign_plan_generation' });
+      const raw = await callSonnet(system, user, 1024, {
+        founderId, promptId: 'campaign_plan_generation', action: 'campaign_plan_generation',
+        contextPackageId: ctx.contextPackageId,
+      });
 
       let plan: Record<string, unknown> = {};
       try {

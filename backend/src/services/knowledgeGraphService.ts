@@ -11,6 +11,7 @@
 
 import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
+import { resolveMemoryWorkspace } from './memory/workspaceResolver';
 import type {
   KnowledgeNode,
   KnowledgeNodeWithEdges,
@@ -38,6 +39,7 @@ export async function createNode(
   confidence = 0.5,
 ): Promise<KnowledgeNode> {
   const supabase = getSupabaseAdmin();
+  const workspaceId = await resolveMemoryWorkspace(founderId, productId ?? null);
 
   if (productId) {
     // Upsert — unique index on (founder_id, product_id, node_type, label)
@@ -46,6 +48,7 @@ export async function createNode(
       .upsert(
         {
           founder_id:  founderId,
+          workspace_id: workspaceId,
           product_id:  productId,
           node_type:   nodeType,
           label,
@@ -70,7 +73,7 @@ export async function createNode(
   // Founder-level node (no product_id) — simple insert
   const { data, error } = await supabase
     .from('knowledge_nodes')
-    .insert({ founder_id: founderId, product_id: null, node_type: nodeType, label, properties, source_id: sourceId ?? null, source_type: sourceType ?? null, confidence })
+    .insert({ founder_id: founderId, workspace_id: workspaceId, product_id: null, node_type: nodeType, label, properties, source_id: sourceId ?? null, source_type: sourceType ?? null, confidence })
     .select('*')
     .single();
 
@@ -138,17 +141,23 @@ export async function createEdge(
   // Verify both nodes belong to this founder
   const { data: nodes, error: nodeErr } = await supabase
     .from('knowledge_nodes')
-    .select('id')
+    .select('id, workspace_id')
     .eq('founder_id', founderId)
     .in('id', [sourceId, targetId]);
 
   if (nodeErr) throw nodeErr;
   if (!nodes || nodes.length < 2) throw new Error('One or both nodes not found for this founder');
 
+  // An edge belongs to the same tenant as the nodes it joins. Those nodes were
+  // just verified to be this founder's, so this cannot straddle two workspaces.
+  const edgeWorkspaceId =
+    (nodes as unknown as Array<{ workspace_id?: string | null }>)[0]?.workspace_id
+    ?? await resolveMemoryWorkspace(founderId, null);
+
   const { data, error } = await supabase
     .from('knowledge_edges')
     .upsert(
-      { founder_id: founderId, source_id: sourceId, target_id: targetId, relationship, weight, properties },
+      { founder_id: founderId, workspace_id: edgeWorkspaceId, source_id: sourceId, target_id: targetId, relationship, weight, properties },
       { onConflict: 'source_id,target_id,relationship', ignoreDuplicates: false },
     )
     .select('*')

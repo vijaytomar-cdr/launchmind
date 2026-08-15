@@ -14,7 +14,19 @@ export type OnboardingStep =
   | 'strategy_generated'
   | 'channel_connected'
   | 'brief_received'
-  | 'feedback_submitted';
+  | 'feedback_submitted'
+  // Alignment · "did I understand your business correctly?".
+  // Deliberately carry NO founder text: a positioning statement is the owner's
+  // strategy, and shipping it to analytics would leak business content that the
+  // privacy rules keep out of third-party tools. Category names and counts only.
+  | 'alignment_suggestions_ready'
+  | 'alignment_suggestion_confirmed'
+  | 'alignment_suggestion_edited'
+  | 'alignment_suggestion_rejected'
+  | 'alignment_market_confirmed'
+  | 'alignment_market_edited'
+  | 'alignment_channel_added'
+  | 'alignment_completed';
 
 /**
  * Track a named onboarding funnel step.

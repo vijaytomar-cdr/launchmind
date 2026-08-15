@@ -99,6 +99,7 @@ export async function callHaikuWithUsage(
   prompt: string,
   maxTokens = 600,
   signal?: AbortSignal,
+  opts: { temperature?: number } = {},
 ): Promise<RawCallResult> {
   const client = getClient();
   const message = await client.messages.create(
@@ -106,6 +107,14 @@ export async function callHaikuWithUsage(
       model: 'claude-haiku-4-5-20251001',
       max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
+      // TEMPERATURE WAS NEVER SET. The Anthropic default is 1.0, so every call
+      // — including constrained CLASSIFICATION calls — was fully sampled. That
+      // is the measured cause of the comparator benchmark moving 10/10 -> 7/10
+      // and 5/8 -> 1/8 on byte-identical code.
+      //
+      // Left undefined here (API default) so creative generation is unchanged;
+      // only callers that pass a temperature are pinned.
+      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     },
     { signal },
   );

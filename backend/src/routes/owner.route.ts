@@ -12,7 +12,7 @@
  *   PATCH /owner/notifications/:id/read — Mark notification read
  *   POST /owner/notifications   — Create notification (internal, admin only)
  * @security JWT required for all routes. All data filtered by founder_id.
- * @dependencies buildContextPackage, callSonnet, callHaiku, supabaseAdmin, Sentry
+ * @dependencies buildContextForPrompt (ContextPackage V2), callSonnet, callHaiku, supabaseAdmin, Sentry
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -21,8 +21,9 @@ import * as Sentry from '@sentry/node';
 import { z } from 'zod';
 
 import { getSupabaseAdmin }     from '../lib/supabaseAdmin';
-import { buildContextPackage }  from '../lib/contextEngine';
+import { buildContextForPrompt } from '../lib/context/contextEngineAdapter';
 import { callSonnet } from '../lib/aiPlatform';
+import { applyBacklogFilter } from '../services/opportunityBacklog';
 
 function getFounderId(req: FastifyRequest): string {
   return (req.user as { sub: string }).sub;
@@ -103,30 +104,81 @@ const UpdateOpportunitySchema = z.object({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * The product of the business the owner is CURRENTLY OPERATING.
+ *
+ * WAS: "newest non-archived product owned by this founder" — a founder-wide
+ * read that ignored `active_workspace_id` entirely. With two businesses it
+ * silently decided which company the Morning Brief was about, so switching the
+ * top-bar control changed the chrome and nothing else. That is the tenancy
+ * incident this route is at the centre of.
+ *
+ * Resolution now goes through the ONE verified path (activeBusinessService),
+ * which re-checks workspace membership and returns null rather than guessing.
+ *
+ * @returns the active product, or null when no business is selected or it has
+ *   no product yet. Callers must render "no data" — never substitute another.
+ * @security The workspace is verified server-side; a client cannot select one.
+ */
 async function getActiveProduct(supabase: ReturnType<typeof getSupabaseAdmin>, founderId: string) {
+  const { getActiveBusiness } = await import('../services/activeBusinessService');
+  const business = await getActiveBusiness(founderId);
+  if (!business?.productId) return null;
+
   const { data } = await supabase
     .from('products')
-    .select('id, name, platform, markets, confirmed_icp, brand_voice_profile')
-    .eq('founder_id', founderId)
+    .select('id, name, platform, markets, confirmed_icp, brand_voice_profile, workspace_id, maturity, scraped_meta')
+    // Scoped to the RESOLVED product, and re-checked against its workspace so a
+    // stale pointer cannot reach across businesses.
+    .eq('id', business.productId)
+    .eq('workspace_id', business.workspaceId)
     .is('archived_at', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
     .maybeSingle();
   return data;
 }
 
-async function getPendingApprovals(supabase: ReturnType<typeof getSupabaseAdmin>, founderId: string) {
+/**
+ * Approvals awaiting the owner FOR THE BUSINESS THEY ARE OPERATING.
+ *
+ * Was founder-wide on both queries, so a campaign awaiting approval in one
+ * business appeared while the owner was looking at another — and could have
+ * been approved there. Approving something is an authority act; showing it
+ * under the wrong company is the most dangerous form of this leak.
+ *
+ * `mission_approvals` carries no product_id, so it is scoped through the
+ * missions that belong to this product rather than by founder.
+ *
+ * @param productId - the ACTIVE product; null means no business is selected,
+ *   in which case nothing is pending because nothing is in scope.
+ */
+async function getPendingApprovals(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  founderId: string,
+  productId: string | null,
+) {
+  if (!productId) {
+    return { total: 0, items: [] as Array<Record<string, unknown>> };
+  }
+
+  const { data: missionRows } = await supabase
+    .from('missions').select('id').eq('product_id', productId);
+  const missionIds = ((missionRows ?? []) as Array<{ id: string }>).map(m => m.id);
+
   const [campaignRes, missionRes] = await Promise.all([
     supabase.from('campaigns')
       .select('id, hook_type, channel, copy_text')
       .eq('founder_id', founderId)
+      .eq('product_id', productId)
       .eq('status', 'pending_approval')
       .limit(10),
-    supabase.from('mission_approvals')
-      .select('id, mission_id, title, step_id')
-      .eq('founder_id', founderId)
-      .eq('status', 'pending')
-      .limit(10),
+    missionIds.length
+      ? supabase.from('mission_approvals')
+          .select('id, mission_id, title, step_id')
+          .eq('founder_id', founderId)
+          .in('mission_id', missionIds)
+          .eq('status', 'pending')
+          .limit(10)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const campaigns = (campaignRes.data ?? []).map(c => ({
@@ -148,43 +200,40 @@ async function getPendingApprovals(supabase: ReturnType<typeof getSupabaseAdmin>
   return { total: campaigns.length + missions.length, items: [...missions, ...campaigns] };
 }
 
+/**
+ * Seeds starter opportunities for a product that has none.
+ *
+ * WAS three hardcoded templates with invented evidence — "Competitor ranking
+ * +15 positions", "Rating: 4.2 - 4.1 (7d)", "4 reviews: 'confusing setup'" —
+ * emitted for every product regardless of what LaunchMind had observed. AllignX
+ * has zero reviews and still received the review-cluster opportunity; LaunchMind
+ * is pre-launch with no listing and was told to optimise its ASO title.
+ *
+ * Eligibility and evidence now come from the product's real state, and fewer
+ * opportunities is an acceptable outcome.
+ *
+ * @param product - the ACTIVE product row, already business-verified by caller
+ */
 async function seedOpportunitiesIfEmpty(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   founderId: string,
   productId: string | null,
   productName: string,
+  product?: { maturity?: string | null; markets?: string[] | null; scraped_meta?: Record<string, unknown> | null },
 ) {
-  const seeds = [
-    {
-      founder_id: founderId, product_id: productId,
-      type: 'aso', title: `Add high-intent keywords to ${productName} ASO title`,
-      description: 'Your app title is missing 2-3 keywords that competitors rank for.',
-      expected_impact: '~+8% organic installs', confidence: 0.72,
-      effort: 'low', risk: 'low',
-      why_now: 'Competitor updated their ASO title this week.',
-      source: 'competitor_scrape', evidence: ['Competitor ranking +15 positions', 'Keyword search volume up 22%'],
-    },
-    {
-      founder_id: founderId, product_id: productId,
-      type: 'india_launch', title: `Launch ${productName} in India — strong market signal`,
-      description: 'Your app category is growing 3× faster in India vs the US this quarter.',
-      expected_impact: '~+25% installs at 30% lower CPI', confidence: 0.68,
-      effort: 'medium', risk: 'medium',
-      why_now: 'India market share for your category hit an all-time high.',
-      source: 'growth_brain', evidence: ['India category growth 3×', 'CPI 60% lower than USA', 'UPI install base 400M users'],
-    },
-    {
-      founder_id: founderId, product_id: productId,
-      type: 'review_risk', title: 'Address negative review cluster before they impact rating',
-      description: '4 recent 1-star reviews mention the same onboarding friction point.',
-      expected_impact: 'Protect 4.2★ rating, reduce churn', confidence: 0.81,
-      effort: 'medium', risk: 'high',
-      why_now: 'Rating dropped 0.1 in the last 7 days.',
-      source: 'review_analysis', evidence: ['4 reviews: "confusing setup"', 'Rating: 4.2 → 4.1 (7d)', 'Churn signal up 8%'],
-    },
-  ];
+  const { readCapabilities, eligibleOpportunities } =
+    await import('../services/opportunityEligibility');
 
-  await supabase.from('saved_opportunities').insert(seeds);
+  const caps = readCapabilities(product ?? {});
+  const eligible = eligibleOpportunities(productName, caps);
+
+  // Nothing defensible to suggest is a valid answer — better than filling the
+  // list with advice about capabilities the product does not have.
+  if (eligible.length === 0) return;
+
+  await supabase.from('saved_opportunities').insert(
+    eligible.map(o => ({ ...o, founder_id: founderId, product_id: productId })),
+  );
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -197,10 +246,25 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
     try {
       const founderId = getFounderId(request);
       const supabase  = getSupabaseAdmin();
+      // Badge counts are business-scoped too: a sidebar showing "3 opportunities"
+      // from the other company is the same leak in miniature, and it is what the
+      // owner sees on every page.
+      const countsProduct = await getActiveProduct(supabase, founderId);
+      const countsProductId = (countsProduct as { id?: string } | null)?.id ?? null;
       const [approvalsData, opportunitiesData, notificationsData] = await Promise.all([
-        getPendingApprovals(supabase, founderId),
-        supabase.from('saved_opportunities').select('id', { count: 'exact', head: true })
-          .eq('founder_id', founderId).in('state', ['active', 'saved']),
+        getPendingApprovals(supabase, founderId, countsProductId),
+        // Counted through applyBacklogFilter — the SAME predicate the
+        // Opportunities page uses. This previously read
+        // .in('state', ['active','saved']), which silently excluded `converted`
+        // rows that the page still lists, so the badge under-reported the
+        // backlog the owner could actually see.
+        countsProductId
+          ? applyBacklogFilter(
+              supabase.from('saved_opportunities')
+                .select('id', { count: 'exact', head: true })
+                .eq('product_id', countsProductId),
+            )
+          : Promise.resolve({ count: 0, error: null }),
         supabase.from('notifications').select('id', { count: 'exact', head: true })
           .eq('founder_id', founderId).eq('read', false),
       ]);
@@ -223,16 +287,26 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
       const founderId = getFounderId(request);
       const supabase  = getSupabaseAdmin();
 
+      // Resolved BEFORE the batch so business context can be scoped to it.
+      // Previously founder_context was read founder-wide with newest-wins, so a
+      // founder with two businesses saw whichever they had touched most
+      // recently — on both briefs.
+      const activeProduct = await getActiveProduct(supabase, founderId);
+      const briefProductId = (activeProduct as { id?: string } | null)?.id ?? null;
+
       const [founderRes, product, approvals, opportunitiesRes, timelineRes, metricsRes, memoriesRes, onboardingRes, directionRes, founderContextRes, businessGoalRes] = await Promise.all([
         supabase.from('founders').select('name, plan, token_balance').eq('id', founderId).single(),
-        getActiveProduct(supabase, founderId),
-        getPendingApprovals(supabase, founderId),
-        supabase.from('saved_opportunities')
+        Promise.resolve(activeProduct),
+        getPendingApprovals(supabase, founderId, briefProductId),
+        // Opportunities carry product_id and were read founder-wide, which is
+        // why LaunchMind's brief listed "Improve AllignX App Store ASO".
+        briefProductId ? supabase.from('saved_opportunities')
           .select('*')
-          .eq('founder_id', founderId)
+          .eq('product_id', briefProductId)
           .in('state', ['active', 'saved'])
           .order('confidence', { ascending: false })
-          .limit(3),
+          .limit(3)
+          : Promise.resolve({ data: [] }),
         supabase.from('mission_logs')
           .select('id, message, level, created_at, mission_id')
           .eq('founder_id', founderId)
@@ -257,27 +331,41 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
           .in('current_state', ['PHASE_1_COMPLETE', 'DIRECTION_COMPLETE'])
           .limit(1),
         // Fetch full strategy direction content (not just existence)
-        supabase.from('strategy_directions')
+        // Scoped for the same reason as the context and goal below: a brief
+        // headed "AllignX" must not carry the strategy generated for LaunchMind.
+        briefProductId ? supabase.from('strategy_directions')
           .select('id, headline, rationale, primary_channel, week_1, week_2, week_3, week_4, status')
           .eq('founder_id', founderId)
+          .eq('product_id', briefProductId)
           .in('status', ['ready', 'acknowledged'])
           .order('created_at', { ascending: false })
           .limit(1)
-          .maybeSingle(),
-        // Phase 1 founder context (audience + context delta)
-        supabase.from('founder_context')
+          .maybeSingle()
+          : Promise.resolve({ data: null }),
+        // Phase 1 founder context — scoped to the product this brief is about.
+        // Previously founder-wide with newest-wins, so a founder with two
+        // businesses saw whichever they touched last on BOTH briefs.
+        briefProductId ? supabase.from('founder_context')
           .select('audience_confirmed, context_delta, working_style')
           .eq('founder_id', founderId)
+          .eq('product_id', briefProductId)
           .order('updated_at', { ascending: false })
           .limit(1)
-          .maybeSingle(),
-        // Phase 1 primary business goal
-        supabase.from('business_goals')
+          .maybeSingle()
+          // No product in scope means no business context — returning another
+          // business's is worse than returning none.
+          : Promise.resolve({ data: null }),
+        // Phase 1 primary business goal — scoped to the same product as the
+        // context above. business_goals already carries product_id; reading it
+        // founder-wide put "Increase service bookings" on the brief for a SaaS
+        // product owned by the same founder.
+        briefProductId ? supabase.from('business_goals')
           .select('goal_type, target_value, unit, time_horizon_days')
-          .eq('founder_id', founderId)
+          .eq('product_id', briefProductId)
           .order('updated_at', { ascending: false })
           .limit(1)
-          .maybeSingle(),
+          .maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
 
       const founder     = founderRes.data;
@@ -305,7 +393,9 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
 
       // Seed opportunities if empty
       if (opportunities.length === 0 && product) {
-        await seedOpportunitiesIfEmpty(supabase, founderId, product.id, product.name);
+        await seedOpportunitiesIfEmpty(
+          supabase, founderId, product.id, product.name,
+          product as { maturity?: string | null; markets?: string[] | null; scraped_meta?: Record<string, unknown> | null });
         const seeded = await supabase.from('saved_opportunities')
           .select('*')
           .eq('founder_id', founderId)
@@ -319,14 +409,23 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
       let recommendation: Record<string, unknown> | null = null;
       if (product) {
         try {
-          const contextPkg = await buildContextPackage(founderId, product.id, {
-            includeMemories: true, includeKnowledgeGraph: false, maxMemories: 3,
+          // Phase 3.1E: targeted retrieval + persisted provenance, replacing the
+          // ad-hoc context string this route used to concatenate itself.
+          const ctx = await buildContextForPrompt({
+            founderId,
+            productId: product.id,
+            intent: 'MORNING_BRIEF',
+            // Retrieval input, NOT a model instruction (§8). Derived from the
+            // task and the product, never from a system prompt.
+            query: `What should ${product.name} focus on next? Recent performance, ` +
+                   `channel learning, and outstanding decisions.`,
           });
-          const ctxSummary = `Product: ${product.name}. Markets: ${(contextPkg.product?.markets ?? []).join(', ')}.
-ICP: ${JSON.stringify(contextPkg.product?.confirmedIcp ?? {}).slice(0, 200)}.
-Active campaigns: ${contextPkg.campaigns?.length ?? 0}. Top channel: ${contextPkg.analytics?.topChannel ?? 'none'}.
-Pending approvals: ${approvals.total}. Recent installs: ${contextPkg.analytics?.totalInstalls ?? 0}.`;
-          const auditCtx = { founderId, productId: product.id, promptId: 'morning_brief', action: 'morning_brief' };
+          const ctxSummary = `${ctx.text}\n\nPending approvals: ${approvals.total}.`;
+          const auditCtx = {
+            founderId, productId: product.id,
+            promptId: 'morning_brief', action: 'morning_brief',
+            contextPackageId: ctx.contextPackageId,
+          };
           const rawRec = await callSonnet(
             BRIEF_SYSTEM,
             `Context:\n${ctxSummary}\n\nGenerate one primary recommendation for the morning brief.`,
@@ -449,18 +548,31 @@ Pending approvals: ${approvals.total}. Recent installs: ${contextPkg.analytics?.
       const founderId = getFounderId(request);
       const supabase  = getSupabaseAdmin();
       const q = request.query as { state?: string; productId?: string };
+      const state = q.state ?? 'active';
 
-      const state     = q.state ?? 'active';
-      const productId = q.productId;
+      // THE ACTIVE BUSINESS DECIDES, not the query string. `productId` was
+      // client-supplied AND optional, so omitting it returned every opportunity
+      // the founder owned — which is why LaunchMind listed "Improve AllignX App
+      // Store ASO". A client hint is now only honoured when it names the
+      // resolved product; anything else is ignored rather than trusted.
+      const activeProduct = await getActiveProduct(supabase, founderId);
+      const activeProductId = (activeProduct as { id?: string } | null)?.id ?? null;
+      if (!activeProductId || (q.productId && q.productId !== activeProductId)) {
+        // No business selected, or a product that is not the active one: return
+        // nothing rather than another company's backlog.
+        reply.send({ opportunities: [] });
+        return;
+      }
 
       let query = supabase.from('saved_opportunities')
         .select('*')
-        .eq('founder_id', founderId)
+        .eq('product_id', activeProductId)
         .order('confidence', { ascending: false });
 
+      // 'all' means the backlog, defined once in opportunityBacklog.ts so the
+      // sidebar badge counts exactly this population and cannot drift from it.
       if (state !== 'all') query = query.eq('state', state);
-      else query = query.not('state', 'eq', 'dismissed');
-      if (productId) query = query.eq('product_id', productId);
+      else query = applyBacklogFilter(query);
 
       const { data } = await query.limit(50);
       const normalised = (data ?? []).map(row => ({
@@ -488,9 +600,24 @@ Pending approvals: ${approvals.total}. Recent installs: ${contextPkg.analytics?.
       const body      = CreateOpportunitySchema.parse(request.body);
       const supabase  = getSupabaseAdmin();
 
+      const activeProduct = await getActiveProduct(supabase, founderId);
+      const writeProductId = (activeProduct as { id?: string } | null)?.id ?? null;
+      if (!writeProductId) {
+        return reply.status(409).send({ error: 'Select a business before creating an opportunity.' });
+      }
+      if (body.productId && body.productId !== writeProductId) {
+        // Refuse rather than silently retarget: writing into another business is
+        // exactly the corruption the read fixes above are cleaning up.
+        return reply.status(404).send({ error: 'Product not found in the current business.' });
+      }
+
       const { data, error } = await supabase.from('saved_opportunities').insert({
         founder_id:      founderId,
-        product_id:      body.productId ?? null,
+        // WRITE SCOPE (§10). Was `body.productId ?? null` — an unverified
+        // client value, and NULL when omitted, which creates an opportunity
+        // belonging to no business that every founder-wide reader then picks up.
+        // The active business decides; a mismatched hint is refused above.
+        product_id:      writeProductId,
         type:            body.type,
         title:           body.title,
         description:     body.description ?? null,
@@ -552,23 +679,23 @@ Pending approvals: ${approvals.total}. Recent installs: ${contextPkg.analytics?.
         productId = product?.id ?? null;
       }
 
-      // Build context
-      const contextPkg = await buildContextPackage(founderId, productId, {
-        includeMemories: true, includeKnowledgeGraph: true, maxMemories: 5,
+      // Phase 3.1E. The owner's question IS the retrieval query — that is the
+      // one place raw owner text legitimately drives retrieval. It selects
+      // nothing about POLICY: the intent, memory types, budget and archived
+      // eligibility all come from the governed intent, not from what was typed.
+      const ctx = await buildContextForPrompt({
+        founderId,
+        productId,
+        intent: 'OWNER_QUESTION',
+        query: body.question,
       });
 
-      const ctxText = `Product: ${contextPkg.product?.name ?? 'Unknown'}.
-Markets: ${(contextPkg.product?.markets ?? []).join(', ')}.
-Plan: ${contextPkg.founder.plan}.
-Active campaigns: ${contextPkg.campaigns?.length ?? 0}.
-Top channel: ${contextPkg.analytics?.topChannel ?? 'none'}.
-Total installs: ${contextPkg.analytics?.totalInstalls ?? 0}.
-Avg CPI: ${contextPkg.analytics?.avgCpi?.toFixed(2) ?? 'unknown'}.
-Recent memories: ${contextPkg.memories?.slice(0, 3).map(m => m.title).join('; ') ?? 'none'}.`;
+      const prompt = `Founder asks: "${body.question}"\n\n${ctx.text}\n\nAnswer the question.`;
 
-      const prompt = `Founder asks: "${body.question}"\n\nContext:\n${ctxText}\n\nAnswer the question.`;
-
-      const auditCtx = { founderId, productId, promptId: 'ask_launchmind', action: 'ask_launchmind' };
+      const auditCtx = {
+        founderId, productId, promptId: 'ask_launchmind', action: 'ask_launchmind',
+        contextPackageId: ctx.contextPackageId,
+      };
       const raw = await callSonnet(ASK_SYSTEM, prompt, 1024, auditCtx);
 
       let answer: Record<string, unknown>;
@@ -579,7 +706,11 @@ Recent memories: ${contextPkg.memories?.slice(0, 3).map(m => m.title).join('; ')
         answer = { summary: raw, recommendedAction: 'Review the context.', confidence: 50, risks: [], nextStep: 'Review', evidence: [] };
       }
 
-      const contextSources = contextPkg.sources;
+      // Surfaces retrieval honesty to the caller: a degraded package must not
+      // look like a fully-informed one (§15).
+      const contextSources = ctx.package
+        ? [`retrieval:${ctx.package.retrieval.mode}`, `memories:${ctx.package.retrieval.memoriesSelected}`]
+        : ['legacy'];
       reply.send({ answer, contextSources, question: body.question });
     } catch (err) {
       Sentry.captureException(err);
@@ -744,6 +875,10 @@ Recent memories: ${contextPkg.memories?.slice(0, 3).map(m => m.title).join('; ')
     try {
       const founderId = getFounderId(request);
       const supabase  = getSupabaseAdmin();
+      // Same rule as every other surface: notifications describe the business
+      // being operated, not the founder across all of them.
+      const notifProduct = await getActiveProduct(supabase, founderId);
+      const notifProductId = (notifProduct as { id?: string } | null)?.id ?? null;
 
       // Synthesize from DB state (pending approvals, failed missions)
       const [notifRes, pendingAppr, failedMissions] = await Promise.all([
@@ -752,13 +887,14 @@ Recent memories: ${contextPkg.memories?.slice(0, 3).map(m => m.title).join('; ')
           .eq('founder_id', founderId)
           .order('created_at', { ascending: false })
           .limit(30),
-        getPendingApprovals(supabase, founderId),
-        supabase.from('missions')
+        getPendingApprovals(supabase, founderId, notifProductId),
+        notifProductId ? supabase.from('missions')
           .select('id, title, failed_at')
-          .eq('founder_id', founderId)
+          .eq('product_id', notifProductId)
           .eq('status', 'failed')
           .order('failed_at', { ascending: false })
-          .limit(5),
+          .limit(5)
+          : Promise.resolve({ data: [] }),
       ]);
 
       const stored = notifRes.data ?? [];

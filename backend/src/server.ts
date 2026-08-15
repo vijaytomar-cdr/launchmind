@@ -69,6 +69,7 @@ import { startContentWorker }  from './workers/contentWorker';
 import { startMissionWorker }  from './workers/missionWorker';
 import { startDiscoveryWorker } from './workers/discoveryWorker';
 import { startConnectionSyncWorker } from './workers/connectionSyncWorker';
+import { startEmbeddingWorker } from './workers/embeddingWorker';
 import { scheduleWeeklyBrief } from './lib/scheduler';
 
 /**
@@ -113,7 +114,11 @@ export async function buildServer(): Promise<FastifyInstance> {
    * @security Public — no auth required. Returns only status strings, no credentials.
    */
   server.get('/health/detailed', async (_request, reply) => {
-    const checks: Record<string, 'ok' | 'error'> = {};
+    // The embedding pipeline has states that are neither 'ok' nor 'error':
+    // 'unconfigured' means nobody has provisioned a provider yet, and
+    // 'queue_backlog' means work is late but nothing is broken. Flattening
+    // either into 'error' would page someone for a non-incident.
+    const checks: Record<string, 'ok' | 'error' | 'degraded' | 'unconfigured' | 'queue_backlog' | 'unknown'> = {};
     let vaultDetail: { status: string; detail: string } | null = null;
     let allOk = true;
 
@@ -158,12 +163,41 @@ export async function buildServer(): Promise<FastifyInstance> {
       allOk = false;
     }
 
+    // Embedding pipeline (Phase 3.1C). Reported but NOT part of `allOk`: an
+    // unconfigured or backed-up embedding queue must never make the API look
+    // unhealthy, because canonical writes and lexical retrieval are unaffected
+    // by it. Degrading the whole service on a derived index would invert the
+    // dependency the architecture is built on.
+    let embeddingDetail: Record<string, unknown> = { status: 'unknown' };
+    try {
+      const { getEmbeddingHealth } = await import('./services/memory/embeddingBackfill');
+      const e = await getEmbeddingHealth();
+      checks.embedding_pipeline = e.status === 'healthy' ? 'ok' : e.status;
+      embeddingDetail = {
+        status: e.status,
+        generationEnabled: e.generationEnabled,
+        provider: e.provider,
+        model: e.model,
+        dimensions: e.dimensions,
+        pendingJobs: e.pendingJobs,
+        processingJobs: e.processingJobs,
+        failedJobs: e.failedJobs,
+        staleEmbeddings: e.staleEmbeddings,
+        currentEmbeddings: e.currentEmbeddings,
+        queueAgeSeconds: e.queueAgeSeconds,
+      };
+    } catch {
+      checks.embedding_pipeline = 'unknown';
+      embeddingDetail = { status: 'unknown', detail: 'Embedding pipeline probe failed.' };
+    }
+
     return reply
       .status(allOk ? 200 : 503)
       .send({
         status: allOk ? 'ok' : 'degraded',
         checks,
         vault: vaultDetail,
+        embedding: embeddingDetail,
         timestamp: new Date().toISOString(),
       });
   });
@@ -249,6 +283,13 @@ async function start(): Promise<void> {
       // Canonical execution path for Improve Intelligence provider syncs.
       // Without this, /connections/:id/sync enqueues jobs no consumer ever runs.
       startConnectionSyncWorker();
+      // Drains embedding_outbox. Same omission as the connection-sync worker
+      // above, with a quieter failure: the outbox is filled by a Postgres
+      // TRIGGER, so work accumulates whether or not anything consumes it. With
+      // no sweeper, every vector goes stale on the next corpus update and
+      // semantic retrieval silently degrades to lexical-only — which is exactly
+      // what was measured on hosted (33 stale, 0 current, 33 queued).
+      startEmbeddingWorker();
       await scheduleWeeklyBrief();
     } else {
       console.warn('[server] REDIS_URL not configured — BullMQ workers skipped (set a real URL to enable)');

@@ -229,7 +229,9 @@ async function assembleContext(productId: string, founderId: string) {
   const playbookSignals = await buildPlaybookContext(
     product.category ?? 'Productivity',
     primaryMarket,
-    product.icp_embedding ?? null
+    // ADR-066: products.icp_embedding retired in migration 090. Semantic
+    // playbook matching returns to this call site in 3.1D via RetrievalService.
+    null,
   );
 
   const { data: learnings } = await supabase

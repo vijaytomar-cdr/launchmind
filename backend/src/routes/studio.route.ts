@@ -310,6 +310,13 @@ async function studioPlugin(server: FastifyInstance): Promise<void> {
     const supabase = getSupabaseAdmin();
 
     try {
+      // BUSINESS SCOPE. Was founder-only, so one founder's second business saw
+      // the first's content. An unselected business yields an EMPTY list of the
+      // same shape — never an unfiltered one.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId) return reply.send({ assets: [], total: 0, limit, offset });
+
       let query = supabase
         .from('content_assets')
         .select(`
@@ -320,7 +327,8 @@ async function studioPlugin(server: FastifyInstance): Promise<void> {
           approved_at, regen_count, installs, impressions, cpi,
           created_at, updated_at
         `, { count: 'exact' })
-        .eq('founder_id', founderId);
+        .eq('founder_id', founderId)
+        .eq('product_id', scopedProductId);
 
       if (!includeArchived) {
         query = query.is('archived_at', null);

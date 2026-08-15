@@ -44,6 +44,14 @@ async function recommendationsPlugin(server: FastifyInstance): Promise<void> {
     const limit = Math.min(parseInt(limitStr ?? '20', 10), 50);
     const supabase = getSupabaseAdmin();
 
+    // The active business decides. A client hint that names another business is
+    // ignored, not honoured — same founder does not imply same business.
+    const { activeProductId } = await import('../services/activeBusinessService');
+    const scopedProductId = await activeProductId(founderId);
+    if (!scopedProductId || (productId && productId !== scopedProductId)) {
+      return reply.send({ recommendations: [], total: 0 });
+    }
+
     let query = supabase
       .from('saved_opportunities')
       .select('id, product_id, type, recommendation_type, title, description, expected_impact, confidence, effort, risk, why_now, source, evidence, score, priority, source_signals, expires_at, state, mission_id, created_at, updated_at')
@@ -52,7 +60,10 @@ async function recommendationsPlugin(server: FastifyInstance): Promise<void> {
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false });
 
-    if (productId) query = query.eq('product_id', productId);
+    // Was optional: omitting productId returned every recommendation the
+    // founder owned. The active business decides; a mismatched client hint is
+    // ignored rather than trusted.
+    query = query.eq('product_id', scopedProductId);
     if (type)      query = query.eq('recommendation_type', type);
 
     const { data, error } = await query.limit(limit);

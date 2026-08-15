@@ -70,6 +70,11 @@ async function calendarPlugin(server: FastifyInstance): Promise<void> {
     const founderId = getFounderId(request);
 
     const parsed = RangeQuerySchema.safeParse(request.query);
+      // BUSINESS SCOPE. Every source below was founder-only, so a calendar
+      // showed the other company's campaigns, experiments and briefs.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId) return reply.send({ events: [] });
     if (!parsed.success) return reply.status(400).send({ error: 'Invalid query' });
 
     const supabase = getSupabaseAdmin();
@@ -83,6 +88,7 @@ async function calendarPlugin(server: FastifyInstance): Promise<void> {
         supabase.from('execution_calendar_events')
           .select('id, type, title, description, start_date, end_date, all_day, status, campaign_id, experiment_id, metadata')
           .eq('founder_id', founderId)
+          .eq('product_id', scopedProductId)
           .gte('start_date', from)
           .lte('start_date', to)
           .order('start_date'),
@@ -90,6 +96,7 @@ async function calendarPlugin(server: FastifyInstance): Promise<void> {
         supabase.from('campaigns')
           .select('id, type, channel, market, status, scheduled_at, launched_at')
           .eq('founder_id', founderId)
+          .eq('product_id', scopedProductId)
           .not('scheduled_at', 'is', null)
           .gte('scheduled_at', from)
           .lte('scheduled_at', to),
@@ -97,6 +104,7 @@ async function calendarPlugin(server: FastifyInstance): Promise<void> {
         supabase.from('experiments')
           .select('id, title, experiment_type, status, start_date, end_date')
           .eq('founder_id', founderId)
+          .eq('product_id', scopedProductId)
           .not('start_date', 'is', null)
           .gte('start_date', from.slice(0, 10))
           .lte('start_date', to.slice(0, 10))
@@ -105,6 +113,7 @@ async function calendarPlugin(server: FastifyInstance): Promise<void> {
         supabase.from('weekly_briefs')
           .select('id, week_of, status, sent_at')
           .eq('founder_id', founderId)
+          .eq('product_id', scopedProductId)
           .gte('week_of', from.slice(0, 10))
           .lte('week_of', to.slice(0, 10))
           .order('week_of'),

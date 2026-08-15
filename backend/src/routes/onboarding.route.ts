@@ -10,16 +10,18 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { z } from 'zod';
 import {
   createOrResumeSession, getSession, getSessionWithContext, saveWorkspace,
   startDiscovery, getDiscoveryJob, retryDiscovery, selectMatch,
   acknowledgeReport, getClaims, reviewClaim, completeBeliefReview, regenerateClaims,
-  saveAudience, saveContextDelta, saveGoal, saveCompetitors,
+  saveAudience, savePositioning, saveContextDelta, saveGoal, saveCompetitors,
   saveBoundaries, prepareDirection, runDirectionGeneration, getDirection, completePhase1,
 } from '../services/onboardingService';
 import {
   SaveWorkspaceBodySchema, StartDiscoveryBodySchema, SelectMatchBodySchema,
   AcknowledgeReportBodySchema, ReviewClaimBodySchema, SaveAudienceBodySchema,
+  SavePositioningBodySchema,
   SaveContextDeltaBodySchema, SaveGoalBodySchema, SaveCompetitorsBodySchema,
   SaveBoundariesBodySchema, CompletePhase1BodySchema,
   STATE_TO_ROUTE,
@@ -79,7 +81,9 @@ async function onboardingPlugin(server: FastifyInstance) {
       if (!body.success) return reply.status(400).send(fail('VALIDATION_ERROR', body.error.message));
 
       try {
-        const session = await saveWorkspace(request.params.sessionId, founderId, body.data.workspaceName);
+        const session = await saveWorkspace(
+          request.params.sessionId, founderId,
+          body.data.workspaceName, body.data.productMaturity);
         return reply.status(200).send(ok({ session, nextRoute: STATE_TO_ROUTE[session.current_state] }));
       } catch (err: unknown) {
         const e = err as { statusCode?: number; message: string };
@@ -283,7 +287,122 @@ async function onboardingPlugin(server: FastifyInstance) {
     },
   );
 
+  /**
+   * POST /onboarding/sessions/:sessionId/discovery/pre-launch
+   *
+   * "This product isn't public yet." Creates the product and advances to
+   * founder-guided Alignment WITHOUT scraping anything or writing a single
+   * claim — there is no public evidence, and inventing some would be worse than
+   * admitting it.
+   */
+  server.post<{ Params: { sessionId: string }; Body: unknown }>(
+    '/onboarding/sessions/:sessionId/discovery/pre-launch',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      // productName is OPTIONAL: the pre-launch screen asks for a description,
+      // not a name. Requiring one here made this endpoint unsatisfiable from the
+      // only UI that calls it. The name falls back to the company the owner
+      // already named at the workspace step — owner-authored, never invented.
+      const body = z.object({
+        productName:        z.string().min(2).max(120).optional(),
+        privateDescription: z.string()
+          .min(20, 'Please describe the product in at least 20 characters.')
+          .max(2000, 'Please keep the description under 2000 characters.'),
+      }).safeParse(request.body);
+      if (!body.success) {
+        // The owner sees the first actionable problem, not a Zod dump.
+        const first = body.error.issues[0];
+        return reply.status(400).send(fail('VALIDATION_ERROR',
+          first?.message ?? 'Please check the details and try again.'));
+      }
+
+      try {
+        const { startPreLaunchDiscovery } = await import('../services/onboardingService');
+        const r = await startPreLaunchDiscovery(
+          request.params.sessionId, founderId, body.data.productName, body.data.privateDescription);
+        return reply.status(201).send(ok({ ...r, nextRoute: '/onboarding/audience' }));
+      } catch (err: unknown) {
+        const e = err as { statusCode?: number; message: string };
+        console.error('[onboarding] pre-launch failed:', e.message);
+        return reply.status(e.statusCode ?? 500).send(fail('PRE_LAUNCH_ERROR',
+          e.statusCode === 409
+            ? e.message
+            : "We couldn't save your product description. Your progress is safe — please try again."));
+      }
+    },
+  );
+
+  /**
+   * GET /onboarding/sessions/:sessionId/readiness
+   *
+   * What LaunchMind can truthfully say it knows, for the completion screen.
+   * Two SEPARATE dimensions — founder context and observed evidence — and no
+   * percentage: the screen previously showed a hardcoded "18% → 96%" that was
+   * identical for a live product and one nobody can see yet.
+   */
+  server.get<{ Params: { sessionId: string } }>(
+    '/onboarding/sessions/:sessionId/readiness',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      try {
+        const { getOnboardingReadiness } = await import('../services/onboardingReadinessService');
+        return reply.send(ok(await getOnboardingReadiness(request.params.sessionId, founderId)));
+      } catch (err: unknown) {
+        const e = err as { statusCode?: number; message: string };
+        return reply.status(e.statusCode ?? 500).send(fail('READINESS_ERROR',
+          e.statusCode === 404 ? 'Onboarding session not found.'
+            : "We couldn't load your setup summary."));
+      }
+    },
+  );
+
+  /**
+   * GET /onboarding/sessions/:sessionId/alignment
+   *
+   * LaunchMind's understanding of the business, for the owner to verify:
+   * the three suggestion cards plus the public presence discovery verified.
+   *
+   * Generates on demand and caches as UNREVIEWED product_claims, so a refresh
+   * does not re-bill the model or churn what the owner is looking at. A card the
+   * owner has already acted on is returned as-is and never regenerated.
+   *
+   * @returns { suggestions, observedChannels, marketSeed, sources, unavailable, partial }
+   * @security Suggestions are UNREVIEWED. Nothing here grants founder authority;
+   *   only an explicit action on a card does.
+   */
+  server.get<{ Params: { sessionId: string } }>(
+    '/onboarding/sessions/:sessionId/alignment',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      try {
+        const { getAlignmentUnderstanding } = await import('../services/alignmentSuggestionService');
+        const result = await getAlignmentUnderstanding(request.params.sessionId, founderId);
+        return reply.send(ok(result));
+      } catch (err: unknown) {
+        const e = err as { statusCode?: number; message: string };
+        return reply.status(e.statusCode ?? 500).send(fail('ALIGNMENT_ERROR', e.message));
+      }
+    },
+  );
+
   // ── PUT /onboarding/sessions/:sessionId/context-delta ───────────────────
+  server.put<{ Params: { sessionId: string }; Body: unknown }>(
+    '/onboarding/sessions/:sessionId/positioning',
+    async (request, reply) => {
+      const founderId = getFounderId(request);
+      const body = SavePositioningBodySchema.safeParse(request.body);
+      if (!body.success) return reply.status(400).send(fail('VALIDATION_ERROR', body.error.message));
+
+      try {
+        await savePositioning(request.params.sessionId, founderId, body.data);
+        return reply.send(ok({ saved: true, nextState: 'ALIGNMENT_CONTEXT' }));
+      } catch (err: unknown) {
+        const e = err as { statusCode?: number; message: string };
+        return reply.status(e.statusCode ?? 500).send(fail('SAVE_ERROR', e.message));
+      }
+    },
+  );
+
   server.put<{ Params: { sessionId: string }; Body: unknown }>(
     '/onboarding/sessions/:sessionId/context-delta',
     async (request, reply) => {

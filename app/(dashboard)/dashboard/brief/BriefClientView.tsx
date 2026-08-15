@@ -14,14 +14,21 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { api, type BriefResponse, type AskResponse } from '@/lib/api';
 import { trackIntelligence } from '@/lib/analytics';
+import { useBusinessScope, businessCacheKey } from '@/lib/business/scope';
 
 const API_URL      = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-const CACHE_KEY    = 'lm_brief_data';
+const CACHE_BASE   = 'lm_brief_data';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes — show cached, revalidate silently after
 
-function readCache(): BriefResponse | null {
+// PARTITIONED BY COMPANY. This was one global key, so switching company remounted
+// the view and it promptly re-read the PREVIOUS company's brief out of
+// sessionStorage and rendered it under the new company's header — measured at
+// ~5s of visible mixed-business state. The `<main key>` remount cannot prevent
+// that, because the component reloads the data itself after being rebuilt.
+function readCache(key: string | null): BriefResponse | null {
+  if (!key) return null;
   try {
-    const raw = sessionStorage.getItem(CACHE_KEY);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const { ts, payload } = JSON.parse(raw) as { ts: number; payload: BriefResponse };
     if (Date.now() - ts < CACHE_TTL_MS) return payload;
@@ -29,8 +36,10 @@ function readCache(): BriefResponse | null {
   } catch { return null; }
 }
 
-function writeCache(data: BriefResponse) {
-  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), payload: data })); } catch {}
+// No company, no cache. Writing under an unattributed key is what created the leak.
+function writeCache(key: string | null, data: BriefResponse) {
+  if (!key) return;
+  try { sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), payload: data })); } catch {}
 }
 
 // States where onboarding is incomplete
@@ -395,7 +404,7 @@ function OnboardingResumeBanner({ token }: { token: string }) {
       .catch(() => {});
   }, [token]);
   if (!state || dismissed) return null;
-  const minutesLeft = Math.round((96 - state.confidence) / 10) + 2;
+  const minutesLeft = Math.max(2, Math.round((100 - state.confidence) / 10) + 2);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '12px 16px', borderRadius: 14, marginBottom: 16, background: 'linear-gradient(135deg,#f7fffb,#f8f7ff)', border: '1px solid var(--sage3)', position: 'relative' }}>
       <div style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
@@ -403,11 +412,19 @@ function OnboardingResumeBanner({ token }: { token: string }) {
           <circle cx="22" cy="22" r="18" fill="none" stroke="var(--raised)" strokeWidth="4" />
           <circle cx="22" cy="22" r="18" fill="none" stroke="var(--sage)" strokeWidth="4" strokeDasharray="113" strokeDashoffset={113 * (1 - state.confidence / 100)} strokeLinecap="round" />
         </svg>
-        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--ink)' }}>{state.confidence}%</div>
+        {/* WAS {state.confidence}% from a hardcoded per-state map — the same
+            fabricated "Growth Brain confidence" removed from the onboarding
+            rail and the completion screen. It read 96% for anyone who finished
+            setup, regardless of what LaunchMind had observed. The ring still
+            shows PROGRESS through the flow; the number claimed knowledge. */}
+        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontSize: 9, fontWeight: 700, color: 'var(--ink3)' }}>✓</div>
       </div>
       <div style={{ flex: 1, minWidth: 200 }}>
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Your Growth Brain is {state.confidence}% confident</p>
-        <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--ink2)' }}>You paused at <strong>{state.step}</strong>. About {minutesLeft} more minutes gets it to 96%.</p>
+        {/* WAS "Your Growth Brain is {state.confidence}% confident" — a number
+            from a hardcoded per-state map, not a measurement. It asserted
+            confidence LaunchMind had never computed. */}
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Finish setting up your Growth Brain</p>
+        <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--ink2)' }}>You paused at <strong>{state.step}</strong>. About {minutesLeft} more minutes finishes setup.</p>
       </div>
       <Link href="/onboarding" style={{ height: 34, borderRadius: 10, background: 'var(--sage)', color: '#fff', padding: '0 14px', fontWeight: 650, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', flexShrink: 0 }}>
         Continue setup <IconArrowRight size={13} />
@@ -432,6 +449,10 @@ function RecommendationUnavailable({ onRetry }: { onRetry: () => void }) {
 // ── Main view ─────────────────────────────────────────────────────────────────
 
 export function BriefClientView() {
+  // The company this view belongs to. Every cache read/write is partitioned by it,
+  // so a remount after a switch can never resurrect the previous company's brief.
+  const businessId = useBusinessScope();
+  const cacheKey   = businessCacheKey(CACHE_BASE, businessId);
   const [data,    setData]    = useState<BriefResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [token,   setToken]   = useState('');
@@ -443,7 +464,7 @@ export function BriefClientView() {
     fetchedRef.current = true;
 
     // 1. Show cached data immediately if fresh enough
-    const cached = readCache();
+    const cached = readCache(cacheKey);
     if (cached) {
       setData(cached);
       setLoading(false);
@@ -458,7 +479,7 @@ export function BriefClientView() {
 
       api.owner.brief(session.access_token)
         .then((fresh) => {
-          writeCache(fresh);
+          writeCache(cacheKey, fresh);
           setData(fresh);
           setLoading(false);
           setRecState(fresh.recommendation ? 'ready' : 'failed');
@@ -468,15 +489,15 @@ export function BriefClientView() {
           if (!cached) { setLoading(false); setRecState('failed'); }
         });
     });
-  }, []);
+  }, [cacheKey]);
 
   const refetch = useCallback(() => {
     if (!token) return;
     setRecState('loading');
     api.owner.brief(token)
-      .then(fresh => { writeCache(fresh); setData(fresh); setRecState(fresh.recommendation ? 'ready' : 'failed'); })
+      .then(fresh => { writeCache(cacheKey, fresh); setData(fresh); setRecState(fresh.recommendation ? 'ready' : 'failed'); })
       .catch(() => setRecState('failed'));
-  }, [token]);
+  }, [token, cacheKey]);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -561,7 +582,13 @@ export function BriefClientView() {
           <MetricCard label="Installs this week" value={data.metrics.weeklyInstalls != null ? data.metrics.weeklyInstalls.toLocaleString() : '—'}
             delta={data.metrics.weekOverWeekInstallDelta != null ? `${data.metrics.weekOverWeekInstallDelta >= 0 ? '+' : ''}${data.metrics.weekOverWeekInstallDelta.toFixed(1)}%` : undefined} />
           <MetricCard label="Cost per install" value={data.metrics.cpi != null ? `$${data.metrics.cpi.toFixed(2)}` : '—'} />
-          <MetricCard label="Qualified requests" value={data.metrics.weeklyInstalls != null ? Math.round(data.metrics.weeklyInstalls * 0.31) : '—'} delta="~31% conversion" />
+          {/* WAS: installs × 0.31 with a hardcoded "~31% conversion" label.
+              LaunchMind never measured a 31% conversion rate for anyone — the
+              constant was in this file, which is why both businesses showed the
+              same figure. A number presented beside real metrics reads as one.
+              Removed rather than re-derived: no conversion data is observed for
+              either business yet, so the honest value is "no data". */}
+          <MetricCard label="Qualified requests" value="—" delta="No conversion data yet" />
           <MetricCard label="Active campaigns" value={data.metrics.activeCampaigns} />
         </div>
       )}

@@ -168,7 +168,18 @@
   padding: 42px 46px;
   display: flex;
   flex-direction: column;
+  /* Nothing inside the shell may push it wider than the grid column. Without
+     this a single long unbroken string (a pasted store URL, a market label)
+     stretches the grid track and the whole two-panel layout starts to distort. */
+  min-width: 0;
 }
+/* THE SHELL OWNS CONTENT WIDTH, not the individual pages. Each Alignment screen
+   previously chose its own — positioning capped itself at 660px while audience,
+   goal and competitors were unbounded — so the same shell read as a different
+   layout depending on which substep you were on. One rule, one measure. */
+.ob-main > * { max-width: 660px; width: 100%; }
+.ob-main > .ob-top,
+.ob-main > .ob-prog { max-width: none; }
 .ob-top  { flex-shrink: 0; }
 .ob-prog { flex-shrink: 0; margin-top: 25px; }
 @media (max-width: 700px) {
@@ -281,4 +292,119 @@
 @media (max-width: 640px) {
   .lm-source-card { grid-template-columns: 42px 1fr; }
   .lm-source-card > :last-child { grid-column: 1 / -1; flex-wrap: wrap; }
+}
+
+/* ── Business Switcher (components/launchmind/BusinessSwitcher.tsx) ─────────
+   Lives here rather than inline because the control needs hover, focus-visible
+   and breakpoint behaviour, none of which a style object can express — and the
+   whole point of this pass is that it must LOOK interactive. */
+
+.lm-biz-trigger {
+  /* DISCOVERABILITY. The control was functionally correct but read as static
+     text: a hairline border on a white bar beside other white bars. An owner
+     could not tell it was interactive, let alone that it switched companies.
+     Stronger ground + border and a boxed chevron make the affordance obvious
+     while staying calm — deliberately not a native <select>. */
+  display: flex; align-items: center; gap: 10px;
+  height: 50px; padding: 0 10px 0 10px;
+  border: 1px solid var(--border2); border-radius: 12px;
+  background: var(--raised); cursor: pointer;
+  box-shadow: var(--e1);
+  font-family: inherit; text-align: left;
+  max-width: 300px; min-width: 0;
+  transition: border-color var(--dur, 180ms) ease, box-shadow var(--dur, 180ms) ease, background var(--dur, 180ms) ease;
+}
+.lm-biz-trigger:hover { border-color: var(--sage); background: #fff; box-shadow: var(--e2); }
+.lm-biz-trigger:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+.lm-biz-trigger[aria-expanded='true'] { border-color: var(--sage); box-shadow: var(--e2); }
+
+.lm-biz-avatar {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  background: var(--sage-d); border: 1px solid var(--sage-b); color: var(--sage);
+  display: grid; place-items: center; font-size: 12px; font-weight: 800;
+}
+.lm-biz-text { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.lm-biz-name {
+  font-size: 14px; font-weight: 780; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lm-biz-sub {
+  font-size: 10.5px; color: var(--ink2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lm-biz-chevron { font-size: 11px; color: var(--ink3); flex-shrink: 0; margin-left: 2px; }
+
+.lm-biz-menu {
+  position: absolute; top: 52px; right: 0; z-index: 60;
+  width: 320px; max-width: calc(100vw - 24px);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--e3); padding: 6px;
+}
+.lm-biz-menu-head {
+  font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink3); padding: 9px 11px 7px;
+}
+.lm-biz-item {
+  width: 100%; display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 11px; border-radius: 10px; border: none; background: transparent;
+  cursor: pointer; font-family: inherit; text-align: left;
+}
+.lm-biz-item:hover:not(:disabled) { background: var(--raised); }
+.lm-biz-item:focus-visible { outline: 2px solid var(--sage); outline-offset: -2px; background: var(--raised); }
+.lm-biz-item.is-active { background: var(--sage-d); }
+.lm-biz-item:disabled { cursor: wait; opacity: .65; }
+.lm-biz-check {
+  width: 15px; flex-shrink: 0; margin-top: 1px;
+  color: var(--sage); font-weight: 800; font-size: 12px;
+}
+.lm-biz-item-name    { display: block; font-size: 13px; font-weight: 780; color: var(--ink); }
+.lm-biz-item-product { display: block; font-size: 11.5px; color: var(--ink2); margin-top: 1px; }
+.lm-biz-item-meta    { display: block; font-size: 10.5px; color: var(--ink3); margin-top: 2px; }
+.lm-biz-item-switching { display: block; font-size: 10.5px; font-weight: 750; color: var(--sage); margin-top: 3px; }
+.lm-biz-add .lm-biz-item-name { color: var(--sage); }
+.lm-biz-sep { height: 1px; background: var(--border); margin: 6px 5px; }
+.lm-biz-error {
+  margin: 4px 6px; padding: 8px 10px; border-radius: 9px; font-size: 11.5px;
+  background: var(--danger2); border: 1px solid var(--danger-b); color: var(--danger);
+}
+/* Boxed chevron: a bare glyph reads as decoration, a bordered one reads as a
+   control. Rotates on open so the panel state is legible without colour. */
+.lm-biz-chevron {
+  margin-left: auto; flex-shrink: 0;
+  width: 22px; height: 22px; border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--border2);
+  color: var(--ink2); font-size: 11px; line-height: 1;
+  transition: transform var(--dur, 180ms) ease, border-color var(--dur, 180ms) ease;
+}
+.lm-biz-trigger:hover .lm-biz-chevron { border-color: var(--sage-b); color: var(--sage); }
+.lm-biz-trigger[aria-expanded='true'] .lm-biz-chevron { transform: rotate(180deg); border-color: var(--sage); color: var(--sage); }
+
+/* "Add company" is the discoverability payload of the whole panel — it is what
+   tells an owner LaunchMind holds more than one company. It was footer-sized. */
+.lm-biz-add { background: var(--sage-d); }
+.lm-biz-add .lm-biz-item-name { color: var(--sage); font-weight: 800; }
+.lm-biz-add .lm-biz-check { color: var(--sage); font-weight: 800; font-size: 15px; }
+.lm-biz-add:hover { background: var(--sage2); }
+
+.lm-biz-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(245,246,244,.82);
+  display: grid; place-items: center;
+  font-size: 14px; font-weight: 700; color: var(--ink);
+}
+
+/* Tablet — keep the business name and the chevron; drop the secondary line so
+   the control stays one comfortable row beside the other topbar actions. */
+@media (max-width: 1100px) {
+  .lm-biz-trigger { max-width: 210px; }
+  .lm-biz-sub { display: none; }
+}
+/* Mobile — compact, but never an unexplained icon: the business name stays,
+   because an avatar alone does not tell a founder which company is loaded. */
+@media (max-width: 640px) {
+  .lm-biz-trigger { height: 40px; max-width: 168px; padding: 0 9px 0 8px; gap: 7px; }
+  .lm-biz-avatar { width: 24px; height: 24px; font-size: 11px; }
+  .lm-biz-name { font-size: 12.5px; }
+  .lm-biz-menu { width: calc(100vw - 20px); right: -6px; }
 }

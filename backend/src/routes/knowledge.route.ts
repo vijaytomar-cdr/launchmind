@@ -44,7 +44,16 @@ export async function knowledgeRoutes(server: FastifyInstance): Promise<void> {
     if (!parsed.success) return reply.status(400).send({ error: 'Invalid query', detail: parsed.error.message });
 
     try {
-      const graph = await getGraph(founderId, parsed.data.product_id);
+      // GRAPH TRAVERSAL IS A HIGH-RISK LEAK: even a scoped entity query can
+      // reach the other business through edges. product_id was optional here,
+      // so omitting it returned the founder's whole graph.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId
+          || (parsed.data.product_id && parsed.data.product_id !== scopedProductId)) {
+        return reply.send({ graph: { nodes: [], edges: [] } });
+      }
+      const graph = await getGraph(founderId, scopedProductId);
       return reply.send({ graph });
     } catch (err) {
       Sentry.captureException(err, { tags: { route: 'GET /knowledge/graph' } });

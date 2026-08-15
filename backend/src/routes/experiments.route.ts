@@ -155,6 +155,12 @@ async function experimentsPlugin(server: FastifyInstance): Promise<void> {
     const founderId = getFounderId(request);
 
     const parsed = ListQuerySchema.safeParse(request.query);
+      // BUSINESS SCOPE. Was founder-only, so one founder's second business saw
+      // the first's rows. An unselected business yields an EMPTY list, never an
+      // unfiltered one.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId) return reply.send({ experiments: [], total: 0 });
     if (!parsed.success) return reply.status(400).send({ error: 'Invalid query' });
 
     const supabase = getSupabaseAdmin();
@@ -164,6 +170,7 @@ async function experimentsPlugin(server: FastifyInstance): Promise<void> {
         .from('experiments')
         .select('id, title, hypothesis, experiment_type, status, metric, market, start_date, end_date, winner, learning, created_at', { count: 'exact' })
         .eq('founder_id', founderId)
+        .eq('product_id', scopedProductId)
         .is('archived_at', null);
 
       if (parsed.data.status) query = query.eq('status', parsed.data.status);

@@ -19,11 +19,19 @@ function makeToken(): string {
   return jwt.sign({ sub: FOUNDER_ID, role: 'authenticated' }, JWT_SECRET, { expiresIn: '1h' });
 }
 
+// Every state after WORKSPACE_SETUP has been through saveWorkspace and so HAS a
+// workspace — and after discovery, a product. The fixture carries both because
+// alignment writes now refuse to store business context that has no owner: a
+// session-scoped row with no workspace is readable by every business the
+// founder owns, which is the defect migration 103 exists to close.
+const WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
+const PRODUCT_ID   = '88888888-8888-4888-8888-888888888888';
+
 const MOCK_SESSION = {
   id: SESSION_ID,
   founder_id: FOUNDER_ID,
-  workspace_id: null,
-  product_id: null,
+  workspace_id: WORKSPACE_ID,
+  product_id: PRODUCT_ID,
   current_state: 'WORKSPACE_SETUP',
   lock_version: 0,
   step_completed: 0,

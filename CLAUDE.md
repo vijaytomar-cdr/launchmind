@@ -2600,6 +2600,279 @@ Improve Intelligence (internal Phase 2) — Step 7: Non-provider gap closure —
   NOTE: the run requested LaunchMind_Production_UX_July18_2026.html. No file with
   that exact name exists; (21) is the latest approved revision and was used.
 
+Phase 3.1G — Continuous Learning & Marketing Memory: FINAL CERTIFICATION (2026-08-10)
+  Certification: docs/reviews/phase-3.1G-certification.md
+  Activation contract: docs/continuous-learning-activation-contract.md
+  ADR-066 Amendments 3 and 4 appended.
+
+  VERDICT: NOT READY to activate automatic learning. READY to remain in `shadow`
+  (the default). Three blockers, all measured, none an authority breach:
+    B1 false reinforcement — two contradictory claims raise each other's confidence
+       with NO founder review ("Meta creative fatigues above frequency 3" vs
+       "…performs better above frequency 3" → REINFORCEMENT). `fatigues` is absent
+       from POLARITY_PAIRS, the deterministic path decides confidently, so the case
+       never reaches the model that would likely catch it.
+    B2 hosted semantic arm is DEAD — 33/33 embeddings `stale`, 0 `current`, 33 jobs
+       queued (reason=updated) with no consumer, queue age ~1.8h, health
+       `queue_backlog`. Hosted retrieval is running LEXICAL_ONLY.
+       General property: any bulk UPDATE of the corpus stales every vector and
+       re-queues the lot; without a worker, semantic retrieval silently becomes nothing.
+    B3 shadow mode never validated against REAL provider signals — hosted holds
+       0 connection_insights, so §12 used a seeded corpus.
+
+  MEASUREMENT NEARLY PUBLISHED WRONG (the reason the guard exists):
+    The first held-out run reported Recall@5 0.661 as "hybrid". It was not — Voyage
+    free tier is 3 req/min. Per-query modes were not recorded on that run, so the
+    evidence is: both queries probed immediately afterwards returned
+    QUERY_EMBEDDING_FAILED / LEXICAL_ONLY, a rapid-burst probe 429'd from the 3rd
+    call on, and an 83 ms end-to-end p95 across 90 DISTINCT queries is impossible
+    with real provider calls. The service reported the degradation on every
+    response; the harness did not look. runHeldOut.ts now
+    exits 2 unless the semantic arm is confirmed on EVERY query (it fired once, on
+    a 31/32 run). Pacing + per-query retry added.
+
+  3.1D RECORD VALIDATED, NOT OVERTURNED: re-measured with the semantic arm verified
+    on 32/32 (all HYBRID) → R@1 0.359 · R@3 0.578 · R@5 0.719 · MRR 0.563 · leakage 0.
+    Identical to 3 decimals. The retriever is deterministic; that figure was genuine.
+
+  Held-out evaluation: 90 queries (84 recall-scored + 6 out-of-scope), none in
+    dataset.ts. docs/evals/memory-retrieval-heldout.md. Held out from TUNING, not
+    from authorship — the main caveat on every figure.
+
+  Live model comparison (§4): 9/10 on pre-registered labels, all 10 verified to be
+    cases the deterministic path defers on. Real calls proven: 10 ai_requests rows,
+    2106 in / 731 out tokens, $0.001440, claude-haiku-4-5. Injection case →
+    challenge + founder review, granted nothing.
+
+  BUGS FOUND AND FIXED THIS PASS:
+    migration 098 — lm_claim_embedding_work claimed status='pending' ONLY, so the
+      visibility timeout 093 documented ("without it a crash strands work forever")
+      was inert: a worker killed mid-job stranded that embedding permanently. Now
+      claims pending OR processing-with-expired-lease; adds embedding_stuck_jobs
+      view. Found by the §7 drill, not by inspection.
+    claimCandidateBuilder selected `insight_type`; the real column (084) is
+      `insight_key`. PostgREST errored, the code read only `data`, and shadow
+      ingestion silently built zero candidates — it could never have worked.
+      Error now surfaced instead of swallowed.
+    shadowValidation.ts ignored insert errors and reported "Safety: PASS" on zero
+      candidates. Now throws on a failed seed and exits 2 on zero candidates.
+
+  RECORDED AS BEHAVIOUR, NOT BUGS (both contradict the natural assumption):
+    Deleting a memory leaves its QUEUED job behind — 092 sweeps vectors, not outbox
+      rows; the job is cancelled with SOURCE_MISSING when a worker reaches it.
+    memory_embeddings.source_id has NO foreign key and cannot (polymorphic ref), so
+      orphan prevention lives in the pipeline, not the schema.
+
+  Class-A ingestion (§10): campaign_result and experiment_result now route through
+    ClaimCandidateBuilder → compareClaims → decide(). Previously they called
+    upsertMemory() directly, whose duplicate check was title equality — two
+    contradictory outcomes sharing a generated label reinforced each other.
+
+  Scale (Amendment 3): exact vector scan 4–5 ms p95 at 25,000 vectors, ~40× under
+    the 200 ms trigger. LEXICAL is the first bottleneck (FTS p95 1→199 ms), caused
+    by lm_any_term_tsquery's OR relaxation. ANN review is now latency-based; row
+    count is warn-only.
+
+  New tests: 60 (memoryResilience.pg 14 · memoryObservability.pg 12 ·
+    memoryHealth 13 · continuousLearningSafety 21).
+  Backend suite: 1283/1284. The one failure is content.test.ts, verified
+    pre-existing by reverting both changed files and re-running.
+  tsc --noEmit: 0 errors (the previously recorded 39 no longer reproduce).
+
+  OPEN / UNEXPLAINED: the embedding_stuck_jobs view added by 098 is present on
+    HOSTED (control query returns PGRST205 for an unknown relation, so the check is
+    sound). It was not applied there in this pass and its provenance is unaccounted
+    for. A view existing does not prove the FUNCTION body was replaced — verify
+    lm_claim_embedding_work directly before relying on lease reclamation.
+
+
+Phase 3.1G FINAL REMEDIATION — Comparator safety + hosted recovery (2026-08-10)
+  Certification: docs/reviews/phase-3.1-final-certification.md (supersedes the PARTIAL one)
+  ADR-066 Amendment 5. Activation contract updated.
+
+  RECOMMENDATION: PHASE 3.1 FOUNDATION READY.
+    Ready = architecture sound, invariants hold, measured defects closed, safe to
+    run in `shadow` against production. It does NOT mean automatic learning is on.
+    CONTINUOUS_LEARNING_INGESTION_MODE stays `shadow`.
+
+  B1 CLOSED — the root cause was NOT the missing antonym:
+    "Meta creative fatigues above frequency 3" vs "...performs better above frequency 3"
+    Both contain "above", which IS in POLARITY_PAIRS as a direction word. Both sides
+    registered positive polarity, no opposite was found, subject overlap was high, and
+    the comparator inferred agreement from a THRESHOLD PREPOSITION while `fatigues` and
+    `performs` sat unexamined in the subject set. No antonym table would have caught it.
+    FIX (ADR-066 Amendment 5): deterministic REINFORCEMENT now requires PROVABLE
+    alignment — identical polarity vocabulary AND at most a one-sided residual of
+    unmatched content words (elaboration). Both sides carrying unmatched content words
+    = divergence → defer to model. Model prompt also tightened: REINFORCEMENT requires
+    same subject, direction AND measure; two metrics about one channel are UNRELATED.
+    Deferral rate is explicitly NOT optimised — a missed reinforcement costs one model
+    call; a false one raises confidence with no founder review and compounds silently.
+
+  B2 CLOSED — root cause: startEmbeddingWorker() was NEVER CALLED in server.ts.
+    embeddingWorker.ts existed, was BullMQ-wired, documented, and referenced nowhere
+    outside its own file. Identical omission to startConnectionSyncWorker in Step 1 but
+    quieter: the outbox is filled by a Postgres TRIGGER, so work accrues with no
+    consumer; the next bulk UPDATE staled every vector and semantic retrieval silently
+    became lexical-only. Fixed — added to the Redis-gated startup block.
+
+  Measured results:
+    live claim comparison   16/16 (was 9/10), 0 dangerous false reinforcement,
+                            15 ai_requests rows, 5180 in / 2201 out, $0.004049
+    adversarial predicates  11 pairs, 0 reinforcements (verb forms absent from the table)
+    controlled shadow       6/7 (was 5/7), 7/7 candidates, memory byte-identical
+    hosted HYBRID           PROVEN 4/4, semantic 25 candidates each, degraded=false,
+                            voyage-4/1024, 0 leakage. On 2 queries the lexical arm
+                            contributed 0 candidates — the semantic arm did all the work.
+    hosted state            33/33 current vectors, 0 stale, 0 pending, health `healthy`
+    held-out eval           110 queries (104 scored + 6 out-of-scope), semantic arm
+                            confirmed HYBRID on 110/110. R@1 .341 · R@3 .567 · R@5 .659 ·
+                            R@10 .846 · MRR .519 · leakage 0 · no-result 0.000 ·
+                            p50/p95 18/24ms retrieval-only, 322ms end-to-end.
+                            ALL SIX ACCEPTANCE GATES PASS (R@5 clears 65% by 0.9 points).
+                            3.1D re-measured AGAIN at R@5 .719 / MRR .563 — identical to
+                            3 decimals for the second time; the record is validated.
+    BIGGEST ACTIONABLE FINDING: R@10 .846 vs R@5 .659 — a .187 gap. 84.6% of required
+                            records are IN the returned set but ranked 6-10. Most weak
+                            categories are therefore RANKING failures, not matching
+                            failures, recoverable by reranking without touching
+                            retrieval. RRF K=60 is still untuned.
+    category highs/lows     founder_preference R@5 1.000 (the safety-critical one) ·
+                            multi_hop .917 · positioning .900 · scope_sensitive .800 ·
+                            channel .792 || paraphrase .200 · historical_learning .250
+    8 of 104 queries are STRUCTURALLY IMPOSSIBLE: they require an `archived` memory and
+                            retrieval defaults to status='active'. Excluding them R@5 is
+                            .714. Measured .659 stays the headline. This is both a
+                            benchmark-design issue AND a real product gap — a founder
+                            asking "what did we used to believe?" has no path to a
+                            superseded belief; `statuses` is the only lever and nothing
+                            sets it.
+    SEMANTIC ARM HAS NO RELEVANCE FLOOR: out-of-scope queries return 10/10 rows and the
+                            no-result rate is exactly 0.000. Against an accidental
+                            lexical-only control the semantic arm bought +.027 MRR, NO
+                            recall gain, and irrelevant .518 → .847 (out-of-scope rows
+                            0.83 → 10.00). Cosine always returns its top-K. Filed, not
+                            fixed — changing a retrieval parameter would void these
+                            numbers. Caveat: 24-memory corpus, and the control was 84
+                            queries vs 104, so close but not strictly like-for-like.
+    backend suite           1356/1357 (+73 new tests); only the documented pre-existing
+                            content.test.ts failure, re-verified by reverting changes
+    tsc 0 errors both sides · eslint clean · next build passes
+
+  NOT DONE BY ME, AND NOT CLAIMED: the hosted queue drained itself between my two
+    measurements (33 `updated` jobs completed 18:33 UTC; vector created_at unchanged at
+    14:18–14:32, so they were RESTORED via the content-hash-unchanged path, not
+    re-embedded). My recovery script found nothing claimable. tests/setup.ts forces
+    SUPABASE_URL to localhost, so the test suite could not have done it. Combined with
+    migration 098 appearing on hosted without my applying it (no DDL path exists from
+    here — no DB password, no CLI link, no management token, no exec_sql RPC), something
+    OUTSIDE this session operates on the hosted project. Identify it before trusting
+    hosted state during a certification.
+
+  STILL OPEN (none a code defect):
+    A1 shadow never validated against REAL provider signals — hosted has 0
+       connection_insights; no code change can produce them.
+    A6 rollback written but never rehearsed.
+    A7 embedding worker fixed in code but unverified in a deployed environment; if a
+       deployed backend runs without REDIS_URL the outbox silently accumulates again.
+    Scoped exception vs an UNSCOPED belief still reads as CONTRADICTION (safe direction
+       — challenge + founder review — but drives reviewer fatigue). compareScope() skips
+       a dimension only one side states.
+    Semantic arm has no relevance floor: it always returns its top-K, so out-of-domain
+       noise rises sharply (see certification §10).
+
+  New tests: comparatorSafety 33 · finalInvariants 16 · ingestionSchema 11 ·
+    observabilityCounters 11 · memoryHealth transitions +2.
+  New scripts: hostedEmbeddingRecovery · hostedHybridProof (npm: shadow:validate,
+    eval:heldout, eval:comparison).
+
+
+Phase 3.2A — Marketing Memory Promotion Engine (SHADOW): COMPLETE (2026-08-10)
+  Design A ADR: docs/adr/ADR-067-marketing-memory-promotion-authority-scope-shadow.md
+  Pre-Design:   docs/reviews/phase-3.2-predesign-A-inspection.md
+  Report:       docs/reviews/phase-3.2A-implementation-report.md
+  Legacy audit: docs/reviews/phase-3.2A-legacy-memory-audit.md
+
+  VERDICT: 3.2A SHADOW IMPLEMENTATION READY FOR OBSERVATION.
+    CONTINUOUS_LEARNING_INGESTION_MODE stays `shadow`. Design B not started.
+    Correct against a controlled corpus; UNMEASURED against real data — hosted holds
+    0 connection_insights, so no production proposal exists yet.
+
+  Migrations (3, additive, ZERO row impact):
+    099 memory_class · authority_tier + policy version · governed scope
+        (scope JSONB + scope_key + scope_specificity + scope_completeness) ·
+        exception_to · domain_ref · version-row authority · evidence.status
+    100 memory_shadow_proposals + memory_shadow_proposal_comparisons, append-only
+        trigger, memory_shadow_metrics + memory_gate_a_rejections views
+    101 memory_suppressions · memory_evidence join · memory_revalidation_queue (shape only)
+
+  THE LEGACY DISCRIMINATOR (what makes it safe): `memory_class IS NULL` marks a
+    pre-3.2A row. Every governed CHECK reads "legacy OR governed-and-complete", so the
+    33 rows survive untouched while a NEW row CANNOT be written without class +
+    authority + policy version + scope_key + non-unknown scope. Verified on hosted:
+    23514 on a governed row missing authority, 23514 on an invalid class, legacy-shaped
+    row still allowed, 33 rows unchanged (class NULL, scope {}, unknown, version 1).
+
+  New modules: scopePolicy · authorityPolicy · promotionBudgets ·
+    candidateEligibilityPolicy (Gate A, model-free) · memoryPromotionPolicy (Gate B) ·
+    shadowProposalStore · marketingMemoryEngine (orchestration only, writes nothing).
+
+  Cost: the O(N) full-corpus scan is GONE. ≤10 retrieved · ≤10 deterministic ·
+    ≤3 model calls. Proven: 25-memory corpus, every pair forced to defer → 3 calls.
+
+  THREE DEFECTS FIXED (one NOT in the Pre-Design list):
+    memoryAgent wrote archive_reason (42703; the column is on products) → migrated to
+      markStale/supersedeMemory, reason now lives in version history.
+    recommendationEngineService selected `key` (42703, silently []) → routed through
+      RetrievalService; success / legitimate-zero / failure now distinguishable.
+    memoryAgent ALSO selected `confidence_score` (42703) — third silent-column bug of
+      the same class, found while migrating. Its stale scan had always returned nothing.
+
+  TWO CORRECTIONS MADE DURING IMPLEMENTATION:
+    BeliefPolicy.decide() takes SOURCES, not tiers — it maps them via precedenceTier().
+      Passing the new AuthorityTier values would hit `default: derived_inference` and
+      turn the STRONGEST authority into the WEAKEST. Gate B passes stored `source` and
+      layers authorityPolicy on top conservatively (supersede needs both; review if either).
+    ESLint flagged 5 Gate A detector regexes as ReDoS shapes — they run on hostile
+      provider text. Rewritten linear, not suppressed. That first made the Generality
+      test reject "…increased conversion by 41%"; replaced with a strip-and-count that
+      keeps quantified claims and still rejects bare metrics.
+
+  C14 PARTIAL BY ARCHITECTURE, not omission: pg_advisory_xact_lock releases at
+    transaction end and every PostgREST call is its own transaction, so a lock cannot
+    span retrieval → comparison → model calls without running provider calls inside
+    plpgsql. p_expected_version is a param on lm_apply_memory_transition, which shadow
+    never calls. Both protect a MUTATION shadow does not perform → they belong in the
+    transition RPC (Design C). The unique idempotency index suffices in shadow and is
+    proven under real concurrency.
+
+  Retrieval regression: ZERO. R@1 .341 · R@3 .567 · R@5 .659 · R@10 .846 · MRR .519 ·
+    no-result .000 · leakage 0 — identical to the pre-3.2A baseline to 3 decimals.
+    Semantic arm confirmed 110/110 and 32/32 (all HYBRID). 3.1D reproduced at
+    R@5 .719 / MRR .563 for the THIRD consecutive time. RetrievalService untouched.
+
+  Legacy audit (READ-ONLY): ZERO of 33 rows qualify as durable memory. All 33 are
+    SYNTHETIC_BOOTSTRAP + UNSUPPORTED_NO_EVIDENCE + UNKNOWN_SCOPE; 15 also
+    DUPLICATE_OF_DOMAIN_STATE. Design B should expect to RETIRE them, not classify them.
+
+  Tests: +105 (memoryGovernance.pg 25 · memoryScopeAuthority 41 · marketingMemoryEngine
+    40, incl. scenarios A–Q). Backend 1460/1462 — the 2 failures are the documented
+    content.test.ts and the intermittent aiPlatform.test.ts (25/25 in isolation);
+    neither references any 3.2A module. tsc 0 · eslint clean · build 0 · frontend
+    untouched (0 files).
+
+  OPEN: nothing creates suppressions yet (retraction path = Design B) ·
+    marketingMemoryService/onboardingService still write directly (enumerated and
+    test-guarded so no NEW bypass appears) · importance/quality deliberately not built ·
+    no founder-review surface, so draft proposals are invisible — now the binding
+    constraint on shadow's value, more than model accuracy.
+
+  UNEXPLAINED (third observation): migrations 099–101 appeared on HOSTED within minutes
+    of being written. No DDL path exists from this environment — no DB password, no CLI
+    link, no management token, no exec_sql RPC (all four verified). End state verified
+    correct by probe; mechanism unaccounted for. Identify before trusting hosted state
+    mid-task.
+
 ---
 
 *Stack: Next.js 14 + Vercel · Fastify + Oracle Cloud VM · Supabase · pgvector · BullMQ · Claude API · AWS KMS · Cloudflare*

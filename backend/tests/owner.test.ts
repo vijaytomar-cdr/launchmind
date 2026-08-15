@@ -10,6 +10,7 @@ import jwt from 'jsonwebtoken';
 
 const FOUNDER_ID = 'aa100000-0000-0000-0000-000000000001';
 const PRODUCT_ID = 'bb200000-0000-0000-0000-000000000002';
+const WORKSPACE_ID = 'cc300000-0000-0000-0000-000000000003';
 const JWT_SECRET  = 'test-jwt-secret-min-32-chars-long!!';
 
 function makeToken(): string {
@@ -24,8 +25,13 @@ function makeToken(): string {
 
 vi.mock('../src/lib/supabaseAdmin', () => {
   const rows = (table: string): unknown[] => {
-    if (table === 'founders')          return [{ name: 'Test Founder', plan: 'solo', token_balance: 300 }];
-    if (table === 'products')          return [{ id: PRODUCT_ID, name: 'TestApp', platform: 'app_store', markets: ['usa'], confirmed_icp: { targetAudience: 'devs' }, brand_voice_profile: null, archived_at: null }];
+    // Carries an ACTIVE BUSINESS: owner routes now resolve the selected
+    // workspace/product rather than "newest product owned by this founder", so a
+    // founder with no active business legitimately gets 409 on writes.
+    if (table === 'founders')          return [{ name: 'Test Founder', plan: 'solo', token_balance: 300, active_workspace_id: WORKSPACE_ID, active_product_id: PRODUCT_ID }];
+    if (table === 'workspaces')        return [{ id: WORKSPACE_ID, founder_id: FOUNDER_ID, name: 'TestCo' }];
+    if (table === 'workspace_members') return [];
+    if (table === 'products')          return [{ id: PRODUCT_ID, workspace_id: WORKSPACE_ID, name: 'TestApp', platform: 'app_store', markets: ['usa'], confirmed_icp: { targetAudience: 'devs' }, brand_voice_profile: null, archived_at: null }];
     if (table === 'campaigns')         return [];
     if (table === 'missions')          return [];
     if (table === 'mission_approvals') return [];
@@ -43,7 +49,10 @@ vi.mock('../src/lib/supabaseAdmin', () => {
     q.select   = chain; q.eq = chain; q.in = chain; q.not = chain;
     q.is       = chain; q.order = chain; q.limit = chain;
     q.single   = () => Promise.resolve({ data: data[0] ?? null, error: null });
-    q.maybeSingle = () => Promise.resolve({ data: null, error: null });
+    // Returns the first row like `single` does. Hardcoding null meant every
+    // maybeSingle lookup resolved to "nothing found", which now reads as "no
+    // active business" and made valid requests look like failures.
+    q.maybeSingle = () => Promise.resolve({ data: data[0] ?? null, error: null });
     q.then     = (resolve: (v: { data: unknown[]; error: null }) => void) =>
       Promise.resolve({ data, error: null }).then(resolve);
     q.insert   = () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'new-id', ...data[0] }, error: null }) }) });

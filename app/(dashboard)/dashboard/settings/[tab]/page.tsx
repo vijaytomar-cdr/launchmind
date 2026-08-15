@@ -14,6 +14,7 @@ import { ContentTypesTab }      from '../tabs/ContentTypesTab';
 import { VoiceCloneTab }        from '../tabs/VoiceCloneTab';
 import { NotificationsTab }     from '../tabs/NotificationsTab';
 import { ProductsTab }          from '../tabs/ProductsTab';
+import { BusinessesTab } from '../tabs/BusinessesTab';
 import { AccountManagementTab } from '../tabs/AccountManagementTab';
 
 const TABS = [
@@ -22,6 +23,7 @@ const TABS = [
   { key: 'content',       label: 'Content types',   sub: 'Choose what LaunchMind generates each week.',                            component: ContentTypesTab },
   { key: 'voice',         label: 'Voice clone',     sub: 'Your AI voice used in voice notes and video narration.',                 component: VoiceCloneTab },
   { key: 'notifications', label: 'Notifications',   sub: 'When and how LaunchMind reaches you.',                                   component: NotificationsTab },
+  { key: 'businesses',    label: 'Companies',       sub: 'Your companies, the current one, and adding another.',                  component: BusinessesTab },
   { key: 'products',      label: 'Products',        sub: 'Manage active and archived products.',                                   component: ProductsTab },
   { key: 'account',       label: 'Account',         sub: 'Data export, account deletion, and API keys.',                          component: AccountManagementTab },
 ] as const;

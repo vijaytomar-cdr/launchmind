@@ -274,6 +274,20 @@ const LEVEL_NAMES = ['', 'Public Intelligence', 'Observed Performance', 'Cross-c
  * gracefully to safe defaults (missing migrations, unset env vars, etc.).
  */
 export async function getCapabilityStatus(founderId: string): Promise<CapabilityStatus> {
+  // Resolved FIRST so the goal below can be scoped to the same product this
+  // function already reports on. Previously the product was "the newest
+  // non-archived one" while the goal was "the newest for this founder" — two
+  // independent picks that, for a founder with two businesses, routinely named
+  // one product and stated the other's goal.
+  const { data: activeProducts } = await getSupabaseAdmin()
+    .from('products')
+    .select('id, platform')
+    .eq('founder_id', founderId)
+    .is('archived_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const activeProductId = (activeProducts?.[0] as { id?: string } | undefined)?.id ?? null;
+
   const [connectionsResult, founderResult, goalsResult, insightResult, productResult, onboardingResult] = await Promise.allSettled([
     getPhase2Connections(founderId),
     getSupabaseAdmin()
@@ -281,12 +295,15 @@ export async function getCapabilityStatus(founderId: string): Promise<Capability
       .select('onboarding_step')
       .eq('id', founderId)
       .single(),
-    getSupabaseAdmin()
+    activeProductId ? getSupabaseAdmin()
       .from('business_goals')
       .select('goal_type, target_value, unit, time_horizon_days')
-      .eq('founder_id', founderId)
+      .eq('product_id', activeProductId)
       .order('created_at', { ascending: false })
-      .limit(1),
+      .limit(1)
+      // No product means no goal to report — stating another business's target
+      // on this product's capability page is worse than stating none.
+      : Promise.resolve({ data: [] }),
     getSupabaseAdmin()
       .from('optimization_insights')
       .select('id', { count: 'exact', head: true })

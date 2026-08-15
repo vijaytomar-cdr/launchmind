@@ -162,7 +162,9 @@ export async function generateStrategy(
   const playbookContext = await buildPlaybookContext(
     product.category ?? 'Productivity',
     primaryMarket,
-    product.icp_embedding ?? null
+    // ADR-066: products.icp_embedding retired in migration 090. Semantic
+    // playbook matching returns to this call site in 3.1D via RetrievalService.
+    null,
   );
 
   await consumeTokens(founderId, 'strategy_generation', 50);
@@ -350,7 +352,7 @@ export async function generateContentAssets(
 
   const { data: product, error } = await supabase
     .from('products')
-    .select('name, category, confirmed_icp, icp_embedding, founder_id')
+    .select('name, category, confirmed_icp, founder_id')
     .eq('id', productId)
     .eq('founder_id', founderId)
     .is('archived_at', null)
@@ -364,7 +366,9 @@ export async function generateContentAssets(
   const playbookContext = await buildPlaybookContext(
     product.category ?? 'Productivity',
     market,
-    product.icp_embedding ?? null
+    // ADR-066: products.icp_embedding retired in migration 090. Semantic
+    // playbook matching returns to this call site in 3.1D via RetrievalService.
+    null,
   );
 
   await consumeTokens(founderId, 'content_generation', 20);

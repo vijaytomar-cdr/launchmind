@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { productLabel } from '@/lib/business/labels';
 import {
   IconSunrise,
   IconBulb,
@@ -94,13 +95,21 @@ interface SidebarProps {
   tokenBalance?: number | null;
   plan?: string;
   productName?: string;
+  /** Owner-facing business (workspace) name. */
+  businessName?: string;
+  /** pre_launch | early | growing | mature */
+  maturity?: string;
   productPlatform?: string;
   productMarkets?: string[];
   opportunityCount?: number;
   approvalCount?: number;
 }
 
-export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free', productName, productPlatform, productMarkets, opportunityCount = 0, approvalCount = 0 }: SidebarProps) {
+export function Sidebar({
+  userEmail, isAdmin = false, tokenBalance, plan = 'free',
+  productName, productPlatform, productMarkets, businessName, maturity,
+  opportunityCount = 0, approvalCount = 0,
+}: SidebarProps) {
   const pathname = usePathname();
   const supabase = createClient();
   const adminActive = pathname.startsWith('/dashboard/admin');
@@ -151,37 +160,32 @@ export function Sidebar({ userEmail, isAdmin = false, tokenBalance, plan = 'free
         </div>
       </div>
 
-      {/* Workspace card */}
+      {/* Current company — PASSIVE context, not a second switcher.
+          Deliberately quiet: the company name small-caps, the product beneath.
+          It previously repeated a "CURRENT BUSINESS" caption, the full raw
+          product name and a "Live · United States · iOS" metadata line — the
+          same facts the header already shows, restated on every screen. Visual
+          hierarchy carries the meaning instead of a label explaining it.
+
+          No hover, no cursor change, no interactive role: it must not look
+          clickable, because it isn't. */}
       {(() => {
-        const displayName = productName ?? 'My Product';
-        const initial = displayName.charAt(0).toUpperCase();
-        const platformLabel = productPlatform === 'app_store' ? 'iOS' : productPlatform === 'play_store' ? 'Android' : 'iOS & Android';
-        const marketsLabel = productMarkets && productMarkets.length > 0
-          ? productMarkets.map(m => m.toUpperCase()).join(' & ')
-          : 'USA';
+        const company = businessName ?? productName ?? null;
+        if (!company) return null;
+        const product = productLabel(businessName ?? null, productName ?? null);
         return (
-          <div style={{
-            margin: '0 4px 16px',
-            padding: '11px 12px',
-            border: '1px solid rgba(255,255,255,.09)',
-            background: 'rgba(255,255,255,.045)',
-            borderRadius: 12,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}>
+          <div style={{ margin: '0 4px 16px', padding: '0 6px' }}>
             <div style={{
-              width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-              background: '#edf7f3', color: 'var(--sage)',
-              fontWeight: 800, fontSize: 12,
-              display: 'grid', placeItems: 'center',
-            }}>
-              {initial}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#e8f0ec', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
-              <div style={{ fontSize: 11, color: '#8fa79d' }}>{marketsLabel} · {platformLabel}</div>
-            </div>
+              fontSize: 10.5, fontWeight: 800, letterSpacing: '.1em',
+              textTransform: 'uppercase', color: '#8fa79d',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{company}</div>
+            {product && (
+              <div style={{
+                fontSize: 11.5, color: '#617b70', marginTop: 2,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{product}</div>
+            )}
           </div>
         );
       })()}

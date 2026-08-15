@@ -71,6 +71,63 @@ export async function workspacesRoutes(server: FastifyInstance): Promise<void> {
    * GET /workspaces
    * Lists all workspaces for the authenticated founder.
    */
+  /**
+   * GET /businesses
+   *
+   * Every business this founder may operate, with its primary product, and
+   * which one is currently active. Backs the Business Switcher and
+   * Settings → Businesses.
+   *
+   * "Business" is the owner-facing name for a workspace; the model is unchanged.
+   *
+   * @returns { businesses, active } — `active` is null when none is selected,
+   *   which the UI must treat as "choose a business", never as a default.
+   * @security Owned workspaces plus ACCEPTED memberships only.
+   */
+  server.get('/businesses', async (request: FastifyRequest, reply: FastifyReply) => {
+    await request.jwtVerify();
+    const founderId = getFounderId(request);
+    try {
+      const { listBusinesses, getActiveBusiness } = await import('../services/activeBusinessService');
+      const [businesses, active] = await Promise.all([
+        listBusinesses(founderId),
+        getActiveBusiness(founderId),
+      ]);
+      return reply.send({ businesses, active });
+    } catch (err) {
+      Sentry.captureException(err, { tags: { route: 'GET /businesses' } });
+      return reply.status(500).send({ error: 'Failed to list businesses' });
+    }
+  });
+
+  /**
+   * POST /businesses/:id/activate
+   *
+   * Switches the owner's current business. Owner-facing alias for
+   * /workspaces/:id/activate — same verified path, delegating to the same
+   * setActiveWorkspace, so there is one implementation and one place where
+   * membership is checked.
+   *
+   * @returns 404 when the founder is not a member — deliberately identical to
+   *   "no such business", so switching cannot enumerate another tenant.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/businesses/:id/activate',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      const founderId = getFounderId(request);
+      try {
+        await setActiveWorkspace(founderId, request.params.id);
+        return reply.send({ ok: true });
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode;
+        if (status === 404) return reply.status(404).send({ error: 'Business not found' });
+        Sentry.captureException(err, { tags: { route: 'POST /businesses/:id/activate' } });
+        return reply.status(500).send({ error: 'Failed to switch business' });
+      }
+    },
+  );
+
   server.get('/workspaces', async (request: FastifyRequest, reply: FastifyReply) => {
     await request.jwtVerify();
     const founderId = getFounderId(request);
@@ -278,6 +335,11 @@ export async function workspacesRoutes(server: FastifyInstance): Promise<void> {
         await setActiveWorkspace(founderId, request.params.id);
         return reply.send({ ok: true });
       } catch (err) {
+        // A non-member gets 404, not 500 — the refusal is a legitimate answer,
+        // and it must look identical to "no such workspace" so switching cannot
+        // be used to probe for another tenant's workspace ids.
+        const status = (err as { statusCode?: number }).statusCode;
+        if (status === 404) return reply.status(404).send({ error: 'Workspace not found' });
         Sentry.captureException(err, { tags: { route: 'POST /workspaces/:id/activate' } });
         return reply.status(500).send({ error: 'Failed to set active workspace' });
       }

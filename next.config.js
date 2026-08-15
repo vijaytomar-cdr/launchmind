@@ -8,6 +8,28 @@
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /**
+   * Build output directory.
+   *
+   * `next build` and `next dev` share `.next` by default, and they write
+   * incompatible things into it: a production build leaves BUILD_ID,
+   * prerender-manifest.json and export-marker.json behind, and a dev server
+   * started against those cannot reconcile them — the app renders with no CSS
+   * and no error. It has broken the local dashboard twice, and neither time did
+   * anything log a failure.
+   *
+   * Concurrency is NOT the issue, so "don't build while dev is running" is not
+   * a sufficient rule: the artifacts persist on disk and break the NEXT dev
+   * server started, whenever that happens.
+   *
+   * So a verification build writes somewhere else:
+   *
+   *   NEXT_DIST_DIR=.next-build npx next build
+   *
+   * Vercel and CI set nothing and get the default, so production is unaffected.
+   */
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
+
   async rewrites() {
     return [
       {

@@ -220,40 +220,57 @@ export async function buildContextPackage(
       : Promise.resolve({ data: [], error: null }),
 
     // 7. Phase 1 founder context (audience, context delta, working style)
-    supabase
+    //
+    // SCOPED BY PRODUCT. This previously filtered on founder_id and took the
+    // newest row, so a founder with two businesses got whichever they had
+    // touched most recently — the other business's positioning, markets and
+    // working style, silently. When no product is in scope we return NOTHING
+    // rather than guessing: a cross-business answer is worse than none.
+    productId ? supabase
       .from('founder_context')
       .select('audience_confirmed, context_delta, hidden_strengths, recent_wins, working_style')
       .eq('founder_id', founderId)
+      .eq('product_id', productId)
       .order('updated_at', { ascending: false })
       .limit(1)
-      .maybeSingle(),
+      .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
 
-    // 8. Phase 1 primary business goal
-    supabase
+    // 8. Phase 1 primary business goal — scoped for the same reason.
+    productId ? supabase
       .from('business_goals')
       .select('goal_type, target_value, unit, time_horizon_days, motivation')
       .eq('founder_id', founderId)
+      .eq('product_id', productId)
       .order('updated_at', { ascending: false })
       .limit(1)
-      .maybeSingle(),
+      .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
 
     // 9. Phase 1 confirmed competitors
     supabase
       .from('competitor_relationships')
       .select('name, relationship, key_differentiator')
       .eq('founder_id', founderId)
+      .eq('product_id', productId)          // competitors are per-business
       .eq('relationship', 'CONFIRMED')
       .limit(10),
 
-    // 10. Phase 1 strategy direction (most recent non-draft)
-    supabase
+    // 10. Phase 1 strategy direction (most recent non-draft) — scoped.
+    // Missed on the first pass: the two queries above it were scoped by hand and
+    // this one was not, so a founder with two businesses got whichever direction
+    // was generated most recently for EITHER. Found by tenancyScopeGuard, which
+    // is the argument for having it rather than fixing each reader by eye.
+    productId ? supabase
       .from('strategy_directions')
       .select('headline, rationale, primary_channel, week_1, week_2, week_3, week_4, status')
       .eq('founder_id', founderId)
+      .eq('product_id', productId)
       .neq('status', 'draft')
       .order('created_at', { ascending: false })
       .limit(1)
-      .maybeSingle(),
+      .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   // ── Extract results with fallbacks ──────────────────────────────────────────

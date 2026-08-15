@@ -1288,6 +1288,12 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
   server.get('/campaigns', async (request, reply) => {
     const founderId = getFounderId(request);
     try {
+      // Campaigns become an EXECUTION surface — one created while LaunchMind is
+      // active must never appear under AllignX, where it could be launched.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId) return reply.send({ campaigns: [] });
+
       const { data, error } = await getSupabaseAdmin()
         .from('campaigns')
         .select(`
@@ -1297,6 +1303,7 @@ export async function productsRoutes(server: FastifyInstance): Promise<void> {
           products ( name )
         `)
         .eq('founder_id', founderId)
+        .eq('product_id', scopedProductId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;

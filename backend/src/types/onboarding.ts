@@ -19,6 +19,7 @@ export const ONBOARDING_STATES = [
   'PRELIMINARY_REPORT',
   'BELIEF_REVIEW',
   'ALIGNMENT_AUDIENCE',
+  'ALIGNMENT_POSITIONING',
   'ALIGNMENT_CONTEXT',
   'ALIGNMENT_GOAL',
   'ALIGNMENT_COMPETITORS',
@@ -41,6 +42,7 @@ export const STATE_TO_ROUTE: Record<OnboardingState, string> = {
   PRELIMINARY_REPORT:       '/onboarding/report',
   BELIEF_REVIEW:            '/onboarding/beliefs',
   ALIGNMENT_AUDIENCE:       '/onboarding/audience',
+  ALIGNMENT_POSITIONING:    '/onboarding/positioning',
   ALIGNMENT_CONTEXT:        '/onboarding/context-delta',
   ALIGNMENT_GOAL:           '/onboarding/goal',
   ALIGNMENT_COMPETITORS:    '/onboarding/competitors',
@@ -60,7 +62,8 @@ export const VALID_TRANSITIONS: Record<OnboardingState, OnboardingState[]> = {
   DISCOVERY_FAILED:         ['DISCOVERY_IN_PROGRESS'],
   PRELIMINARY_REPORT:       ['BELIEF_REVIEW'],
   BELIEF_REVIEW:            ['ALIGNMENT_AUDIENCE'],
-  ALIGNMENT_AUDIENCE:       ['ALIGNMENT_CONTEXT'],
+  ALIGNMENT_AUDIENCE:       ['ALIGNMENT_POSITIONING'],
+  ALIGNMENT_POSITIONING:    ['ALIGNMENT_CONTEXT'],
   ALIGNMENT_CONTEXT:        ['ALIGNMENT_GOAL'],
   ALIGNMENT_GOAL:           ['ALIGNMENT_COMPETITORS'],
   ALIGNMENT_COMPETITORS:    ['BOUNDARIES_SETUP'],
@@ -84,6 +87,8 @@ export interface OnboardingSession {
   workspace_name:      string | null;
   urls_submitted:      string[] | null;
   private_description: string | null;
+  /** G3. Captured at step 1, copied onto the product once one exists. */
+  product_maturity:    string | null;
   completed_at:        string | null;
   created_at:          string;
   updated_at:          string;
@@ -211,8 +216,84 @@ export interface WeekPlan {
 
 // ── Zod Schemas for Route Validation ─────────────────────────────────────
 
+/**
+ * G3 · Product maturity.
+ *
+ * The smallest taxonomy that changes marketing reasoning. NOT a lever on
+ * Marketing Memory safety: corroboration and authority rules are identical at
+ * every maturity — only the amount of available evidence differs.
+ */
+export const PRODUCT_MATURITIES = ['pre_launch','early','growing','mature'] as const;
+export type ProductMaturity = typeof PRODUCT_MATURITIES[number];
+
+/** G5 · Business-context channels. NOT provider connections. */
+export const MARKETING_CHANNELS = [
+  'google_search','google_ads','meta','instagram','facebook','linkedin',
+  'seo_content','email','app_store','google_play','referrals','partnerships','none_yet',
+] as const;
+export type MarketingChannel = typeof MARKETING_CHANNELS[number];
+
+/**
+ * G5 · Channel provenance. THE DISTINCTION IS LOAD BEARING.
+ *
+ *   observed  LaunchMind detected this presence in verified public evidence —
+ *             an App Store listing, a Play listing, a live website. It is NOT a
+ *             statement that the owner markets through it. Having a store
+ *             listing is a precondition for distribution, not an acquisition
+ *             channel the founder chose to invest in.
+ *   using     The owner explicitly confirmed active acquisition through it.
+ *   planning  The owner explicitly confirmed intent to use or test it.
+ *
+ * Collapsing `observed` into `using` would record, as founder-authoritative
+ * canonical state, marketing the owner never claimed to do — and that state
+ * flows into ContextPackage as owner truth. `observed` therefore never enters
+ * confirmed_fields and never satisfies "what are you actively using".
+ *
+ * Ordered legacy-compatibly: rows written before this existed carry only
+ * `using` or `planning` and keep their original meaning.
+ */
+export const CHANNEL_STATUSES = ['observed', 'using', 'planning'] as const;
+export type ChannelStatus = typeof CHANNEL_STATUSES[number];
+
+/** True only for statuses that represent an OWNER assertion, never observation. */
+export function isOwnerAssertedChannel(status: string): boolean {
+  return status === 'using' || status === 'planning';
+}
+
+/**
+ * Claim categories. Must stay in step with the CHECK constraint in
+ * migration 106 — the frontend read positioning/value_prop/problem for months
+ * while the database refused to store them.
+ */
+export const CLAIM_CATEGORIES = [
+  'icp', 'pain_point', 'competitor', 'market', 'feature', 'channel', 'pricing', 'other',
+  'positioning', 'value_prop', 'problem',
+] as const;
+export type ClaimCategory = typeof CLAIM_CATEGORIES[number];
+
+/** The three founder-authoritative Alignment cards, in display order. */
+export const ALIGNMENT_SUGGESTION_CATEGORIES = ['positioning', 'value_prop', 'problem'] as const;
+export type AlignmentSuggestionCategory = typeof ALIGNMENT_SUGGESTION_CATEGORIES[number];
+
+/** G7 · Market granularity, kept distinct so "Phoenix metro" ≠ "United States". */
+export const MARKET_TYPES = ['country','region','metro'] as const;
+
+/**
+ * G4 · Capability ladder.
+ *
+ * Deliberately the SAME vocabulary as the Phase 2 connection permission
+ * architecture, so the product has one authority language rather than two.
+ * Recording authority here does not enable execution — connectionExecutionGuard
+ * remains the enforcement point.
+ */
+export const ONBOARDING_CAPABILITIES = ['RECOMMEND','DRAFT','CHANGE','PUBLISH','SPEND'] as const;
+export type OnboardingCapability = typeof ONBOARDING_CAPABILITIES[number];
+export const CAPABILITY_STANCES = ['autonomous','approval_required','never'] as const;
+
 export const SaveWorkspaceBodySchema = z.object({
   workspaceName: z.string().min(2).max(80),
+  /** G3. Optional so legacy clients keep working; unset reads as "unknown". */
+  productMaturity: z.enum(PRODUCT_MATURITIES).optional(),
 });
 
 export const StartDiscoveryBodySchema = z.object({
@@ -244,6 +325,23 @@ export const SaveAudienceBodySchema = z.object({
   })).optional(),
 });
 
+export const SavePositioningBodySchema = z.object({
+  positioning:            z.string().min(10).max(1000),
+  valueProposition:       z.string().min(10).max(1000),
+  primaryCustomerProblem: z.string().min(10).max(1000),
+  markets: z.array(z.object({
+    type:  z.enum(MARKET_TYPES),
+    value: z.string().min(1).max(80),
+    label: z.string().min(1).max(120),
+  })).min(1).max(10),
+  currentChannels: z.array(z.object({
+    channel: z.enum(MARKETING_CHANNELS),
+    status:  z.enum(CHANNEL_STATUSES),
+  })).max(15),
+  /** Fields the owner explicitly confirmed or corrected. Prefill alone never counts. */
+  confirmedFields: z.array(z.string().max(60)).max(20).default([]),
+});
+
 export const SaveContextDeltaBodySchema = z.object({
   contextDelta:     z.string().min(10).max(2000).optional(),
   hiddenStrengths:  z.array(z.string().max(200)).max(10).optional(),
@@ -259,6 +357,18 @@ export const SaveGoalBodySchema = z.object({
   timeHorizonDays:   z.number().int().min(7).max(365).default(30),  // allow 6 months (180d)
   motivation:        z.string().max(500).optional(),
   currentBlockers:   z.string().max(500).optional(),
+  /** G8. "I don't know yet" is a valid answer; never fabricate a target. */
+  targetUnknown:     z.boolean().default(false),
+  /** G6. What would make marketing successful, in the owner's own words. */
+  successDefinition: z.string().max(600).optional(),
+  /** G8. A few supporting goals, ordered. Deliberately not an OKR system. */
+  supportingGoals: z.array(z.object({
+    goalType:      z.enum(['installs','dau','mau','revenue','paying_users','retention_d7','retention_d30','custom']),
+    customMetric:  z.string().max(100).optional(),
+    targetValue:   z.number().min(0).default(0),
+    targetUnknown: z.boolean().default(false),
+    unit:          z.string().min(1).max(60),
+  })).max(4).default([]),
 });
 
 export const SaveCompetitorsBodySchema = z.object({
@@ -279,6 +389,14 @@ export const SaveBoundariesBodySchema = z.object({
   timeCommitmentHrs:    z.number().int().min(1).max(40).optional(),
   weeklySpendCapUsd:    z.number().min(0).max(10000).default(0),
   weeklySpendCapInr:    z.number().min(0).max(500000).default(0),
+  /**
+   * G4. Owner-chosen boundaries per capability.
+   *
+   * Optional for backward compatibility: when absent the legacy
+   * derived-from-workingStyle behaviour applies and `boundaries_source` records
+   * that it was derived, so the two can never be confused after the fact.
+   */
+  explicitCapabilities: z.record(z.enum(ONBOARDING_CAPABILITIES), z.enum(CAPABILITY_STANCES)).optional(),
   // Server enforces: button cannot be enabled until founderAcknowledged = true
   founderAcknowledged:  z.literal(true),
 });

@@ -23,7 +23,7 @@
     "typecheck:backend": "npm --prefix backend run type-check",
     "lint:backend": "npm --prefix backend run lint",
     "build:backend": "npm --prefix backend run build",
-    "verify": "npm run typecheck && npm run typecheck:backend && npm run lint && npm run lint:backend && npm run build:backend && npm run test && npm run test:backend",
+    "verify": "npm run typecheck && npm run typecheck:backend && npm run lint && npm run lint:backend && npm run build:backend && npm run build:verify && npm run test && npm run test:backend",
     "test:vault": "npm --prefix backend run test:vault",
     "oci:check": "node scripts/check-oci-vault.mjs",
     "staging:up": "supabase start && docker start lm-redis-staging 2>/dev/null || docker run -d --name lm-redis-staging -p 6380:6379 redis:7-alpine",
@@ -32,7 +32,9 @@
     "staging:seed": "node --env-file=.env.staging scripts/staging-seed.mjs",
     "staging:reset": "node --env-file=.env.staging scripts/staging-reset.mjs",
     "staging:verify": "node --env-file=.env.staging scripts/staging-verify.mjs",
-    "staging:dev": "bash scripts/staging-frontend.sh"
+    "staging:dev": "bash scripts/staging-frontend.sh",
+    "predev": "node scripts/guard-dev-dist.mjs",
+    "build:verify": "NEXT_DIST_DIR=.next-build next build"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",

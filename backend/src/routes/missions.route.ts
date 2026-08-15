@@ -78,7 +78,12 @@ async function missionsRoutes(server: FastifyInstance): Promise<void> {
     try {
       const founderId = getFounderId(request);
       const query     = ListMissionsQuerySchema.parse(request.query);
-      const result    = await listMissions(founderId, query);
+      // BUSINESS SCOPE. listMissions filtered on founder_id alone, so one
+      // company's missions appeared while operating another.
+      const { activeProductId } = await import('../services/activeBusinessService');
+      const scopedProductId = await activeProductId(founderId);
+      if (!scopedProductId) return reply.send({ missions: [], total: 0 });
+      const result    = await listMissions(founderId, { ...query, productId: scopedProductId });
       reply.send(result);
     } catch (err) {
       Sentry.captureException(err);

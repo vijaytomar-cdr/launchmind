@@ -167,7 +167,12 @@ beforeEach(async () => {
     founders:   [{ id: FOUNDER_ID, active_workspace_id: WORKSPACE_ID }],
     workspaces: [{ id: WORKSPACE_ID, founder_id: FOUNDER_ID, created_at: '2026-01-01' }],
     workspace_members: [],
-    products:   [{ id: PRODUCT_ID, founder_id: FOUNDER_ID, workspace_id: WORKSPACE_ID, archived_at: null, confirmed_icp: {}, scraped_meta: {}, category: 'Productivity' }],
+    products:   [{ id: PRODUCT_ID, founder_id: FOUNDER_ID, workspace_id: WORKSPACE_ID, archived_at: null, confirmed_icp: {}, // The journey is about an App Store app, so the product must actually carry a
+    // store listing: App Store Connect is only recommended for a product that has
+    // one. An empty scraped_meta described a product with no store at all.
+    scraped_meta: { name: 'TestApp', platform: 'app_store',
+      stores: [{ platform: 'app_store', data: { name: 'TestApp' } }] },
+    category: 'Productivity' }],
     workspace_connections: [], connection_sync_runs: [], intelligence_signals: [],
     connection_credentials: [], connection_permission_history: [], connection_insights: [],
     oauth_authorization_requests: [], audit_logs: [], learning_events: [],

@@ -123,13 +123,29 @@ async function benchmarksPlugin(server: FastifyInstance): Promise<void> {
 
     const supabase = getSupabaseAdmin();
 
-    // Get the founder's products to identify relevant categories
+    // BUSINESS SCOPE. Was founder-wide over up to 10 products, so a
+    // pre-launch business's benchmark summary was cross-referenced against the
+    // OTHER company's category and markets — AllignX's "Lifestyle / United
+    // States" silently shaping LaunchMind's market analysis. Benchmarks read
+    // like observed market fact, which makes a wrong category worse than none.
+    //
+    // Resolved through the one verified path; no founder-wide fallback, no
+    // newest/first product, no unverified client hint.
+    const { getActiveBusiness } = await import('../services/activeBusinessService');
+    const business = await getActiveBusiness(founderId);
+    if (!business?.productId) {
+      return reply.send({ summaries: [], message: 'Select a business to see benchmarks' });
+    }
+
     const { data: products } = await supabase
       .from('products')
       .select('id, name, category, markets')
-      .eq('founder_id', founderId)
+      .eq('id', business.productId)
+      // Re-checked against the resolved workspace so a stale pointer cannot
+      // reach across businesses.
+      .eq('workspace_id', business.workspaceId)
       .is('deleted_at', null)
-      .limit(10);
+      .limit(1);
 
     if (!products || products.length === 0) {
       return reply.send({ summaries: [], message: 'No products found' });

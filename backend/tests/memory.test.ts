@@ -73,6 +73,15 @@ const MOCK_NODE_B = {
 
 const mockFrom = vi.fn();
 
+// Workspace resolution is exercised directly in memoryWorkspaceScope.pg.test.ts
+// against a real database. Here it is stubbed so these tests keep testing the
+// memory services rather than the tenant-lookup chain.
+const WORKSPACE_ID = 'ee000000-0000-4000-8000-000000000001';
+vi.mock('../src/services/memory/workspaceResolver', () => ({
+  resolveMemoryWorkspace: vi.fn(async () => WORKSPACE_ID),
+  WorkspaceUnresolvedError: class extends Error {},
+}));
+
 vi.mock('../src/lib/supabaseAdmin', () => ({
   getSupabaseAdmin: () => ({
     from: mockFrom,
@@ -248,6 +257,29 @@ describe('marketingMemoryService', () => {
     const { findDuplicateMemory } = await import('../src/services/marketingMemoryService');
     const id = await findDuplicateMemory(FOUNDER_ID, PRODUCT_ID, 'product', 'Nonexistent');
     expect(id).toBeNull();
+  });
+});
+
+describe('workspace tenancy (migration 088)', () => {
+  it('createMemory stamps workspace_id while retaining founder_id for attribution', async () => {
+    // Tenancy and attribution are different columns and must BOTH be written;
+    // conflating them would destroy the ability to say who confirmed a belief.
+    const { createMemory } = await import('../src/services/marketingMemoryService');
+    let payload: Record<string, unknown> | null = null;
+    mockFrom.mockImplementation((table: string) => {
+      const chain = makeSticky(table) as Record<string, unknown>;
+      if (table === 'marketing_memories') {
+        const original = chain.insert as (p: Record<string, unknown>) => unknown;
+        chain.insert = (p: Record<string, unknown>) => { payload = p; return original(p); };
+      }
+      return chain;
+    });
+
+    await createMemory(FOUNDER_ID, PRODUCT_ID, 'campaign', 'T', { a: 1 }, 'intake', 0.7);
+
+    expect(payload, 'createMemory must insert into marketing_memories').not.toBeNull();
+    expect(payload!.workspace_id).toBe(WORKSPACE_ID);
+    expect(payload!.founder_id).toBe(FOUNDER_ID);
   });
 });
 

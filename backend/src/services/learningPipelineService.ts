@@ -10,6 +10,10 @@
 
 import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
+import { resolveMemoryWorkspace } from './memory/workspaceResolver';
+import {
+  buildFromCampaignResult, buildFromExperimentResult, ingestClassACandidate,
+} from './memory/claimCandidateBuilder';
 import {
   createMemory,
   findDuplicateMemory,
@@ -48,7 +52,7 @@ export async function ingestLearningEvent(
   // 1. Write audit record
   const { data: event, error: eventErr } = await supabase
     .from('learning_events')
-    .insert({ founder_id: founderId, product_id: productId ?? null, event_type: eventType, payload, status: 'processing' })
+    .insert({ founder_id: founderId, workspace_id: await resolveMemoryWorkspace(founderId, productId ?? null), product_id: productId ?? null, event_type: eventType, payload, status: 'processing' })
     .select('id')
     .single();
 
@@ -196,6 +200,61 @@ async function processIntakeEvent(
   }
 }
 
+/**
+ * Routes one Class-A automated observation through ClaimCandidateBuilder.
+ *
+ * Class-A means evidence LaunchMind produced or measured itself — a connection
+ * insight, a campaign outcome, an experiment result. It is trustworthy input
+ * and is still not permitted to write a belief unsupervised, because
+ * "trustworthy" is a statement about the DATA and precedence is a statement
+ * about AUTHORITY. Only `beliefPolicy.decide()` speaks to the second.
+ *
+ * Never throws: a learning event must not fail because the comparison layer had
+ * a bad day. A failure here means the observation is not learned from, which is
+ * recoverable; a thrown error would roll back the caller's event handling, which
+ * is not.
+ *
+ * @param build Deterministic builder for this source type.
+ * @returns Nothing — the outcome is recorded, and in shadow mode nothing is
+ *   applied. Callers must not branch on it, or shadow mode would change
+ *   behaviour merely by being observed.
+ */
+async function routeClassA(
+  founderId: string,
+  productId: string | null,
+  payload: Record<string, unknown>,
+  build: (workspaceId: string, productId: string | null,
+          payload: Record<string, unknown>) => import('./memory/claimCandidateBuilder').ClaimCandidate | null,
+): Promise<void> {
+  try {
+    const supabase = getSupabaseAdmin();
+
+    // Tenancy is resolved from canonical records by the shared resolver, never
+    // taken from the payload — a second inline lookup here would be a second
+    // place for tenancy to drift.
+    const workspaceId = await resolveMemoryWorkspace(founderId, productId);
+    if (!workspaceId) return;
+
+    const candidate = build(workspaceId, productId, payload);
+    if (!candidate) return;
+
+    const { data: memories } = await supabase
+      .from('marketing_memories')
+      .select('id, title, content, source, memory_type, product_id')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'active');
+
+    await ingestClassACandidate(
+      candidate,
+      (memories ?? []) as Array<{ id: string; title: string; content: Record<string, unknown> | null;
+                                  source: string; memory_type: string; product_id: string | null }>,
+      { allowModel: false },
+    );
+  } catch (err) {
+    Sentry.captureException(err, { tags: { stage: 'routeClassA' } });
+  }
+}
+
 async function processCampaignResult(
   founderId: string,
   productId: string | null,
@@ -215,6 +274,13 @@ async function processCampaignResult(
 
   const label     = `${channel} — ${market ?? 'all'} — Performance`;
   const confidence = ctr && ctr > 0.04 ? 0.8 : ctr && ctr > 0.02 ? 0.65 : 0.5;
+
+  // Phase 3.1G §10 — Class-A automated evidence is COMPARED before it is
+  // believed. Previously this went straight to upsertMemory(), whose duplicate
+  // check was title equality: two contradictory campaign outcomes that happened
+  // to generate the same label reinforced one another instead of conflicting.
+  // The decision is recorded here and applied only in `active` mode.
+  await routeClassA(founderId, productId, payload, buildFromCampaignResult);
 
   await upsertMemory(founderId, productId, 'campaign', label, {
     channel, market, hookType, cpi, ctr, installs, campaignId,
@@ -338,6 +404,8 @@ async function processExperimentResult(
   const hypothesis = payload.hypothesis as string | undefined;
   const outcome    = payload.outcome as string | undefined;
   const _productName = (payload.productName as string | undefined) ?? 'Product';
+
+  await routeClassA(founderId, productId, payload, buildFromExperimentResult);
 
   if (hypothesis && outcome) {
     await upsertMemory(founderId, productId, 'experiment', `Experiment — ${hypothesis.slice(0, 60)}`, {

@@ -122,7 +122,8 @@ export async function foundersRoutes(server: FastifyInstance): Promise<void> {
    * GDPR right-to-delete. Irreversible.
    * Steps (in order, all or rollback):
    *   1. Revoke all platform OAuth tokens
-   *   2. Delete embedding_store rows
+   *   2. Delete derived embeddings (memory_embeddings), then history under the
+   *      controlled-erasure flag
    *   3. Delete: weekly_briefs, campaign_metrics, campaigns, products, platform_tokens
    *   4. Soft-delete founders row (email anonymised, deleted_at set)
    *   5. Revoke all Supabase sessions
@@ -149,8 +150,30 @@ export async function foundersRoutes(server: FastifyInstance): Promise<void> {
           .eq('founder_id', founderId);
       }
 
-      // 2. Delete embedding_store
-      await db.from('embedding_store').delete().eq('founder_id', founderId);
+      // 2. Delete derived embeddings (ADR-066 rule 46: a derived vector must never
+      //    outlive its canonical source). embedding_store was retired in migration
+      //    090 and replaced by the canonical memory_embeddings table. Migration
+      //    092's triggers also drop them as their sources go; deleting by
+      //    workspace here covers rows whose source is already gone.
+      const { data: ownedWorkspaces } = await db
+        .from('workspaces').select('id').eq('founder_id', founderId);
+      const workspaceIds = (ownedWorkspaces ?? []).map((w: { id: string }) => w.id);
+      if (workspaceIds.length > 0) {
+        await db.from('memory_embeddings').delete().in('workspace_id', workspaceIds);
+      }
+
+      // 2b. Belief history. Append-only triggers (migration 091) refuse DELETE
+      //     except inside lm_erase_founder_history, which sets the erasure flag
+      //     and deletes in ONE transaction — PostgREST gives each HTTP request its
+      //     own transaction, so the flag cannot be set from a separate call. This
+      //     runs BEFORE products are deleted so the product cascade has no history
+      //     rows left to trip over.
+      const { error: eraseErr } = await db.rpc('lm_erase_founder_history', { p_founder_id: founderId });
+      if (eraseErr) {
+        // A half-completed erasure is worse than a clearly failed one: the founder
+        // would be told their data was removed while belief history remained.
+        throw new Error(`History erasure failed: ${eraseErr.message}`);
+      }
 
       // 3. Delete all founder data in dependency order
       await db.from('weekly_briefs').delete().eq('founder_id', founderId);
@@ -751,13 +774,27 @@ export async function foundersRoutes(server: FastifyInstance): Promise<void> {
         // Verify product ownership (path param used as ownership gate only)
         const { data: product, error: fetchErr } = await db
           .from('products')
-          .select('id, founder_id')
+          .select('id, founder_id, workspace_id')
           .eq('id', productId)
           .single();
 
         if (fetchErr || !product) return reply.status(404).send({ ok: false, error: 'Product not found' });
         if ((product as { founder_id: string }).founder_id !== founderId) {
           return reply.status(403).send({ ok: false, error: 'Forbidden' });
+        }
+        // The path param was previously an ownership gate only — the docstring
+        // said so — and the row it wrote was founder-wide. So editing the
+        // initiative for one business overwrote it for every other business the
+        // founder owns, and `.is(session_id, null).maybeSingle()` began ERRORING
+        // outright once a second business created a second such row.
+        const workspaceId = (product as { workspace_id: string | null }).workspace_id;
+        if (!workspaceId) {
+          // An untenanted product cannot own context. Refusing beats writing a
+          // row that every business would then read.
+          return reply.status(409).send({
+            ok: false, error: 'Product has no workspace',
+            detail: 'This product predates workspace scoping and cannot store business context yet.',
+          });
         }
 
         // Build update payload (only provided fields)
@@ -766,12 +803,14 @@ export async function foundersRoutes(server: FastifyInstance): Promise<void> {
         if (parsed.data.primaryGoal    !== undefined) updates.primary_goal    = parsed.data.primaryGoal;
         if (parsed.data.targetWindow   !== undefined) updates.target_window   = parsed.data.targetWindow;
 
-        // Check for existing session-less row. Its current values are the "before"
-        // side of the learning-log entry, so they are read before the write.
+        // Check for existing session-less row FOR THIS PRODUCT. Its current
+        // values are the "before" side of the learning-log entry, so they are
+        // read before the write.
         const { data: existing } = await db
           .from('founder_context')
           .select('id, next_initiative, primary_goal, target_window')
           .eq('founder_id', founderId)
+          .eq('product_id', productId)
           .is('session_id', null)
           .maybeSingle();
 
@@ -788,10 +827,12 @@ export async function foundersRoutes(server: FastifyInstance): Promise<void> {
             .update(updates)
             .eq('id', (existing as { id: string }).id);
         } else {
-          // Insert new session-less row
+          // Insert new session-less row, tenanted to this product.
           await db.from('founder_context').insert({
             founder_id:     founderId,
             session_id:     null,
+            workspace_id:   workspaceId,
+            product_id:     productId,
             next_initiative: parsed.data.nextInitiative ?? null,
             primary_goal:    parsed.data.primaryGoal    ?? null,
             target_window:   parsed.data.targetWindow   ?? null,
@@ -803,6 +844,7 @@ export async function foundersRoutes(server: FastifyInstance): Promise<void> {
           .from('founder_context')
           .select('next_initiative, primary_goal, target_window')
           .eq('founder_id', founderId)
+          .eq('product_id', productId)
           .is('session_id', null)
           .maybeSingle();
 

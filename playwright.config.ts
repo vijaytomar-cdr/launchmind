@@ -84,6 +84,13 @@ export default defineConfig({
         colorScheme: 'light',
       },
     },
+    {
+      // Active-business isolation certification against the REAL two-business
+      // account. Needs TEST_EMAIL / TEST_PASSWORD; skips itself otherwise.
+      name: 'cert',
+      testMatch: '**/*.cert.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
   ],
 
   webServer: skipWebServer

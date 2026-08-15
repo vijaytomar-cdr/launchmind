@@ -148,6 +148,20 @@ function scoreObservedDimension(
  */
 export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<GrowthBrainCoverage> {
   const founderId = ctx.actorId;
+
+  // Product ids belonging to THIS workspace, resolved first.
+  // business_goals and competitor_relationships carry product_id but no
+  // workspace_id, so this is the only way to scope them without mixing a
+  // founder's other businesses. An empty workspace yields an impossible id
+  // rather than an unfiltered query — `.in()` with [] matches nothing in
+  // PostgREST, but relying on that is a silent correctness dependency.
+  const { data: wsProducts } = await getSupabaseAdmin()
+    .from('products').select('id').eq('workspace_id', ctx.workspaceId);
+  const workspaceProductIds = ((wsProducts ?? []) as Array<{ id: string }>).map(p => p.id);
+  const scopedProductIds = workspaceProductIds.length
+    ? workspaceProductIds
+    : ['00000000-0000-0000-0000-000000000000'];
+
   const [
     connectionsResult,
     founderContextResult,
@@ -165,22 +179,31 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
     // onboarding writes audience_confirmed/context_delta to a per-session row. Reading
     // only the newest row missed whichever of the two was written second, so a saved
     // delta could vanish from this page. Several rows are read and merged instead.
-    getSupabaseAdmin()
+    //
+    // The merge is now PRODUCT-LOCAL. Merging across rows of one business is
+    // what fixes the vanishing delta; merging across two businesses would
+    // blend AllignX's positioning with LaunchMind's into context belonging to
+    // neither. Same query, one filter, opposite meaning.
+    ctx.workspaceId ? getSupabaseAdmin()
       .from('founder_context')
       .select('audience_confirmed, context_delta, working_style, next_initiative, primary_goal, target_window, session_id')
-      .eq('founder_id', founderId)
+      .eq('workspace_id', ctx.workspaceId)
       .order('created_at', { ascending: false })
-      .limit(5),
-    getSupabaseAdmin()
+      .limit(5)
+      : Promise.resolve({ data: [] }),
+    ctx.workspaceId ? getSupabaseAdmin()
       .from('business_goals')
       .select('goal_type, target_value, unit, time_horizon_days')
       .eq('founder_id', founderId)
+      .in('product_id', scopedProductIds)
       .order('created_at', { ascending: false })
-      .limit(1),
+      .limit(1)
+      : Promise.resolve({ data: [] }),
     getSupabaseAdmin()
       .from('competitor_relationships')
       .select('id', { count: 'exact', head: true })
-      .eq('founder_id', founderId),
+      .eq('founder_id', founderId)
+      .in('product_id', scopedProductIds),
     getSupabaseAdmin()
       .from('products')
       .select('confirmed_icp, scraped_meta, competitor_set, name, category')
@@ -198,6 +221,7 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
       .from('strategy_directions')
       .select('direction_data, headline, acknowledged_at')
       .eq('founder_id', founderId)
+      .in('product_id', scopedProductIds)
       .order('created_at', { ascending: false })
       .limit(1),
     // The owner-facing learning log is the canonical source for "what changed
@@ -441,8 +465,30 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
   // Recommend the first source that is not already producing observed data.
   // `available` tells the UI whether a live connection can actually be made, so it
   // can show "not available yet" instead of a Connect button that cannot work.
+  // ELIGIBILITY BEFORE ORDER. SOURCES is a fixed list headed by App Store
+  // Connect, so the first unconnected entry was recommended regardless of
+  // whether the product HAS an App Store listing. A pre-launch product with no
+  // store was told to connect App Store Connect — advice it cannot act on, and
+  // which reads as "we think you have an app".
+  const srcMeta = (productRow?.scraped_meta as Record<string, unknown>) ?? {};
+  const srcStores = Array.isArray(srcMeta.stores)
+    ? (srcMeta.stores as Array<Record<string, unknown>>).map(x => String(x.platform))
+    : (typeof srcMeta.platform === 'string' && srcMeta.name ? [srcMeta.platform] : []);
+  const hasAppStore  = srcStores.includes('app_store');
+  const hasPlayStore = srcStores.includes('play_store');
+
+  /** A provider is only recommendable when its data source plausibly exists. */
+  const providerEligible = (provider: string): boolean => {
+    if (provider === 'app_store_connect') return hasAppStore;
+    // RevenueCat reports on in-app purchases, which require a store listing.
+    if (provider === 'revenue_cat')       return hasAppStore || hasPlayStore;
+    // GA4, Search Console, Stripe, ads platforms are not store-dependent.
+    return true;
+  };
+
   const nextSource =
     SOURCES.find((s) => {
+      if (!providerEligible(s.provider)) return false;
       const st = connectionStates[s.provider];
       return !(st?.healthy && st.signalCount > 0);
     }) ?? null;

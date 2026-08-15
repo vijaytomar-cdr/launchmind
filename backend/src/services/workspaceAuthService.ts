@@ -179,15 +179,22 @@ export async function getDefaultWorkspaceId(actorId: string): Promise<string | n
   // pointer left over from a removed membership must not grant access.
   if (active && (await getWorkspaceRole(actorId, active))) return active;
 
-  const { data: owned } = await db
+  // FALLBACK ONLY WHEN UNAMBIGUOUS. This took the OLDEST owned workspace, which
+  // for a founder with two businesses silently resolved to the first one they
+  // created — so an unset or stale active pointer quietly served AllignX to
+  // someone operating LaunchMind. With one workspace there is nothing to get
+  // wrong and the bootstrap is genuinely useful; with several, guessing is the
+  // defect. Returning null makes the caller fail closed.
+  const { data: ownedAll } = await db
     .from('workspaces')
     .select('id')
     .eq('founder_id', actorId)
     .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .limit(2);
 
-  if (owned) return (owned as { id: string }).id;
+  const owned = (ownedAll ?? []) as Array<{ id: string }>;
+  if (owned.length === 1) return owned[0].id;
+  if (owned.length > 1) return null;
 
   // Accepted memberships only. A pending invitation still grants nothing.
   const { data: member } = await db

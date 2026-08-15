@@ -34,6 +34,13 @@ export interface AuditContext {
   productId?: string | null;
   promptId: string;
   action: string;
+  /**
+   * ADR-066 rule 21. Links this request to the ContextPackage that produced it,
+   * completing the chain output → ai_request → context_package → memory version.
+   * Optional: utility calls that carry no provenance value stay unlinked rather
+   * than fabricating one.
+   */
+  contextPackageId?: string | null;
 }
 
 export interface AIRequest {
@@ -191,6 +198,7 @@ async function writeAuditRecord(params: {
   status: 'success' | 'failed' | 'retried' | 'timeout';
   error?: string;
   contextSources?: string[];
+  contextPackageId?: string | null;
 }): Promise<string | null> {
   try {
     const supabase = getSupabaseAdmin();
@@ -212,6 +220,7 @@ async function writeAuditRecord(params: {
         status:          params.status,
         error:           params.error ?? null,
         context_sources: params.contextSources ?? [],
+        context_package_id: params.contextPackageId ?? null,
       })
       .select('id')
       .single();
@@ -351,6 +360,12 @@ export async function callHaiku(
   maxTokens: number,
   auditCtx: AuditContext,
   outputSchema?: z.ZodTypeAny,
+  /**
+   * Generation settings. Pass `{ temperature: 0 }` for constrained
+   * classification paths; omit for creative generation, which keeps the
+   * provider default.
+   */
+  genOpts: { temperature?: number } = {},
 ): Promise<string> {
   const start = Date.now();
   let result: RawCallResult;
@@ -358,7 +373,7 @@ export async function callHaiku(
 
   try {
     const res = await callWithRetry(
-      signal => callHaikuWithUsage(prompt, maxTokens, signal),
+      signal => callHaikuWithUsage(prompt, maxTokens, signal, genOpts),
       30_000,
     );
     result = res.result;

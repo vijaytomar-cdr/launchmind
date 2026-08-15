@@ -13,6 +13,7 @@
  */
 
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
+import { getWorkspaceRole } from './workspaceAuthService';
 
 export type WorkspaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export type WorkspaceType = 'personal' | 'team';
@@ -240,21 +241,61 @@ export async function updateWorkspace(
 }
 
 /**
- * Sets the founder's active workspace and optionally active product.
+ * Sets the founder's active business, verifying they may actually use it.
+ *
+ * THIS PREVIOUSLY VERIFIED NOTHING. It wrote whatever workspace id the caller
+ * supplied straight onto the founder row, and `POST /workspaces/:id/activate`
+ * passes `request.params.id` through untouched — so any authenticated founder
+ * could point their active business at ANOTHER founder's workspace.
+ *
+ * Nothing leaked through it today only because getDefaultWorkspaceId re-checks
+ * the pointer on read and falls through when the actor is not a member. That is
+ * defence in depth doing the whole job alone: the first reader that trusts
+ * `active_workspace_id` without re-verifying would cross the tenant boundary,
+ * and the active business is about to become the authoritative context for
+ * every dashboard read. A client-supplied id is CONTEXT, never AUTHORIZATION.
+ *
+ * Membership is checked rather than ownership so an invited teammate can switch
+ * to a workspace they legitimately belong to; a pending invite grants nothing.
+ *
+ * @param activeProductId - optional; must live in the same workspace
+ * @throws {Error} 404-shaped when the actor is not a member — deliberately
+ *   indistinguishable from "does not exist", so probing cannot enumerate
+ *   another tenant's workspace ids.
+ * @security The single write path for active-business state.
  */
 export async function setActiveWorkspace(
   founderId: string,
   workspaceId: string,
   activeProductId?: string,
 ): Promise<void> {
+  const db = getSupabaseAdmin();
+
+  const role = await getWorkspaceRole(founderId, workspaceId);
+  if (!role) {
+    throw Object.assign(
+      new Error('Workspace not found or access denied'), { statusCode: 404 });
+  }
+
   const patch: Record<string, unknown> = { active_workspace_id: workspaceId };
-  if (activeProductId !== undefined) patch.active_product_id = activeProductId;
 
-  const { error } = await getSupabaseAdmin()
-    .from('founders')
-    .update(patch)
-    .eq('id', founderId);
+  if (activeProductId !== undefined) {
+    // A product from a DIFFERENT workspace would produce exactly the split-brain
+    // state the switcher exists to prevent: header showing one business, content
+    // scoped to another.
+    const { data: product } = await db
+      .from('products')
+      .select('id, workspace_id')
+      .eq('id', activeProductId)
+      .maybeSingle();
+    if (!product || (product as { workspace_id: string | null }).workspace_id !== workspaceId) {
+      throw Object.assign(
+        new Error('Product not found in this workspace'), { statusCode: 404 });
+    }
+    patch.active_product_id = activeProductId;
+  }
 
+  const { error } = await db.from('founders').update(patch).eq('id', founderId);
   if (error) throw error;
 }
 

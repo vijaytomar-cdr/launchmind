@@ -76,10 +76,40 @@ export class MemoryDb {
     return new QueryBuilder(this.live(table), table);
   }
 
+  /**
+   * Stubbed RPCs, keyed by function name.
+   *
+   * A handler may return rows or throw — throwing is how the degradation tests
+   * simulate a failing SQL function, which is the case RetrievalService must
+   * report as an unavailable arm rather than as an empty result.
+   */
+  private rpcHandlers = new Map<string, (args: Record<string, unknown>) => unknown>();
+
+  /** Registers (or replaces) an RPC stub. */
+  onRpc(name: string, handler: (args: Record<string, unknown>) => unknown): this {
+    this.rpcHandlers.set(name, handler);
+    return this;
+  }
+
+  /** Names of RPCs actually invoked, for assertions about which arms ran. */
+  readonly rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+
+  async rpc(name: string, args: Record<string, unknown> = {}) {
+    this.rpcCalls.push({ name, args });
+    const handler = this.rpcHandlers.get(name);
+    if (!handler) return { data: null, error: { code: '42883', message: `function ${name} does not exist` } };
+    try {
+      return { data: handler(args), error: null };
+    } catch (e) {
+      return { data: null, error: { code: 'XX000', message: (e as Error).message } };
+    }
+  }
+
   /** Object shaped like the supabaseAdmin client, for vi.mock factories. */
   asClient(authUserResolver?: (token: string) => { id: string }) {
     return {
       from: (table: string) => this.from(table),
+      rpc: (name: string, args?: Record<string, unknown>) => this.rpc(name, args ?? {}),
       auth: {
         getUser: async (token: string) => {
           const user = authUserResolver
@@ -107,6 +137,8 @@ export function decodeJwtSub(token: string): string | null {
 class QueryBuilder implements PromiseLike<{ data: Row[] | null; error: null; count: number | null }> {
   private filters: Filter[] = [];
   private mode: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
+  private conflictKeys: string[] | null = null;
+  private ignoreDuplicates = false;
   private payload: Row[] = [];
   private orderBy: Array<{ column: string; ascending: boolean }> = [];
   private limitN: number | null = null;
@@ -134,9 +166,19 @@ class QueryBuilder implements PromiseLike<{ data: Row[] | null; error: null; cou
     return this;
   }
 
-  upsert(values: Row | Row[], _opts?: unknown): this {
+  /**
+   * `onConflict` is HONOURED, not ignored.
+   *
+   * A stub that treats every upsert as an insert reports two rows where Postgres
+   * would keep one, so a uniqueness guarantee looks broken in tests that pass in
+   * production — or, worse, looks fine in tests while the real constraint is
+   * missing. Both directions have already cost this project a defect.
+   */
+  upsert(values: Row | Row[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }): this {
     this.mode = 'upsert';
     this.payload = Array.isArray(values) ? values : [values];
+    this.conflictKeys = opts?.onConflict?.split(',').map(c => c.trim()).filter(Boolean) ?? null;
+    this.ignoreDuplicates = opts?.ignoreDuplicates === true;
     return this;
   }
 
@@ -181,6 +223,26 @@ class QueryBuilder implements PromiseLike<{ data: Row[] | null; error: null; cou
 
   /** Applies the pending mutation and returns the affected rows. */
   private execute(): Row[] {
+    if (this.mode === 'upsert' && this.conflictKeys) {
+      const keys = this.conflictKeys;
+      const affected: Row[] = [];
+      for (const v of this.payload) {
+        const existing = this.store.find(r => keys.every(k => r[k] === v[k]));
+        if (existing) {
+          if (this.ignoreDuplicates) { affected.push(existing); continue; }
+          Object.assign(existing, v, { updated_at: new Date().toISOString() });
+          affected.push(existing);
+        } else {
+          const row = { id: (v.id as string) ?? randomUUID(),
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(), ...v };
+          this.store.push(row);
+          affected.push(row);
+        }
+      }
+      return affected;
+    }
+
     if (this.mode === 'insert' || this.mode === 'upsert') {
       const created = this.payload.map(v => ({
         // Real UUIDs: routes validate id shape before dispatching, so a synthetic

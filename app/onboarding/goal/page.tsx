@@ -1,6 +1,6 @@
 /**
  * @file app/onboarding/goal/page.tsx
- * @description Phase 1 Alignment 3 of 4 — Define measurable success.
+ * @description Phase 1 Define measurable success
  *   Founder picks one primary goal from 4 options and enters baseline/target/time horizon.
  *   Matches fv-step[10] in LaunchMind_Production_UX_July18_2026(15).html.
  * @security Auth enforced by middleware. Session ID from sessionStorage.
@@ -65,6 +65,10 @@ export default function GoalPage() {
   const [baseline, setBaseline]   = useState('');
   const [target, setTarget]       = useState('');
   const [timeDays, setTimeDays]   = useState(90);
+  // G6 — how the owner judges marketing overall, which outlives any one target.
+  const [successDef, setSuccessDef] = useState('');
+  // G8 — a few supporting goals, ordered. Deliberately not an OKR system.
+  const [supporting, setSupporting] = useState<string[]>([]);
   const [saving, setSaving]       = useState(false);
 
   useEffect(() => {
@@ -93,6 +97,17 @@ export default function GoalPage() {
         targetValue:     target ? parseFloat(target) : 0,
         unit:            GOAL_UNIT[goalType],
         timeHorizonDays: timeDays,
+        // G8. "I don't know yet" is a valid answer — an absent target must not
+        // be turned into a fabricated one.
+        targetUnknown:   !target,
+        successDefinition: successDef.trim() || undefined,
+        supportingGoals: supporting.map(id => ({
+          goalType:      GOAL_TYPE_MAP[id as GoalValue],
+          customMetric:  GOAL_CUSTOM_METRIC[id as GoalValue],
+          targetValue:   0,
+          targetUnknown: true,
+          unit:          GOAL_UNIT[id as GoalValue],
+        })),
       }, session.access_token);
       router.push('/onboarding/competitors');
     } finally {
@@ -180,7 +195,7 @@ export default function GoalPage() {
   return (
     <div>
       {/* fv-kicker */}
-      <div style={kickerStyle}>Alignment 3 of 4 · Define measurable success</div>
+      <div style={kickerStyle}>Define measurable success</div>
 
       {/* conversation-thread */}
       <div style={threadStyle}>
@@ -279,6 +294,52 @@ export default function GoalPage() {
           <b>Success definition saved.</b>{' '}{AI_RESPONSES[goalType]}
         </div>
 
+      </div>
+
+      {/* ── G8 · supporting goals ─────────────────────────────────────── */}
+      <div style={{ marginTop: 18 }}>
+        <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink2)', display: 'block', marginBottom: 6 }}>
+          Anything else you are working towards? <span style={{ fontWeight: 400, color: 'var(--ink3)' }}>(optional)</span>
+        </label>
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+          {(Object.keys(GOAL_UNIT) as GoalValue[]).filter(g => g !== goalType).slice(0, 6).map(g => {
+            const on = supporting.includes(g);
+            return (
+              <button
+                key={g} type="button"
+                onClick={() => setSupporting(on ? supporting.filter(x => x !== g)
+                  : supporting.length < 4 ? [...supporting, g] : supporting)}
+                style={{
+                  borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  background: on ? 'var(--sage-d)' : 'var(--raised)',
+                  border: `1px solid ${on ? 'var(--sage-b)' : 'var(--border2)'}`,
+                  color: on ? 'var(--sage)' : 'var(--ink2)',
+                }}
+              >{GOAL_UNIT[g]}</button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--ink3)', marginTop: 5 }}>
+          Up to four. Your main goal above still outranks these.
+        </div>
+      </div>
+
+      {/* ── G6 · success definition ───────────────────────────────────────── */}
+      <div style={{ marginTop: 18 }}>
+        <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink2)', display: 'block', marginBottom: 6 }}>
+          What would make marketing successful for you? <span style={{ fontWeight: 400, color: 'var(--ink3)' }}>(optional)</span>
+        </label>
+        <textarea
+          value={successDef} rows={2}
+          onChange={e => setSuccessDef(e.target.value)}
+          placeholder="In your own words — how you will judge whether this worked."
+          style={{
+            width: '100%', borderRadius: 9, border: '1px solid var(--border2)',
+            background: '#fff', color: 'var(--ink)', padding: '10px 12px',
+            fontSize: 14, fontFamily: 'inherit', lineHeight: 1.5, resize: 'vertical',
+          }}
+        />
       </div>
 
       {/* report-actions */}

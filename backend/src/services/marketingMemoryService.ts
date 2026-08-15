@@ -11,6 +11,24 @@
 
 import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
+import { resolveMemoryWorkspace } from './memory/workspaceResolver';
+import { marketingMemoryRenderer } from './memory/embeddingRenderer';
+
+/**
+ * Canonical content hash for a memory, using the SAME renderer the embedding
+ * pipeline uses.
+ *
+ * Sharing the renderer is the point: a version snapshot whose hash came from a
+ * different rendering could not be compared against what retrieval indexed, and
+ * reconstruction would report spurious drift.
+ *
+ * @returns sha256 hex, or null when the record renders to nothing.
+ */
+function renderMemoryHash(mem: { memory_type: string; title: string; content: Record<string, unknown> | null }): string | null {
+  return marketingMemoryRenderer.render({
+    memory_type: mem.memory_type, title: mem.title, content: mem.content,
+  })?.contentHash ?? null;
+}
 import type {
   MarketingMemory,
   MarketingMemoryWithVersions,
@@ -44,11 +62,14 @@ export async function createMemory(
   confidence = 0.5,
 ): Promise<MarketingMemory> {
   const supabase = getSupabaseAdmin();
+  // Migration 088: tenancy is the workspace; founder_id is retained as attribution.
+  const workspaceId = await resolveMemoryWorkspace(founderId, productId ?? null);
 
   const { data, error } = await supabase
     .from('marketing_memories')
     .insert({
-      founder_id:  founderId,
+      founder_id:   founderId,
+      workspace_id: workspaceId,
       product_id:  productId ?? null,
       memory_type: memoryType,
       title,
@@ -176,12 +197,28 @@ export async function updateMemory(
     .insert({
       memory_id:  id,
       founder_id: founderId,
+      // Derived child: inherits its parent's tenancy (migration 088, backfill rule 2).
+      workspace_id: (mem as unknown as { workspace_id: string }).workspace_id,
       version:    mem.version,
+      // Gate 0.5 (3.1F). The snapshot previously omitted title, memory_type,
+      // status and evidence_ids — so a historical version could not reproduce
+      // what a model was actually shown, since title is weight A in search_tsv
+      // and the first line of the embedding rendering. Reconstruction was
+      // therefore forced to report `changed` for every updated memory.
+      title:        mem.title,
+      memory_type:  mem.memory_type,
+      status:       mem.status,
+      evidence_ids: (mem as unknown as { evidence_ids?: string[] }).evidence_ids ?? [],
+      content_hash: renderMemoryHash(mem),
+      rendering_version: marketingMemoryRenderer.renderingVersion,
       content:    mem.content,
       source:     mem.source,
       confidence: mem.confidence,
       changed_by: updates.changed_by ?? 'founder',
       change_note: updates.change_note ?? null,
+      change_reason: updates.change_note ?? 'updated',
+      valid_from: (mem as unknown as { updated_at?: string }).updated_at ?? null,
+      valid_until: new Date().toISOString(),
     });
 
   // Apply update
@@ -258,13 +295,31 @@ export async function searchMemories(
   const supabase = getSupabaseAdmin();
   const { productId, memoryType, limit = 20 } = opts;
 
-  // Use ILIKE on title + text cast of content for portability across Supabase tiers
+  // ── THE 3.1A DEFECT, AND THE FIX ─────────────────────────────────────────
+  //
+  // This previously read:
+  //     .or(`title.ilike.%${query}%,content.cs.{"${query}"}`)
+  //
+  // `content.cs.{"…"}` is PostgREST ARRAY-LITERAL syntax applied to a `jsonb`
+  // column. `{"messaging"}` is not valid JSON, so Postgres rejected the WHOLE
+  // disjunction — including the `title.ilike` half, which worked on its own —
+  // with `invalid input syntax for type json`. The error was caught below and
+  // turned into `return []`, indistinguishable from "no matches". Every
+  // GET /memory/search call returned nothing, silently, since the feature
+  // shipped.
+  //
+  // The fix is NOT a repaired ILIKE. Measured in 3.1A, title-only ILIKE reaches
+  // just 9.4% Recall@5, because it tests the entire question as one literal
+  // substring: "What positioning has historically worked best?" matches no
+  // title. This now uses the `search_tsv` generated column from migration 094
+  // (title A / claim B / scope C, English stemming) via PostgREST's `websearch`
+  // operator, which parses owner input safely and cannot raise on punctuation.
   let q = supabase
     .from('marketing_memories')
     .select('*')
     .eq('founder_id', founderId)
     .eq('status', 'active')
-    .or(`title.ilike.%${query}%,content.cs.{"${query}"}`)
+    .textSearch('search_tsv', query, { type: 'websearch', config: 'english' })
     .order('confidence', { ascending: false })
     .limit(limit);
 
@@ -274,7 +329,24 @@ export async function searchMemories(
   const { data, error } = await q;
   if (error) {
     Sentry.captureException(error, { tags: { service: 'marketingMemoryService', fn: 'searchMemories' } });
-    return [];
+    // Explicit, justified fallback (ADR-066 rule 16 permits ILIKE only here):
+    // a database that has not yet run migration 094 has no `search_tsv`. Weak
+    // retrieval is better than none, and unlike the original this cannot mask a
+    // query error as an empty result — the fallback is a different query, and
+    // its own failure returns [] only after both paths have failed.
+    let fb = supabase
+      .from('marketing_memories')
+      .select('*')
+      .eq('founder_id', founderId)
+      .eq('status', 'active')
+      .ilike('title', `%${query}%`)
+      .order('confidence', { ascending: false })
+      .limit(limit);
+    if (productId) fb = fb.eq('product_id', productId);
+    if (memoryType) fb = fb.eq('memory_type', memoryType);
+
+    const { data: fbData } = await fb;
+    return (fbData ?? []) as MarketingMemory[];
   }
 
   return (data ?? []) as MarketingMemory[];
@@ -385,12 +457,14 @@ export async function addEvidence(
   sourceTable?: string,
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
+  const workspaceId = await resolveMemoryWorkspace(founderId, productId ?? null);
 
   // Insert evidence record
   const { data: ev, error: evErr } = await supabase
     .from('evidence')
     .insert({
       founder_id:      founderId,
+      workspace_id:    workspaceId,
       product_id:      productId ?? null,
       evidence_type:   evidenceType,
       source_id:       sourceId ?? null,

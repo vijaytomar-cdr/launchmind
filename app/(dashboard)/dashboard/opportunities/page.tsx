@@ -11,6 +11,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { api, type Opportunity } from '@/lib/api';
 import { IconBulb, IconArrowRight, IconCheck, IconRefresh } from '@tabler/icons-react';
@@ -65,6 +66,9 @@ function TableRow({
 
   return (
     <div
+      // Test hook: lets the badge-consistency certification count rendered rows
+      // instead of guessing at a selector over an inline-styled grid.
+      data-opp-row={opp.state}
       style={{
         display: 'grid',
         gridTemplateColumns: GRID,
@@ -166,6 +170,7 @@ const FILTER_TABS: { key: FilterState; label: string }[] = [
 ];
 
 export default function OpportunitiesPage() {
+  const router = useRouter();
   const [opps,      setOpps]      = useState<Opportunity[]>([]);
   const [filter,    setFilter]    = useState<FilterState>('all');
   const [loading,   setLoading]   = useState(true);
@@ -206,6 +211,13 @@ export default function OpportunitiesPage() {
     } else {
       setOpps(prev => prev.map(o => o.id === id ? { ...o, state: newState } : o));
     }
+    // The sidebar badge is rendered by the (dashboard) SERVER layout, which does
+    // not re-run for a client-side state change. Without this, dismissing an
+    // opportunity updated the list while the badge kept the count it was born
+    // with — the exact stale-badge symptom this page is being fixed for.
+    // router.refresh() re-renders the layout, whose /owner/counts fetch is
+    // no-store, so the badge recomputes from the same rows the list just changed.
+    router.refresh();
   };
 
   const generateAnalysis = async () => {
@@ -217,6 +229,7 @@ export default function OpportunitiesPage() {
       setOpps(res.opportunities);
       const pid = res.opportunities.find(o => o.product_id)?.product_id ?? productId;
       setProductId(pid);
+      router.refresh();   // newly generated rows must reach the badge too
     } catch { /* ignore */ } finally { setAnalyzing(false); }
   };
 

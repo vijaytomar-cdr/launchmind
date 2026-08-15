@@ -1037,15 +1037,37 @@ export const api = {
     getSessionById: (sessionId: string, token: string) =>
       requestData<{ session: OnboardingSession; nextRoute: string }>(`/onboarding/sessions/${sessionId}`, { token }),
 
-    saveWorkspace: (sessionId: string, workspaceName: string, token: string) =>
+    saveWorkspace: (
+      sessionId: string, workspaceName: string, token: string, productMaturity?: string,
+    ) =>
       requestData<{ session: OnboardingSession; nextRoute: string }>(`/onboarding/sessions/${sessionId}/workspace`, {
-        method: 'POST', body: JSON.stringify({ workspaceName }), token,
+        method: 'POST', body: JSON.stringify({ workspaceName, productMaturity }), token,
       }),
 
     startDiscovery: (sessionId: string, urls: string[], token: string, privateDescription?: string) =>
       requestData<{ job: OnboardingDiscoveryJob }>(`/onboarding/sessions/${sessionId}/discovery`, {
         method: 'POST', body: JSON.stringify({ urls, privateDescription }), token,
       }),
+
+    /**
+     * "This product isn't public yet" — no URLs, no scraping, no fabricated
+     * claims. A separate endpoint because the public path REQUIRES at least one
+     * URL; calling it with an empty array is what produced VALIDATION_ERROR.
+     */
+    startPreLaunch: (
+      sessionId: string,
+      privateDescription: string,
+      token: string,
+      productName?: string,
+    ) =>
+      requestData<{ productId: string; nextRoute: string }>(
+        `/onboarding/sessions/${sessionId}/discovery/pre-launch`, {
+          method: 'POST', body: JSON.stringify({ privateDescription, productName }), token,
+        }),
+
+    /** Truthful completion state — two dimensions, no fabricated percentage. */
+    getReadiness: (sessionId: string, token: string) =>
+      requestData<OnboardingReadiness>(`/onboarding/sessions/${sessionId}/readiness`, { token }),
 
     getDiscovery: (sessionId: string, token: string) =>
       requestData<{ job: OnboardingDiscoveryJob; sessionState: string }>(`/onboarding/sessions/${sessionId}/discovery`, { token }),
@@ -1092,6 +1114,19 @@ export const api = {
 
     saveAudience: (sessionId: string, data: Record<string, unknown>, token: string) =>
       requestData<{ saved: boolean; nextState: string }>(`/onboarding/sessions/${sessionId}/audience`, {
+        method: 'PUT', body: JSON.stringify(data), token,
+      }),
+
+    /**
+     * LaunchMind's understanding of the business, for the owner to verify.
+     * Suggestions come back UNREVIEWED — displaying one grants no authority.
+     */
+    getAlignment: (sessionId: string, token: string) =>
+      requestData<AlignmentUnderstanding>(`/onboarding/sessions/${sessionId}/alignment`, { token }),
+
+    /** G1 · G2 · G5 · G7 — positioning, value, problem, markets, channels. */
+    savePositioning: (sessionId: string, data: Record<string, unknown>, token: string) =>
+      requestData<{ saved: boolean; nextState: string }>(`/onboarding/sessions/${sessionId}/positioning`, {
         method: 'PUT', body: JSON.stringify(data), token,
       }),
 
@@ -2456,6 +2491,63 @@ export interface OnboardingDiscoveryJob {
   competitor_data:     { competitors?: Array<{ name: string; websiteUrl?: string; relationship: string; discoveredBy: 'AI' }> } | null;
   created_at:          string;
   updated_at:          string;
+}
+
+/** One understanding card. `status` is the ONLY source of founder authority. */
+export interface AlignmentSuggestionCard {
+  category:   string;
+  title:      string;
+  /** The owner's corrected wording when corrected; otherwise LaunchMind's. */
+  body:       string;
+  confidence: number;
+  status:     'UNREVIEWED' | 'CONFIRMED' | 'CORRECTED' | 'REJECTED';
+  /** Owner-facing source labels for "Why I think this". Never raw reasoning. */
+  sources:    string[];
+}
+
+export interface AlignmentUnderstanding {
+  suggestions: AlignmentSuggestionCard[];
+  /** Public presence LaunchMind verified. NOT owner-confirmed marketing. */
+  observedChannels: Array<{ channel: string; status: 'observed'; label: string }>;
+  /** Geography seed — an owner correction outranks the original inference. */
+  marketSeed: string | null;
+  sources: string[];
+  /** Cards with no defensible suggestion; the UI asks a direct question instead. */
+  unavailable: string[];
+  /** §19 — which sources were read and which could not be. */
+  partial: { attempted: string[]; failed: string[] };
+}
+
+export interface OnboardingReadinessCard {
+  key: string;
+  title: string;
+  detail: string;
+  present: boolean;
+}
+
+/**
+ * What LaunchMind can truthfully claim after onboarding.
+ *
+ * Deliberately carries NO percentage: founder context and observed evidence are
+ * different questions, and the single "96%" that used to appear here was a
+ * string literal identical for every business.
+ */
+export interface OnboardingReadiness {
+  founderContext: {
+    status: 'complete' | 'partial' | 'minimal';
+    label: string;
+    captured: string[];
+    missing: string[];
+  };
+  observedEvidence: {
+    level: 'none' | 'public' | 'connected';
+    label: string;
+    sources: string[];
+    connectedProviders: number;
+  };
+  summary: string;
+  cards: OnboardingReadinessCard[];
+  direction: { headline: string | null };
 }
 
 export interface ProductClaim {

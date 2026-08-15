@@ -11,7 +11,8 @@ import { buildServer } from '../src/server';
 vi.mock('../src/lib/supabaseAdmin', () => {
   const FOUNDER_A   = 'aa000000-0000-0000-0000-000000000001';
   const FOUNDER_B   = 'bb000000-0000-0000-0000-000000000002';
-  const PRODUCT_ID  = 'cc000000-0000-0000-0000-000000000001';
+  const WORKSPACE_ID = 'ee500000-0000-4000-8000-000000000009';
+const PRODUCT_ID  = 'cc000000-0000-0000-0000-000000000001';
   const REC_ID      = 'dd000000-0000-0000-0000-000000000001';
   const MISSION_ID  = 'ee000000-0000-0000-0000-000000000001';
 
@@ -35,6 +36,11 @@ vi.mock('../src/lib/supabaseAdmin', () => {
     (c as Record<string, unknown>).error = null;
     (c as Record<string, unknown>).count = Array.isArray(data) ? data.length : 1;
     c.single = vi.fn().mockResolvedValue({ data, error: null });
+    // Active-business resolution uses maybeSingle() and awaits chains directly.
+    c.maybeSingle = vi.fn().mockResolvedValue({
+      data: Array.isArray(data) ? (data[0] ?? null) : data, error: null });
+    c.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: Array.isArray(data) ? data : [data], error: null }).then(resolve);
     return c;
   }
 
@@ -92,12 +98,15 @@ vi.mock('../src/lib/supabaseAdmin', () => {
           return c;
         }
         if (table === 'products') {
-          const pd = { id: PRODUCT_ID, founder_id: FOUNDER_A, name: 'TestApp', category: 'Productivity', markets: ['usa'], confirmed_icp: null, competitor_set: null, scraped_meta: null, price_tier: 'free' };
+          const pd = { id: PRODUCT_ID, founder_id: FOUNDER_A, workspace_id: WORKSPACE_ID, archived_at: null, name: 'TestApp', category: 'Productivity', markets: ['usa'], confirmed_icp: null, competitor_set: null, scraped_meta: null, price_tier: 'free' };
           const c2 = chain([pd]);
           c2.single = vi.fn().mockResolvedValue({ data: pd, error: null });
           return c2;
         }
-        if (table === 'founders')  return chain({ id: FOUNDER_A, plan: 'builder', token_balance: 500 });
+        // Active-business resolution needs a selected workspace + its product.
+        if (table === 'founders')  return chain({ id: FOUNDER_A, plan: 'builder', token_balance: 500, active_workspace_id: WORKSPACE_ID, active_product_id: PRODUCT_ID });
+        if (table === 'workspaces') return chain({ id: WORKSPACE_ID, founder_id: FOUNDER_A, name: 'TestCo' });
+        if (table === 'workspace_members') return chain([]);
         if (table === 'missions') {
           const c = chain({ id: MISSION_ID, title: 'Launch in India', status: 'draft' });
           c.insert = vi.fn(() => ({

@@ -10,11 +10,16 @@
 import {
   OnboardingSession, OnboardingState, DiscoveryJob, ProductClaim,
   StrategyDirection, PreliminaryReport, VALID_TRANSITIONS, CandidateMatch,
+  isOwnerAssertedChannel,
 } from '../types/onboarding';
 import { callSonnet, callHaiku } from '../lib/aiPlatform';
 import type { AuditContext } from '../lib/aiPlatform';
 import { consumeTokens } from '../lib/tokens';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
+import { resolveMemoryWorkspace } from './memory/workspaceResolver';
+import {
+  admitFounderBootstrap, BOOTSTRAP_SOURCE, type FounderBootstrapCandidate,
+} from './memory/founderBootstrapPolicy';
 
 function getSupabase() {
   return getSupabaseAdmin();
@@ -127,6 +132,10 @@ export async function transitionState(
     WORKSPACE_SETUP: 0, DISCOVERY_PENDING: 1, DISCOVERY_IN_PROGRESS: 2,
     DISCOVERY_MATCH_NEEDED: 2, DISCOVERY_FAILED: 2,
     PRELIMINARY_REPORT: 3, BELIEF_REVIEW: 4, ALIGNMENT_AUDIENCE: 5,
+    // Positioning shares step 5 with audience: it is the same "who and why"
+    // stage of the flow, and giving it its own number would make the progress
+    // bar look longer than the flow actually got.
+    ALIGNMENT_POSITIONING: 5,
     ALIGNMENT_CONTEXT: 6, ALIGNMENT_GOAL: 7, ALIGNMENT_COMPETITORS: 8,
     BOUNDARIES_SETUP: 9, FINAL_REVIEW: 10, DIRECTION_GENERATING: 11,
     DIRECTION_COMPLETE: 12, PHASE_1_COMPLETE: 15,
@@ -147,18 +156,71 @@ export async function transitionState(
     .select('*')
     .single();
 
-  if (error || !data) {
+  // A LOST OPTIMISTIC LOCK AND A REJECTED WRITE ARE NOT THE SAME FAILURE.
+  // This previously reported every failure as "modified concurrently", so a
+  // CHECK-constraint violation (23514 — the state missing from the constraint,
+  // fixed in migration 104) told the owner to refresh and try again, which could
+  // never succeed. A lost lock returns no error and no row; anything with an
+  // error code is a real database rejection and must say so.
+  if (error) {
+    throw Object.assign(
+      new Error(`Failed to advance onboarding to ${newState}: ${error.message}`),
+      { statusCode: 500, dbCode: (error as { code?: string }).code },
+    );
+  }
+  if (!data) {
     throw Object.assign(new Error('Session was modified concurrently — please refresh'), { statusCode: 409 });
   }
   return data as OnboardingSession;
 }
 
+// ── Tenancy ───────────────────────────────────────────────────────────────
+
+/**
+ * The tenant every business-context row written during onboarding must carry.
+ *
+ * THIS IS THE ONE PLACE THE ANSWER IS DERIVED. Migration 103 gave
+ * `founder_context` and `approval_boundary_policies` a workspace and product,
+ * and the readers now filter on them — but a column the writers never populate
+ * is worse than no column at all: the reads simply return nothing, and business
+ * context silently disappears rather than visibly breaking. Every writer below
+ * goes through here so a future writer cannot forget.
+ *
+ * FAILS CLOSED. A session with no workspace cannot have its context stored
+ * somewhere plausible, because "plausible" is precisely the defect being fixed —
+ * context attaching to the wrong business. `saveWorkspace` sets the workspace at
+ * step 1, so any session that has reached an alignment step has one; a session
+ * that has not is a real inconsistency and says so.
+ *
+ * @param session - the session being written through, already ownership-verified
+ * @returns the tenant columns to spread into the write
+ * @throws {Error} 409 when the session carries no workspace
+ * @security The tenant comes from the SESSION ROW, never from client input. A
+ *   caller cannot direct another business's context into their own workspace.
+ */
+function tenantColumns(session: OnboardingSession): { workspace_id: string; product_id: string | null } {
+  const workspaceId = (session as { workspace_id?: string | null }).workspace_id ?? null;
+  if (!workspaceId) {
+    throw Object.assign(
+      new Error(
+        `Onboarding session ${session.id} has no workspace, so its business context has no ` +
+        `owner. Complete the workspace step before saving alignment answers.`),
+      { statusCode: 409 },
+    );
+  }
+  // product_id is legitimately null until discovery creates the product. It is
+  // written whenever known so later readers can scope to the product, and the
+  // 103 trigger rejects a pairing where the product is not in the workspace.
+  return { workspace_id: workspaceId, product_id: session.product_id ?? null };
+}
+
 // ── Step 2: Workspace ─────────────────────────────────────────────────────
 
 export async function saveWorkspace(
-  sessionId:     string,
-  founderId:     string,
-  workspaceName: string,
+  sessionId:       string,
+  founderId:       string,
+  workspaceName:   string,
+  productMaturity?: string,
 ): Promise<OnboardingSession> {
   const supabase = getSupabase();
 
@@ -171,9 +233,13 @@ export async function saveWorkspace(
 
   if (wsErr) throw new Error(`Failed to create workspace: ${wsErr.message}`);
 
+  // G3. Held on the session until a product exists (discovery creates it), then
+  // copied across. Storing it now rather than asking again later is the whole
+  // point of collecting it at the first step.
   return transitionState(sessionId, founderId, 'DISCOVERY_PENDING', {
     workspace_id:   ws.id,
     workspace_name: workspaceName,
+    ...(productMaturity ? { product_maturity: productMaturity } : {}),
   });
 }
 
@@ -229,6 +295,111 @@ export async function startDiscovery(
   }
 
   return job as DiscoveryJob;
+}
+
+/**
+ * Pre-launch path — the owner has no public product to research yet.
+ *
+ * LaunchMind itself is the motivating case: it is not launched, so there is no
+ * store listing and no public site. The honest response is to say so and learn
+ * the business from the owner, NOT to manufacture the evidence the rest of the
+ * flow expects.
+ *
+ * So this deliberately does the opposite of startDiscovery:
+ *   · no URLs, no scraping, no outbound request of any kind
+ *   · NO product_claims — a claim implies observed evidence, and there is none.
+ *     A "suggestion" here would be the model describing a product it has never
+ *     seen, shown to the owner at a confidence it cannot justify.
+ *   · no ratings, competitors, channels or market inferences
+ *   · maturity recorded as pre_launch so downstream copy stops implying history
+ *
+ * The product row IS created — the business is real even though its evidence is
+ * not yet public — and Alignment then runs founder-guided, with every card in
+ * the "I'm not confident enough to suggest this" state that already exists.
+ * Real sources can enrich it later; nothing here has to be unpicked first.
+ *
+ * @param productName - what the owner calls it. The only thing we know.
+ * @param privateDescription - the owner's own description, evidence not truth
+ * @throws {Error} when the session has no workspace (fails closed, as ever)
+ * @security Creates no claims, so nothing fabricated can later be confirmed by
+ *   an owner skimming the Alignment cards. Writes no Marketing Memory.
+ */
+export async function startPreLaunchDiscovery(
+  sessionId:          string,
+  founderId:          string,
+  productName:        string | undefined,
+  privateDescription: string | undefined,
+): Promise<{ productId: string }> {
+  const supabase = getSupabase();
+  const session  = await getSession(sessionId, founderId);
+  const tenant   = tenantColumns(session);   // throws when there is no workspace
+
+  // The company name the owner typed at the workspace step. Owner-authored, so
+  // using it as the product name invents nothing — and the pre-launch screen
+  // deliberately asks for a description rather than a name.
+  const resolvedName = (productName ?? '').trim()
+    || (session as { workspace_name?: string | null }).workspace_name?.trim()
+    || 'My product';
+
+  let productId = session.product_id ?? null;
+  if (!productId) {
+    const { data: product, error } = await supabase
+      .from('products')
+      .insert({
+        founder_id:   founderId,
+        workspace_id: tenant.workspace_id,
+        name:         resolvedName,
+        // No public URL exists. A placeholder would be a lie the scraper could
+        // later try to fetch, so the column records exactly that.
+        store_url:    'not-public-yet',
+        platform:     'app_store',
+        // canonical_identity stays NULL: identity comes from a platform id, and
+        // there is no platform yet. The partial unique index permits NULL, so a
+        // manually created product stays insertable.
+        canonical_identity: null,
+        maturity:     'pre_launch',
+        maturity_confirmed_at: new Date().toISOString(),
+        scraped_meta: {
+          preLaunch: true,
+          ownerDescription: privateDescription ?? null,
+          // Explicitly empty rather than absent, so downstream readers can tell
+          // "we looked and found nothing public" from "we never looked".
+          stores: [], websiteMeta: {}, storeFailures: [],
+        },
+      })
+      .select('id')
+      .single();
+    if (error) throw new Error(`Could not create product: ${error.message}`);
+    productId = (product as { id: string }).id;
+  }
+
+  await supabase.from('onboarding_sessions')
+    .update({ product_id: productId, product_maturity: 'pre_launch' })
+    .eq('id', sessionId);
+
+  // Walk the same states a public discovery would, so resume, Back and the
+  // progress rail behave identically — only the evidence differs.
+  //
+  // FORWARD ONLY. Comparing against each target individually meant a session
+  // already at ALIGNMENT_AUDIENCE tried to go back to DISCOVERY_IN_PROGRESS and
+  // threw "Invalid transition" — so re-submitting the description, or retrying
+  // after a dropped response, failed with a 409 on a screen the owner had
+  // already completed. Position in the chain decides what remains.
+  const CHAIN: OnboardingState[] = [
+    'DISCOVERY_PENDING', 'DISCOVERY_IN_PROGRESS', 'PRELIMINARY_REPORT',
+    'BELIEF_REVIEW', 'ALIGNMENT_AUDIENCE',
+  ];
+  const current = await getSession(sessionId, founderId);
+  const at = CHAIN.indexOf(current.current_state);
+  // Already past this stage (or on a branch the chain does not cover): nothing
+  // to advance, and the product above was reused rather than duplicated.
+  if (at !== -1) {
+    for (const state of CHAIN.slice(at + 1)) {
+      await transitionState(sessionId, founderId, state);
+    }
+  }
+
+  return { productId: productId! };
 }
 
 export async function getDiscoveryJob(sessionId: string, founderId: string): Promise<DiscoveryJob | null> {
@@ -417,21 +588,195 @@ export async function saveAudience(
   data:      { audienceConfirmed: string; audienceAdditions?: string; audienceSegments?: unknown[] },
 ): Promise<void> {
   const supabase = getSupabase();
+  // Read before write: the tenant is needed for the row itself, so the session
+  // is fetched first rather than after (it was previously read only to decide
+  // the transition).
+  const session = await getSession(sessionId, founderId);
   await supabase.from('founder_context').upsert({
     session_id:           sessionId,
     founder_id:           founderId,
+    ...tenantColumns(session),
     audience_confirmed:   data.audienceConfirmed,
     audience_additions:   data.audienceAdditions ?? null,
     audience_segments:    data.audienceSegments ?? null,
     updated_at:           new Date().toISOString(),
   }, { onConflict: 'session_id' });
 
-  const session = await getSession(sessionId, founderId);
   const pastAudience: OnboardingState[] = [
-    'ALIGNMENT_CONTEXT','ALIGNMENT_GOAL','ALIGNMENT_COMPETITORS',
+    'ALIGNMENT_POSITIONING','ALIGNMENT_CONTEXT','ALIGNMENT_GOAL','ALIGNMENT_COMPETITORS',
     'BOUNDARIES_SETUP','FINAL_REVIEW','DIRECTION_GENERATING','DIRECTION_COMPLETE','PHASE_1_COMPLETE',
   ];
   if (pastAudience.includes(session.current_state)) return;
+  await transitionState(sessionId, founderId, 'ALIGNMENT_POSITIONING');
+}
+
+/**
+ * G1 · G2 · G5 · G7 — positioning, value proposition, customer problem,
+ * markets and current channels.
+ *
+ * AUTHORITY COMES FROM CONFIRMATION, NOT FROM PREFILL. `confirmedFields`
+ * records which values the owner actually confirmed or corrected on screen; a
+ * value that was merely prefilled and left untouched is stored as context but
+ * never listed, so a later reader cannot mistake an AI suggestion for a founder
+ * fact. This is the same distinction the belief-review step already makes
+ * between CONFIRMED and CORRECTED.
+ *
+ * @param data - positioning, valueProposition, primaryCustomerProblem, markets,
+ *   currentChannels, confirmedFields
+ * @security Writes owner-confirmed canonical state. Nothing here grants
+ *   execution authority; markets are stored structured so a metro is never
+ *   silently widened to a country.
+ */
+/**
+ * Strips confirmations the owner did not actually make.
+ *
+ * Today that means one rule with real consequences: `currentChannels` may only
+ * be listed as confirmed when at least one channel carries an OWNER assertion
+ * (`using`/`planning`). A payload containing nothing but `observed` entries is
+ * LaunchMind reporting the listings it found — if that counted as confirmation,
+ * every founder would appear to have confirmed they actively market on the App
+ * Store the moment discovery read their listing.
+ *
+ * Server-side because confirmed_fields is the flag downstream readers consult
+ * to decide a value carries founder authority; a client is not allowed to
+ * assert that on the owner's behalf.
+ *
+ * @param claimed - confirmedFields as sent by the client
+ * @param channels - the channel payload being saved alongside it
+ * @returns the subset that is genuinely owner-asserted
+ * @security Removes authority; never adds it.
+ */
+export function sanitizeConfirmedFields(
+  claimed: string[],
+  channels: Array<{ channel: string; status: string }>,
+): string[] {
+  const ownerAsserted = (channels ?? []).some(c => isOwnerAssertedChannel(c.status));
+  return (claimed ?? []).filter(f => (f === 'currentChannels' ? ownerAsserted : true));
+}
+
+/** Maps a confirmedFields entry to the claim category it backs. */
+const CLAIM_FIELD_MAP: Record<string, string> = {
+  positioning: 'positioning',
+  value_prop:  'valueProposition',
+  problem:     'primaryCustomerProblem',
+};
+
+/**
+ * Writes the owner's card decisions back onto the suggestion claims.
+ *
+ * CONFIRMED when the owner accepted LaunchMind's wording unchanged; CORRECTED
+ * when they replaced it, with the original preserved in `body` and their words
+ * in `corrected_value`. That distinction is the whole point of the review step —
+ * "the model was right" and "the model was wrong and here is the truth" are
+ * different facts about how well LaunchMind understands the business.
+ *
+ * A card the owner did not act on is left UNREVIEWED. Never throws: a failure
+ * here must not lose the owner's saved context, which is already written.
+ *
+ * @security Only ever sets a status from an explicit owner action.
+ */
+async function syncAlignmentClaimStatuses(
+  sessionId: string,
+  founderId: string,
+  values: Record<string, string>,
+  confirmedFields: string[],
+): Promise<void> {
+  const supabase = getSupabase();
+  try {
+    const { data: rows } = await supabase
+      .from('product_claims')
+      .select('id, category, body, status')
+      .eq('session_id', sessionId)
+      .in('category', Object.keys(CLAIM_FIELD_MAP));
+
+    for (const row of (rows ?? []) as Array<{ id: string; category: string; body: string; status: string }>) {
+      const field = CLAIM_FIELD_MAP[row.category];
+      if (!confirmedFields.includes(field)) continue;      // no explicit action
+      const finalText = (values[row.category] ?? '').trim();
+      if (!finalText) continue;
+
+      const changed = finalText !== (row.body ?? '').trim();
+      // `original_value` keeps LaunchMind's wording alongside the owner's, so a
+      // correction remains reconstructible rather than overwriting the evidence
+      // of what was originally inferred.
+      const { error } = await supabase.from('product_claims').update(
+        changed
+          ? { status: 'CORRECTED', corrected_value: finalText,
+              original_value: row.body, updated_at: new Date().toISOString() }
+          : { status: 'CONFIRMED', updated_at: new Date().toISOString() },
+      ).eq('id', row.id).eq('founder_id', founderId);
+      // Surfaced rather than swallowed: a silent failure here is what makes the
+      // owner confirm the same card twice.
+      if (error) console.warn('[alignment] claim status update failed:', row.category, error.message);
+    }
+  } catch (err) {
+    console.warn('[alignment] could not sync claim statuses:', (err as Error).message);
+  }
+}
+
+export async function savePositioning(
+  sessionId: string,
+  founderId: string,
+  data: {
+    positioning: string; valueProposition: string; primaryCustomerProblem: string;
+    markets: Array<{ type: string; value: string; label: string }>;
+    currentChannels: Array<{ channel: string; status: string }>;
+    confirmedFields: string[];
+  },
+): Promise<void> {
+  const supabase = getSupabase();
+  const session  = await getSession(sessionId, founderId);
+
+  await supabase.from('founder_context').upsert({
+    session_id:               sessionId,
+    founder_id:               founderId,
+    ...tenantColumns(session),
+    positioning:              data.positioning,
+    value_proposition:        data.valueProposition,
+    primary_customer_problem: data.primaryCustomerProblem,
+    markets:                  data.markets,
+    current_channels:         data.currentChannels,
+    // SERVER-SIDE PROVENANCE GUARD. `currentChannels` is only a confirmed field
+    // when the owner actually asserted a channel — `observed` entries are
+    // LaunchMind's own detection of a public listing and must never be counted
+    // as the owner telling us they market there. Enforced here rather than
+    // trusted from the client, because confirmed_fields is what downstream
+    // readers use to decide something carries founder authority.
+    confirmed_fields:         sanitizeConfirmedFields(data.confirmedFields ?? [], data.currentChannels),
+    updated_at:               new Date().toISOString(),
+  }, { onConflict: 'session_id' });
+
+  // Record the owner's card decisions on the CLAIMS as well as in
+  // confirmed_fields. Without this the claim rows stay UNREVIEWED forever, so
+  // coming back to this screen — via Back, refresh, or resume — re-proposes as
+  // "suggestion, not yet confirmed" something the owner already confirmed, and
+  // asks them to do it twice. confirmed_fields alone is not enough because the
+  // cards read their state from the claims.
+  await syncAlignmentClaimStatuses(sessionId, founderId, {
+    positioning: data.positioning,
+    value_prop:  data.valueProposition,
+    problem:     data.primaryCustomerProblem,
+  }, data.confirmedFields ?? []);
+
+  // G7. The product's markets are set ONLY here, from an explicit owner choice.
+  // The column default was removed in migration 102 precisely so an unanswered
+  // flow leaves the market unknown rather than confidently claiming the USA.
+  if (session.product_id) {
+    const maturity = session.product_maturity;
+    await supabase.from('products').update({
+      markets:             data.markets.map(m => m.value),
+      market_confirmed_at: new Date().toISOString(),
+      ...(typeof maturity === 'string'
+        ? { maturity, maturity_confirmed_at: new Date().toISOString() }
+        : {}),
+    }).eq('id', session.product_id).eq('founder_id', founderId);
+  }
+
+  const past: OnboardingState[] = [
+    'ALIGNMENT_CONTEXT','ALIGNMENT_GOAL','ALIGNMENT_COMPETITORS',
+    'BOUNDARIES_SETUP','FINAL_REVIEW','DIRECTION_GENERATING','DIRECTION_COMPLETE','PHASE_1_COMPLETE',
+  ];
+  if (past.includes(session.current_state)) return;
   await transitionState(sessionId, founderId, 'ALIGNMENT_CONTEXT');
 }
 
@@ -441,16 +786,17 @@ export async function saveContextDelta(
   data:      { contextDelta?: string; hiddenStrengths?: string[]; recentWins?: string[] },
 ): Promise<void> {
   const supabase = getSupabase();
+  const session  = await getSession(sessionId, founderId);
   await supabase.from('founder_context').upsert({
     session_id:       sessionId,
     founder_id:       founderId,
+    ...tenantColumns(session),
     context_delta:    data.contextDelta ?? null,
     hidden_strengths: data.hiddenStrengths ?? null,
     recent_wins:      data.recentWins ?? null,
     updated_at:       new Date().toISOString(),
   }, { onConflict: 'session_id' });
 
-  const session = await getSession(sessionId, founderId);
   const pastContext: OnboardingState[] = [
     'ALIGNMENT_GOAL','ALIGNMENT_COMPETITORS','BOUNDARIES_SETUP',
     'FINAL_REVIEW','DIRECTION_GENERATING','DIRECTION_COMPLETE','PHASE_1_COMPLETE',
@@ -479,8 +825,45 @@ export async function saveGoal(
     time_horizon_days: data.timeHorizonDays ?? 30,
     motivation:        data.motivation ?? null,
     current_blockers:  data.currentBlockers ?? null,
+    target_unknown:    data.targetUnknown === true,
+    is_primary:        true,
+    priority:          1,
     updated_at:        new Date().toISOString(),
   }, { onConflict: 'session_id' });
+
+  // G6. Success definition lives with the other owner-confirmed context, not on
+  // the goal row: it is how the owner judges marketing overall, which outlives
+  // any single target.
+  if (typeof data.successDefinition === 'string' && data.successDefinition.trim()) {
+    await supabase.from('founder_context').upsert({
+      session_id: sessionId, founder_id: founderId,
+      ...tenantColumns(session),
+      success_definition: data.successDefinition,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'session_id' });
+  }
+
+  // G8. A few supporting goals, ordered. Replaced wholesale on re-save so an
+  // edited flow cannot leave orphans from a previous pass. The partial unique
+  // index guarantees only one primary exists regardless.
+  const supporting = Array.isArray(data.supportingGoals) ? data.supportingGoals : [];
+  await supabase.from('business_goals')
+    .delete().eq('session_id', sessionId).eq('is_primary', false);
+  if (supporting.length) {
+    await supabase.from('business_goals').insert(
+      supporting.map((g, i) => {
+        const goal = g as Record<string, unknown>;
+        return {
+          session_id: sessionId, founder_id: founderId,
+          product_id: session.product_id ?? null,
+          goal_type: goal.goalType, custom_metric: goal.customMetric ?? null,
+          target_value: goal.targetValue ?? 0,
+          target_unknown: goal.targetUnknown === true,
+          unit: goal.unit, time_horizon_days: data.timeHorizonDays ?? 30,
+          is_primary: false, priority: i + 2,
+        };
+      }));
+  }
 
   const pastGoal: OnboardingState[] = [
     'ALIGNMENT_COMPETITORS','BOUNDARIES_SETUP','FINAL_REVIEW',
@@ -538,6 +921,8 @@ export async function saveBoundaries(
     timeCommitmentHrs?:  number;
     weeklySpendCapUsd:   number;
     weeklySpendCapInr:   number;
+    /** G4. Owner-chosen per-capability boundaries. Absent = legacy derived behaviour. */
+    explicitCapabilities?: Record<string, string>;
     founderAcknowledged: true;  // server-enforced: literal true required
   },
 ): Promise<void> {
@@ -566,20 +951,42 @@ export async function saveBoundaries(
   await supabase.from('founder_context').upsert({
     session_id:           sessionId,
     founder_id:           founderId,
+    ...tenantColumns(currentSession),
     working_style:        data.workingStyle,
     notification_cadence: data.notificationCadence,
     time_commitment_hrs:  data.timeCommitmentHrs ?? null,
     updated_at:           new Date().toISOString(),
   }, { onConflict: 'session_id' });
 
+  // A capability the owner marked `never` appears in NEITHER list: it is not
+  // autonomous, and it is not merely gated behind approval. "Never change ad
+  // spend" must not degrade into "ask me before changing ad spend".
+  const explicit = data.explicitCapabilities;
+
   if (!alreadyPast) {
     // Create immutable approval boundary policy record (insert only on first pass)
     await supabase.from('approval_boundary_policies').insert({
       session_id:           sessionId,
       founder_id:           founderId,
+      // Without this, "AllignX: never spend autonomously" and "LaunchMind:
+      // spend needs approval" resolve by founder identity alone, and whichever
+      // is read first governs both businesses.
+      ...tenantColumns(currentSession),
       working_style:        data.workingStyle,
-      autonomous_permitted: permittedByStyle[data.workingStyle],
-      approval_required:    requiredByStyle[data.workingStyle],
+      // G4. STYLE is a collaboration preference; AUTHORITY is a permission
+      // boundary. When the owner states boundaries explicitly, those win and
+      // the style no longer decides what LaunchMind may do. The legacy derived
+      // lists are still written so existing readers keep working, but
+      // boundaries_source records which one was authoritative — the two can
+      // never be confused after the fact.
+      autonomous_permitted: explicit
+        ? Object.keys(explicit).filter(k => explicit[k] === 'autonomous')
+        : permittedByStyle[data.workingStyle],
+      approval_required:    explicit
+        ? Object.keys(explicit).filter(k => explicit[k] === 'approval_required')
+        : requiredByStyle[data.workingStyle],
+      explicit_capabilities: explicit ?? null,
+      boundaries_source:     explicit ? 'owner_explicit' : 'derived_from_style',
       weekly_spend_cap_usd: data.weeklySpendCapUsd,
       weekly_spend_cap_inr: data.weeklySpendCapInr,
       founder_acknowledged: true,
@@ -838,50 +1245,85 @@ export async function completePhase1(
       supabase.from('competitor_relationships').select('name, relationship, key_differentiator').eq('session_id', sessionId).eq('founder_id', founderId),
     ]);
 
-    const memories: Record<string, unknown>[] = [];
+    // GOVERNED BOOTSTRAP ADMISSION (migration 107 + founderBootstrapPolicy).
+    //
+    // This block used to batch-INSERT legacy-shaped rows: memory_class NULL,
+    // authority NULL, no policy version, no provenance, and a hardcoded
+    // confidence per category (0.80/0.85/0.90/0.95) that measured nothing. They
+    // survived only because the legacy discriminator exempts memory_class IS
+    // NULL — an exemption meant for PRE-EXISTING rows, not a licence for a live
+    // writer to keep minting new ones.
+    //
+    // Every candidate now goes through admitFounderBootstrap(), which stamps
+    // class, FOUNDER_ASSERTED authority, policy versions, scope and a
+    // reconstructible sourceRef, and refuses anything the founder did not
+    // explicitly confirm.
+    const candidates: FounderBootstrapCandidate[] = [];
+    const bootstrapWorkspaceId = await resolveMemoryWorkspace(founderId, sessionProductId ?? null);
 
     if (fcRes.status === 'fulfilled' && fcRes.value.data) {
       const fc = fcRes.value.data as Record<string, unknown>;
       if (fc.audience_confirmed) {
-        memories.push({
-          founder_id: founderId, product_id: sessionProductId,
-          memory_type: 'customer', source: 'intake', status: 'active',
-          title: 'Primary audience confirmed in Phase 1',
+        candidates.push({
+          workspaceId: bootstrapWorkspaceId, productId: sessionProductId, founderId,
+          category: 'audience',
+          title: 'Primary audience confirmed during onboarding',
           content: { audienceConfirmed: fc.audience_confirmed, workingStyle: fc.working_style ?? null },
-          confidence: 0.85,
+          sourceRef: { table: 'founder_context', rowId: String(fc.id), field: 'audience_confirmed' },
+          founderConfirmed: true,
         });
       }
       if (fc.context_delta) {
-        memories.push({
-          founder_id: founderId, product_id: sessionProductId,
-          memory_type: 'product', source: 'intake', status: 'active',
-          title: 'Next major change shared in Phase 1',
+        candidates.push({
+          workspaceId: bootstrapWorkspaceId, productId: sessionProductId, founderId,
+          category: 'context_delta',
+          title: 'Business context change shared during onboarding',
           content: { contextDelta: fc.context_delta, hiddenStrengths: fc.hidden_strengths ?? null, recentWins: fc.recent_wins ?? null },
-          confidence: 0.90,
+          sourceRef: { table: 'founder_context', rowId: String(fc.id), field: 'context_delta' },
+          founderConfirmed: true,
         });
       }
     }
 
     if (bgRes.status === 'fulfilled' && bgRes.value.data) {
       const bg = bgRes.value.data as Record<string, unknown>;
-      memories.push({
-        founder_id: founderId, product_id: sessionProductId,
-        memory_type: 'founder', source: 'intake', status: 'active',
+      candidates.push({
+        workspaceId: bootstrapWorkspaceId, productId: sessionProductId, founderId,
+        category: 'goal',
         title: `Primary goal: ${bg.goal_type} → ${bg.target_value} ${bg.unit}`,
         content: { goalType: bg.goal_type, targetValue: bg.target_value, unit: bg.unit, timeHorizonDays: bg.time_horizon_days, motivation: bg.motivation ?? null },
-        confidence: 0.95,
+        sourceRef: { table: 'business_goals', rowId: String(bg.id), field: 'goal_type' },
+        founderConfirmed: true,
       });
     }
 
     if (crRes.status === 'fulfilled' && crRes.value.data?.length) {
       const comps = crRes.value.data as Array<Record<string, unknown>>;
-      memories.push({
-        founder_id: founderId, product_id: sessionProductId,
-        memory_type: 'competitor', source: 'intake', status: 'active',
-        title: `${comps.length} competitor(s) identified in Phase 1`,
+      candidates.push({
+        workspaceId: bootstrapWorkspaceId, productId: sessionProductId, founderId,
+        category: 'competitors',
+        title: `${comps.length} competitor(s) confirmed during onboarding`,
         content: { competitors: comps.map(c => ({ name: c.name, relationship: c.relationship, keyDifferentiator: c.key_differentiator })) },
-        confidence: 0.80,
+        sourceRef: { table: 'competitor_relationships', rowId: String(sessionId), field: 'name' },
+        founderConfirmed: true,
       });
+    }
+
+    const memories: Record<string, unknown>[] = [];
+    for (const c of candidates) {
+      const admission = admitFounderBootstrap(c);
+      if (!admission.admit || !admission.row) continue;
+      // IDEMPOTENT: keyed on the SOURCE ROW, so resume, refresh or a repeated
+      // completePhase1 re-derives the same identity instead of duplicating.
+      const { data: existing } = await supabase
+        .from('marketing_memories')
+        .select('id')
+        .eq('workspace_id', c.workspaceId)
+        .eq('source', BOOTSTRAP_SOURCE)
+        .eq('memory_type', admission.row.memory_type as string)
+        .maybeSingle();
+      if (existing) continue;
+      memories.push(admission.row);
     }
 
     if (memories.length > 0) {
@@ -1108,14 +1550,27 @@ export async function extractAndStoreClaims(
       0.72, 'review_analysis');
   }
 
-  // ── 6. Current channels observed (FACT from platform + website) ───────────
-  const platform    = (metadata.platform as string) ?? '';
+  // ── 6. Current channels observed (FACT from platforms + website) ──────────
+  //
+  // WAS: two `if`s against a single scalar `platform`, which are mutually
+  // exclusive — so a product listed on BOTH stores could only ever be reported
+  // as one of them, at confidence 0.95, as a FACT. LaunchMind was confidently
+  // wrong about something the owner had explicitly told it.
+  //
+  // `platforms` is the set actually scraped. The scalar is still honoured so
+  // callers that pass one (intakeWorker) keep working.
+  const platformSet = new Set<string>(
+    Array.isArray(appData.platforms) ? (appData.platforms as string[]) : [],
+  );
+  const scalarPlatform = (metadata.platform as string) ?? '';
+  if (scalarPlatform) platformSet.add(scalarPlatform);
+
   const hasWebsite  = Boolean(appData.websiteMeta && Object.keys(appData.websiteMeta as object).length > 0);
   const channelParts: string[] = [];
-  if (platform === 'app_store')  channelParts.push('App Store');
-  if (platform === 'play_store') channelParts.push('Play Store');
-  if (hasWebsite)                channelParts.push('website');
-  if (reviewCount > 0)           channelParts.push('organic reviews');
+  if (platformSet.has('app_store'))  channelParts.push('App Store');
+  if (platformSet.has('play_store')) channelParts.push('Play Store');
+  if (hasWebsite)                    channelParts.push('website');
+  if (reviewCount > 0)               channelParts.push('organic reviews');
   if (channelParts.length > 0) {
     push('FACT', 'channel',           // singular 'channel' not 'channels'
       'Current channels observed',

@@ -15,6 +15,8 @@ import * as Sentry from '@sentry/node';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin';
 import { callHaiku } from '../lib/aiPlatform';
 import { getBenchmarks } from './intelligenceNetworkService';
+import { retrieveMemories } from './memory/retrievalService';
+import { resolveMemoryWorkspace } from './memory/workspaceResolver';
 import { consumeTokens } from '../lib/tokens';
 
 export type RecommendationType =
@@ -98,19 +100,12 @@ export async function generateRecommendations(
 
   try {
     // ── 1. Fetch context in parallel ─────────────────────────────────────────
-    const [productRes, memoriesRes, metricsRes, experimentsRes] = await Promise.all([
+    const [productRes, metricsRes, experimentsRes] = await Promise.all([
       supabase.from('products')
         .select('id, name, category, markets, confirmed_icp, competitor_set, scraped_meta, price_tier')
         .eq('id', productId)
         .eq('founder_id', founderId)
         .single(),
-
-      supabase.from('marketing_memories')
-        .select('memory_type, key, content, confidence')
-        .eq('founder_id', founderId)
-        .eq('product_id', productId)
-        .order('created_at', { ascending: false })
-        .limit(20),
 
       supabase.from('campaign_metrics')
         .select('campaign_id, week_start, impressions, clicks, installs, cpi, ctr, roas')
@@ -134,7 +129,45 @@ export async function generateRecommendations(
 
     if (!product) return { created, skipped };
 
-    const memories  = memoriesRes.data ?? [];
+    // ADR-067 C16 / 3.2A §25. This previously selected a `key` column that has
+    // never existed: PostgREST returned 42703, `data` was null, and `?? []`
+    // turned the error into "no memory". The Recommendation Engine has therefore
+    // never used Marketing Memory at all.
+    //
+    // Routed through RetrievalService rather than repaired in place, so this is
+    // not a fourth direct read path. Retrieval reports its own degradation, so
+    // the three cases stay distinguishable:
+    //   success        → memories present
+    //   legitimate 0   → memoriesUnavailable === false, empty list
+    //   retrieval fail → memoriesUnavailable === true, and it is NOT silent
+    let memories: Array<{ memory_type: string; content: unknown; confidence: number; title: string }> = [];
+    let memoriesUnavailable = false;
+    try {
+      const workspaceId = await resolveMemoryWorkspace(founderId, productId);
+      if (workspaceId) {
+        const retrieved = await retrieveMemories({
+          workspaceId,
+          productId,
+          query: `${product?.name ?? ''} marketing strategy positioning channel audience`.trim(),
+          limit: 20,
+        });
+        memories = retrieved.results.map(r => ({
+          memory_type: r.memoryType, content: r.content,
+          confidence: r.confidence, title: r.title,
+        }));
+        // `degraded` means an arm failed. An empty result from a healthy
+        // retriever is a real answer; an empty result from a degraded one is not.
+        if (retrieved.degraded && memories.length === 0) memoriesUnavailable = true;
+      }
+    } catch (err) {
+      memoriesUnavailable = true;
+      Sentry.captureException(err, { tags: { stage: 'recommendation.memoryRetrieval' } });
+    }
+    if (memoriesUnavailable) {
+      Sentry.captureMessage('recommendation generated without Marketing Memory', {
+        level: 'warning', tags: { productId },
+      });
+    }
     const metrics   = metricsRes.data  ?? [];
     const experiments = experimentsRes.data ?? [];
 
@@ -150,7 +183,7 @@ export async function generateRecommendations(
       `Price tier: ${product.price_tier ?? 'unknown'}`,
       metrics.length ? `Recent metrics: ${JSON.stringify(metrics.slice(0, 3))}` : '',
       experiments.length ? `Experiments: ${experiments.map(e => `${e.title} (${e.status}${e.winner ? ', winner:' + e.winner : ''})`).join('; ')}` : '',
-      memories.length ? `Key learnings: ${memories.slice(0, 5).map(m => `[${m.memory_type}] ${m.key}: ${String(m.content).slice(0, 100)}`).join(' | ')}` : '',
+      memories.length ? `Key learnings: ${memories.slice(0, 5).map(m => `[${m.memory_type}] ${m.title}: ${JSON.stringify(m.content).slice(0, 100)}`).join(' | ')}` : '',
       benchmarks ? `Category benchmark: avg install delta ${benchmarks.avgInstallDeltaPct}%, top channel: ${benchmarks.topChannel}` : '',
     ].filter(Boolean).join('\n');
 

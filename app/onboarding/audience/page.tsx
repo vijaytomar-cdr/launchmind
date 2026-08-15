@@ -96,7 +96,7 @@ export default function AudiencePage() {
         { audienceConfirmed, confidenceResponse: choice },
         session.access_token,
       );
-      router.push('/onboarding/context-delta');
+      router.push('/onboarding/positioning');
     } catch (e) {
       const msg = (e as Error).message ?? String(e);
       console.error('[audience] saveAudience failed:', msg);
@@ -121,7 +121,7 @@ export default function AudiencePage() {
         session.access_token,
       );
     } catch { /* best effort — navigate regardless */ }
-    router.push('/onboarding/context-delta');
+    router.push('/onboarding/positioning');
   }
 
   const showEdit     = choice === 'edit';
@@ -131,7 +131,7 @@ export default function AudiencePage() {
     <div>
       {/* .fv-kicker */}
       <div style={{ fontSize: 11, fontWeight: 850, letterSpacing: '.13em', textTransform: 'uppercase', color: 'var(--sage)' }}>
-        Alignment 1 of 4 · Confirm your audience
+        Confirm your audience
       </div>
 
       {/* .conversation-thread */}

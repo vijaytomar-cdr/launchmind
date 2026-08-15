@@ -71,7 +71,19 @@ export default function DiscoveryPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { router.replace('/login'); return; }
     try {
-      await api.onboarding.startDiscovery(sessionId, validUrls, session.access_token, hasDesc ? desc.trim() : undefined);
+      if (hasDesc) {
+        // PRE-LAUNCH. Its own endpoint: the public discovery contract requires
+        // at least one URL, so sending an empty array here returned a bare
+        // VALIDATION_ERROR and the owner could not get past this screen.
+        // Nothing is scraped and no public claims are produced.
+        await api.onboarding.startPreLaunch(sessionId, desc.trim(), session.access_token);
+        sessionStorage.removeItem('onboarding_discovery_url');
+        // Straight into founder-guided Alignment — there is no discovery job to
+        // watch, so the progress screen would have nothing to show.
+        router.push('/onboarding/audience');
+        return;
+      }
+      await api.onboarding.startDiscovery(sessionId, validUrls, session.access_token, undefined);
       sessionStorage.setItem('onboarding_discovery_url', validUrls[0] ?? '');
       router.push('/onboarding/discovery/progress');
     } catch (e) {

@@ -10,42 +10,17 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
-
-const PHASE_STAGES = [
-  { key: 'account',    label: 'Create your workspace', sub: 'Save and resume safely' },
-  { key: 'discover',   label: 'Discover your product',  sub: 'Public evidence first' },
-  { key: 'align',      label: 'Confirm and align',      sub: 'Correct what AI inferred' },
-  { key: 'boundaries', label: 'Set boundaries',          sub: 'You remain in control' },
-  { key: 'direction',  label: 'Get first direction',     sub: 'A useful plan, not a setup receipt' },
-];
-
-type StepMeta = { stage: number; label: string; progress: number; confidence: number; backPath: string };
-
-const STEP_META: Record<string, StepMeta> = {
-  '/onboarding/workspace':          { stage: 0, label: 'Secure workspace setup',  progress: 12, confidence: 8,  backPath: '/' },
-  '/onboarding/discovery':          { stage: 1, label: 'Product discovery',         progress: 28, confidence: 18, backPath: '/onboarding/workspace' },
-  '/onboarding/discovery/progress': { stage: 1, label: 'Building Growth Brain',     progress: 38, confidence: 28, backPath: '/onboarding/discovery' },
-  '/onboarding/discovery/recovery': { stage: 1, label: 'Recovery needed',           progress: 28, confidence: 18, backPath: '/onboarding/discovery' },
-  '/onboarding/report':             { stage: 2, label: 'Preliminary report',         progress: 50, confidence: 58, backPath: '/onboarding/discovery' },
-  '/onboarding/beliefs':            { stage: 2, label: 'Review beliefs',             progress: 56, confidence: 64, backPath: '/onboarding/report' },
-  '/onboarding/audience':           { stage: 2, label: 'Align audience',             progress: 62, confidence: 68, backPath: '/onboarding/beliefs' },
-  '/onboarding/context-delta':      { stage: 2, label: "What's changing?",           progress: 68, confidence: 72, backPath: '/onboarding/audience' },
-  '/onboarding/goal':               { stage: 2, label: 'Define success',             progress: 73, confidence: 76, backPath: '/onboarding/context-delta' },
-  '/onboarding/competitors':        { stage: 2, label: 'Confirm competitors',        progress: 78, confidence: 80, backPath: '/onboarding/goal' },
-  '/onboarding/boundaries':         { stage: 3, label: 'Set working boundaries',     progress: 84, confidence: 84, backPath: '/onboarding/competitors' },
-  '/onboarding/review':             { stage: 4, label: 'Final review',               progress: 88, confidence: 88, backPath: '/onboarding/boundaries' },
-  '/onboarding/generating':         { stage: 4, label: 'Generating direction…',      progress: 94, confidence: 92, backPath: '/onboarding/review' },
-  '/onboarding/direction':          { stage: 4, label: 'Your first direction',       progress: 97, confidence: 96, backPath: '/onboarding/review' },
-  '/onboarding/complete':           { stage: 4, label: 'Product understanding ready', progress: 100, confidence: 96, backPath: '/onboarding/direction' },
-};
+import {
+  PHASE_STAGES, ALIGNMENT_COUNT, resolveStep,
+} from '@/lib/onboarding/steps';
 
 export default function OnboardingLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router   = useRouter();
-  const meta     = STEP_META[pathname] ?? STEP_META['/onboarding/workspace'];
+  const meta     = resolveStep(pathname);
 
   // (no body-lock — page scrolls naturally; shell grows with content)
-  const { stage, label, progress, confidence, backPath } = meta;
+  const { stage, label, progress, backPath, substep } = meta;
 
   return (
     <div className="ob-outer">
@@ -105,7 +80,18 @@ export default function OnboardingLayout({ children }: { children: ReactNode }) 
                   </div>
                   <span>
                     <b style={{ display: 'block', fontSize: 12 }}>{s.label}</b>
-                    <small style={{ display: 'block', fontSize: 10, marginTop: 2, color: isActive ? 'rgba(255,255,255,.6)' : 'inherit' }}>{s.sub}</small>
+                    {/* §4 · the three states kept distinct: completed (✓ above),
+                        currently viewing (this substep line), and not yet reached.
+                        The substep is shown only on the stage being viewed, so the
+                        rail describes the ROUTE rather than a persisted field that
+                        may not have advanced yet. */}
+                    {isActive && substep ? (
+                      <small style={{ display: 'block', fontSize: 10, marginTop: 2, color: '#57d8b1', fontWeight: 700 }}>
+                        Alignment {substep} of {ALIGNMENT_COUNT} — {label}
+                      </small>
+                    ) : (
+                      <small style={{ display: 'block', fontSize: 10, marginTop: 2, color: isActive ? 'rgba(255,255,255,.6)' : 'inherit' }}>{s.sub}</small>
+                    )}
                   </span>
                 </div>
               );
@@ -159,7 +145,13 @@ export default function OnboardingLayout({ children }: { children: ReactNode }) 
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ink3)', fontSize: 10, marginTop: 7 }}>
               <span>{PHASE_STAGES[stage]?.label}</span>
-              <span>Growth Brain confidence · {confidence}%</span>
+              {/* WAS "Growth Brain confidence · N%" using a per-route literal.
+                  Those numbers measured nothing — they were fixed per URL, so a
+                  founder who typed one sentence and one who supplied a full
+                  product history saw identical "confidence". Route position is
+                  progress; calling it confidence made setup completion look like
+                  knowledge. Real readiness is derived on the completion screen. */}
+              <span>Step {stage + 1} of {PHASE_STAGES.length}</span>
             </div>
           </div>
 

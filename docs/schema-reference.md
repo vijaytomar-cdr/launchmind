@@ -20,7 +20,7 @@
 - [content_learnings](#content_learnings) (9 columns)
 - [content_versions](#content_versions) (12 columns)
 - [decision_rules](#decision_rules) (9 columns)
-- [embedding_store](#embedding_store) (8 columns)
+- ~~embedding_store~~ — **RETIRED** by migration 090; replaced by `memory_embeddings` (migration 089)
 - [evidence](#evidence) (9 columns)
 - [execution_calendar_events](#execution_calendar_events) (16 columns)
 - [experiment_variants](#experiment_variants) (14 columns)
@@ -312,7 +312,13 @@
 | `created_at` | `timestamptz` | NOT NULL | DEFAULT now() |
 | `updated_at` | `timestamptz` | NOT NULL | DEFAULT now() |
 
-## embedding_store
+## embedding_store — RETIRED (migration 090)
+
+> Dropped in Phase 3.1B. It held authoritative text in an embeddings table, which
+> ADR-066 invariant 2 forbids. Superseded by `memory_embeddings`, which stores a
+> content hash and never the content. The table was empty when dropped.
+
+## embedding_store (historical)
 
 > **Security:** RLS: founder_id = auth.uid()
 
@@ -703,7 +709,7 @@
 | `conversion_rate` | `numeric` | NULL |  |
 | `retention_d7` | `numeric` | NULL |  |
 | `week_number` | `integer` | NULL |  |
-| `signal_embedding` | `vector` | NULL |  |
+| ~~`signal_embedding`~~ | — | — | **RETIRED** migration 090 (0 rows populated) |
 | `created_at` | `timestamptz` | NOT NULL | DEFAULT now() |
 
 ## products
@@ -725,7 +731,7 @@
 | `scraped_meta` | `jsonb` | NULL |  |
 | `brand_voice_profile` | `jsonb` | NULL |  |
 | `last_scraped_at` | `timestamptz` | NULL |  |
-| `icp_embedding` | `vector` | NULL |  |
+| ~~`icp_embedding`~~ | — | — | **RETIRED** migration 090 (0 rows populated) |
 | `created_at` | `timestamptz` | NOT NULL | DEFAULT now() |
 | `updated_at` | `timestamptz` | NOT NULL | DEFAULT now() |
 | `workspace_id` | `uuid` | NULL |  |
