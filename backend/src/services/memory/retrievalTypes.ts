@@ -67,6 +67,14 @@ export interface RetrievedMemory {
   version: number;
   status: string;
   source: string;
+  /**
+   * GOVERNED authority tier, as persisted. NULL means the row is legacy
+   * (pre-3.2A) and its authority is UNKNOWN — not "derived from source".
+   * Source is provenance; it is never promoted to authority here.
+   */
+  authorityTier: string | null;
+  /** Governed memory class. NULL on legacy rows, same reasoning as above. */
+  memoryClass: string | null;
   evidenceIds: string[];
   createdAt: string;
   updatedAt: string;

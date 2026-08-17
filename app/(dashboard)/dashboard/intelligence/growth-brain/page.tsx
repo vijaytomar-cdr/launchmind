@@ -15,7 +15,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { api, type GrowthBrainCoverage, type IntelligenceDimension } from '@/lib/api';
+import { api, type GrowthBrainRecommendation, type GrowthBrainRecommendations, type GrowthBrainCoverage, type IntelligenceDimension } from '@/lib/api';
 import { Dialog } from '@/components/launchmind/Dialog';
 import { LearningLog } from '@/components/launchmind/LearningLog';
 
@@ -103,8 +103,218 @@ function FieldRow({ label, value, onChange }: { label: string; value: string; on
 
 /* ─── page ────────────────────────────────────────────────────────── */
 
+/**
+ * TOP PRIORITIES — the owner-facing answer to "what should I do?".
+ *
+ * Deliberately not a debug view. The owner sees what to do, why now, what it is
+ * based on and what to do next. Authority tiers, retrieval scores, lifecycle
+ * states and policy codes stay out; the only governance that surfaces is
+ * translated into plain English on the source line.
+ */
+function TypeTag({ type }: { type: 'OBSERVATION' | 'INFERENCE' | 'RECOMMENDATION' }) {
+  const style = {
+    OBSERVATION:    { bg: 'var(--sage-d)',  bd: 'var(--sage-b)',  fg: '#087253' },
+    INFERENCE:      { bg: 'var(--ai-d)',    bd: 'var(--ai-b)',    fg: 'var(--ai)' },
+    RECOMMENDATION: { bg: 'var(--indigo-d)',bd: 'var(--indigo-b)',fg: 'var(--indigo)' },
+  }[type];
+  const label = { OBSERVATION: 'Observed', INFERENCE: 'Interpretation', RECOMMENDATION: 'Recommendation' }[type];
+  return (
+    <span style={{ background: style.bg, border: `1px solid ${style.bd}`, color: style.fg,
+      borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700,
+      letterSpacing: '.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{label}</span>
+  );
+}
+
+function DecisionControls({ rec }: { rec: GrowthBrainRecommendation }) {
+  const [status, setStatus] = useState(rec.decisionStatus ?? 'RECOMMENDED');
+  const [exec, setExec]     = useState(rec.executionStatus ?? 'NOT_STARTED');
+  const [busy, setBusy]     = useState<string | null>(null);
+  const [err, setErr]       = useState<string | null>(null);
+
+  if (!rec.id) return null;
+
+  const decide = async (action: 'APPROVE' | 'DISMISS' | 'DEFER') => {
+    setBusy(action); setErr(null);
+    try {
+      const { data: { session } } = await createClient().auth.getSession();
+      if (!session) { setErr('Please sign in again.'); return; }
+      const res = await api.intelligence.decideRecommendation(
+        rec.id!,
+        {
+          action,
+          // Approving something that opposes stated direction is an explicit,
+          // acknowledged act — never a silent one.
+          acknowledgeFounderConflict: action === 'APPROVE' && Boolean(rec.founderConflict),
+        },
+        session.access_token,
+      );
+      // State updates ONLY after the server confirms. No optimistic success.
+      setStatus(res.decisionStatus as typeof status);
+      setExec(res.executionStatus as typeof exec);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not save your decision.');
+    } finally { setBusy(null); }
+  };
+
+  const label: Record<string, string> = {
+    APPROVED: exec === 'READY_FOR_ACTION' ? 'Approved · ready for action' : 'Approved',
+    DISMISSED: 'Dismissed',
+    DEFERRED: 'Saved for later',
+  };
+
+  if (status !== 'RECOMMENDED') {
+    return (
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ background: 'var(--sage-d)', border: '1px solid var(--sage-b)', color: '#087253',
+          borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{label[status]}</span>
+        {status === 'APPROVED' && exec === 'READY_FOR_ACTION' && (
+          <span style={{ fontSize: 11, color: 'var(--ink3)' }}>LaunchMind has not acted on this yet.</span>
+        )}
+      </div>
+    );
+  }
+
+  const btn = {
+    height: 32, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 650,
+    cursor: 'pointer', border: '1px solid var(--border)', background: 'white', color: 'var(--ink)',
+  } as const;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={{ ...btn, background: 'var(--sage)', color: 'white', border: '1px solid var(--sage)' }}
+          disabled={busy !== null} onClick={() => decide('APPROVE')}>
+          {busy === 'APPROVE' ? 'Saving…' : rec.founderConflict ? 'Approve anyway' : 'Approve'}
+        </button>
+        <button style={btn} disabled={busy !== null} onClick={() => decide('DEFER')}>
+          {busy === 'DEFER' ? 'Saving…' : 'Save for later'}
+        </button>
+        <button style={btn} disabled={busy !== null} onClick={() => decide('DISMISS')}>
+          {busy === 'DISMISS' ? 'Saving…' : 'Dismiss'}
+        </button>
+      </div>
+      {err && <p style={{ fontSize: 12, color: 'var(--danger)', margin: '8px 0 0' }}>{err}</p>}
+    </div>
+  );
+}
+
+function TopPriorities({ data, loading }: { data: GrowthBrainRecommendations | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
+        <p style={{ fontSize: 12, color: 'var(--ink3)', margin: 0 }}>Working out your top priorities…</p>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  return (
+    <section style={{ marginBottom: 24 }}>
+      <h2 style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.12em', textTransform: 'uppercase',
+        color: 'var(--ink3)', margin: '0 0 10px' }}>Top priorities</h2>
+
+      {data.recommendations.length === 0 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
+          <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0 }}>
+            {data.reason ?? 'Nothing to recommend yet.'}
+          </p>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 12 }}>
+        {data.recommendations.map((r, i) => (
+          <article key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 14, padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--ink3)' }}>{i + 1}</span>
+              <TypeTag type="RECOMMENDATION" />
+              <span style={{ fontSize: 11, color: 'var(--ink3)' }}>{r.evidenceStrength}</span>
+              {r.requiresApproval && (
+                <span style={{ background: 'var(--amber-d)', border: '1px solid var(--amber-b)', color: '#8d4f08',
+                  borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>Needs your approval</span>
+              )}
+              {r.founderConflict && (
+                <span style={{ background: 'var(--danger-d)', border: '1px solid var(--danger-b)', color: 'var(--danger)',
+                  borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>Conflicts with what you told us</span>
+              )}
+            </div>
+
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', margin: '0 0 6px', fontFamily: 'Syne, sans-serif' }}>
+              {r.what}
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--ink2)', margin: '0 0 10px', lineHeight: 1.55 }}>
+              <strong style={{ color: 'var(--ink)' }}>Why now:</strong> {r.whyNow}
+            </p>
+
+            {r.supporting.length > 0 && (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 10px', display: 'grid', gap: 6 }}>
+                {r.supporting.map((s, j) => (
+                  <li key={j} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <TypeTag type={s.type} />
+                    <span style={{ fontSize: 12.5, color: 'var(--ink2)', lineHeight: 1.5 }}>{s.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {r.expectedEffect && (
+              <p style={{ fontSize: 12, color: 'var(--ink2)', margin: '0 0 10px' }}>
+                <strong style={{ color: 'var(--ink)' }}>Could affect:</strong> {r.expectedEffect}
+              </p>
+            )}
+
+            <details style={{ marginBottom: 10 }}>
+              <summary style={{ fontSize: 12, fontWeight: 650, color: 'var(--sage)', cursor: 'pointer' }}>
+                Why am I seeing this?
+              </summary>
+              <ul style={{ listStyle: 'none', padding: '8px 0 0', margin: 0, display: 'grid', gap: 6 }}>
+                {r.supportedBy.map((p, k) => (
+                  <li key={k} style={{ fontSize: 12, color: 'var(--ink2)', lineHeight: 1.5 }}>
+                    <span style={{ color: 'var(--ink)', fontWeight: 650 }}>{p.label}</span>
+                    {p.detail ? <span style={{ color: 'var(--ink3)' }}> — {p.detail}</span> : null}
+                    {typeof p.evidenceCount === 'number' && p.evidenceCount > 0 && (
+                      <span style={{ color: 'var(--ink3)' }}> · {p.evidenceCount} supporting record(s)</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+
+            {r.founderConflict && (
+              <p style={{ fontSize: 12, color: 'var(--danger)', margin: '0 0 8px' }}>
+                This goes against “{r.founderConflict.withDirection}”. LaunchMind is not
+                recommending it as settled — it is yours to decide.
+              </p>
+            )}
+            <p style={{ fontSize: 13, color: 'var(--ink)', margin: 0 }}>
+              <strong>Next step:</strong> {r.nextStep}
+            </p>
+
+            <DecisionControls rec={r} />
+          </article>
+        ))}
+      </div>
+
+      {data.unavailable.length > 0 && (
+        <div style={{ marginTop: 12, background: 'var(--raised)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '10px 14px' }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink3)', margin: '0 0 6px',
+            textTransform: 'uppercase', letterSpacing: '.08em' }}>What LaunchMind can&apos;t see yet</p>
+          <ul style={{ margin: 0, paddingLeft: 16 }}>
+            {data.unavailable.map((u, i) => (
+              <li key={i} style={{ fontSize: 12, color: 'var(--ink2)', lineHeight: 1.6 }}>{u}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function GrowthBrainPage() {
   const [coverage, setCoverage] = useState<GrowthBrainCoverage | null>(null);
+  const [recs, setRecs] = useState<GrowthBrainRecommendations | null>(null);
+  const [recsLoading, setRecsLoading] = useState(true);
   const [loading,  setLoading]  = useState(true);
   const [token,    setToken]    = useState('');
   const [productId, setProductId] = useState<string | null>(null);
@@ -144,6 +354,12 @@ export default function GrowthBrainPage() {
           setDeltaForm({ nextInitiative: c.nextInitiative ?? '', primaryGoal: c.primaryGoal ?? '', targetWindow: c.targetWindow ?? '' });
         })
         .catch(() => setLoading(false));
+
+      // Recommendations load independently: they involve a model call, and the
+      // rest of the page must not wait on it.
+      api.intelligence.recommendations(session.access_token)
+        .then(r => { setRecs(r); setRecsLoading(false); })
+        .catch(() => setRecsLoading(false));
     });
   }, []);
 
@@ -215,6 +431,9 @@ export default function GrowthBrainPage() {
         </div>
       )}
 
+      {/* ── TOP PRIORITIES (Phase 3.3C) ─────────────────────────────────── */}
+      <TopPriorities data={recs} loading={recsLoading} />
+
       {/* Page head */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <div style={{ flex: 1 }}>
@@ -246,7 +465,7 @@ export default function GrowthBrainPage() {
             App Store positioning, store reviews, public pricing signals, and homepage promise extracted at intake.
           </p>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <Row label="Positioning"  value={ctx?.positioning  ?? 'Loading…'} />
+            <Row label="Positioning"  value={ctx?.positioning  ?? 'Not observed yet'} />
             <Row label="Audience"     value={ctx?.audience     ?? 'Not confirmed'} />
             <Row label="Top signal"   value={ctx?.topSignal    ?? 'Demand from public signals'} />
           </div>
@@ -345,16 +564,21 @@ export default function GrowthBrainPage() {
           </p>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: '#fff', margin: '0 0 8px', fontFamily: 'Syne, sans-serif' }}>
-              {rec?.name ?? 'App Store Connect'}
+              {/* OBSERVATION HONESTY: this fell back to the literal 'App Store
+                  Connect' and its full description whenever no source was
+                  recommended — including for a pre-launch product with no app at
+                  all, which is the "we think you have an app" defect the backend
+                  already refuses to make. */}
+              {rec?.name ?? 'No source available yet'}
             </h3>
             <p style={{ fontSize: 12, color: '#91a79e', margin: 0, lineHeight: 1.55 }}>
-              {rec?.description ?? 'Replace estimated acquisition with actual impressions, downloads, conversion, sources, and territory performance.'}
+              {rec?.description ?? 'No connectable source is available for this product yet.'}
             </p>
           </div>
           <div style={{ display: 'grid', gap: 10 }}>
             <div>
               <p style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', color: '#91a79e', margin: '0 0 3px' }}>Decision improved</p>
-              <p style={{ fontSize: 12, fontWeight: 600, color: '#fff', margin: 0 }}>{rec?.decisionImproved ?? 'Where to invest before increasing demand'}</p>
+              <p style={{ fontSize: 12, fontWeight: 600, color: '#fff', margin: 0 }}>{rec?.decisionImproved ?? '—'}</p>
             </div>
             <div>
               <p style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', color: '#91a79e', margin: '0 0 3px' }}>Expected understanding</p>
@@ -362,7 +586,7 @@ export default function GrowthBrainPage() {
             </div>
             <div>
               <p style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', color: '#91a79e', margin: '0 0 3px' }}>Access</p>
-              <p style={{ fontSize: 12, fontWeight: 600, color: '#fff', margin: 0 }}>{rec?.accessType ?? 'Read-only reporting'}</p>
+              <p style={{ fontSize: 12, fontWeight: 600, color: '#fff', margin: 0 }}>{rec?.accessType ?? '—'}</p>
             </div>
           </div>
           <Link

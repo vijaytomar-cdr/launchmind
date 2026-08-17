@@ -128,6 +128,9 @@ interface MemoryRow {
   memory_type: string; title: string; content: Record<string, unknown> | null;
   confidence: number; version: number; status: string; source: string;
   evidence_ids: string[] | null; created_at: string; updated_at: string;
+  /** Governed authority. NULL on legacy (pre-3.2A) rows — never reconstructed. */
+  authority_tier: string | null;
+  memory_class: string | null;
 }
 
 // ── Business reranking (Step 3.1D §6) ────────────────────────────────────────
@@ -188,7 +191,7 @@ async function structuredArm(
   const db = getSupabaseAdmin();
 
   let q = db.from('marketing_memories')
-    .select('id, workspace_id, product_id, memory_type, title, content, confidence, version, status, source, authority_tier, evidence_ids, created_at, updated_at')
+    .select('id, workspace_id, product_id, memory_type, title, content, confidence, version, status, source, authority_tier, memory_class, evidence_ids, created_at, updated_at')
     .eq('workspace_id', req.workspaceId);                 // tenancy, in SQL
 
   if (req.productId)   q = q.eq('product_id', req.productId);
@@ -480,6 +483,10 @@ export async function retrieveMemories(
       memoryType: row.memory_type, title: row.title, claim, content: row.content ?? {},
       confidence: Number(row.confidence), version: row.version, status: row.status,
       source: row.source, evidenceIds: row.evidence_ids ?? [],
+      // Carried through verbatim, never derived. A legacy row keeps NULL on
+      // both so downstream cannot mistake provenance for authority.
+      authorityTier: row.authority_tier ?? null,
+      memoryClass: row.memory_class ?? null,
       createdAt: row.created_at, updatedAt: row.updated_at,
       contentHash: hashById.get(row.id) ?? null,
       embeddingStatus: currentSet.has(row.id) ? 'current' : staleSet.has(row.id) ? 'stale' : 'missing',
@@ -517,6 +524,8 @@ export async function retrieveMemories(
         memoryType: row.memory_type, title: row.title, claim, content: row.content ?? {},
         confidence: Number(row.confidence), version: row.version, status: row.status,
         source: row.source, evidenceIds: row.evidence_ids ?? [],
+        authorityTier: row.authority_tier ?? null,
+        memoryClass: row.memory_class ?? null,
         createdAt: row.created_at, updatedAt: row.updated_at,
         contentHash: hashById.get(row.id) ?? null,
         embeddingStatus: currentSet.has(row.id) ? 'current' : staleSet.has(row.id) ? 'stale' : 'missing',

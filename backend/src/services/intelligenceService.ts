@@ -51,16 +51,18 @@ export interface GrowthBrainCoverage {
     logoChar:    string;
     description: string;
     decisionImproved: string;
-    expectedGain: string;
+    /** Null: no measured basis exists for projecting a lift. */
+    expectedGain: string | null;
     accessType:  string;
     /** False when no real integration exists yet — UI must not offer a live connect. */
     available:   boolean;
     connectionStatus: string;
   } | null;
   contextSummary: {
-    positioning:  string;
-    audience:     string;
-    topSignal:    string;
+    /** Null when the underlying evidence does not exist. Absence, not a claim. */
+    positioning:  string | null;
+    audience:     string | null;
+    topSignal:    string | null;
     nextInitiative: string;
     primaryGoal:  string;
     targetWindow: string;
@@ -204,17 +206,25 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
       .select('id', { count: 'exact', head: true })
       .eq('founder_id', founderId)
       .in('product_id', scopedProductIds),
+    // Scoped through the SAME scopedProductIds the three neighbouring queries
+    // already use. Reading "the founder's newest product across all workspaces"
+    // meant a founder with two businesses saw the other one's positioning,
+    // category and store metadata — and this row drives two dimension scores,
+    // the context summary and the recommended-source decision.
     getSupabaseAdmin()
       .from('products')
       .select('confirmed_icp, scraped_meta, competitor_set, name, category')
-      .eq('founder_id', founderId)
+      .in('id', scopedProductIds)
       .is('archived_at', null)
       .order('created_at', { ascending: false })
       .limit(1),
+    // product_id was SELECTED here and never used to filter, so completing
+    // onboarding for one business marked the other's direction "confirmed".
     getSupabaseAdmin()
       .from('onboarding_sessions')
       .select('current_state, product_id')
       .eq('founder_id', founderId)
+      .in('product_id', scopedProductIds)
       .order('created_at', { ascending: false })
       .limit(1),
     getSupabaseAdmin()
@@ -233,10 +243,14 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
       .eq('workspace_id', ctx.workspaceId)
       .order('created_at', { ascending: false })
       .limit(1),
+    // Founder-wide, and reached ONLY when growth_brain_learning_events is
+    // empty — which is precisely the state of a newly created second business.
+    // So the fallback reliably rendered the OTHER business's learning event.
     getSupabaseAdmin()
       .from('learning_events')
       .select('event_type, payload, created_at')
       .eq('founder_id', founderId)
+      .in('product_id', scopedProductIds)
       .order('created_at', { ascending: false })
       .limit(1),
   ]);
@@ -307,28 +321,39 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
   // Internal state name from the onboarding state machine (not owner-facing copy).
   const understandingReady = sessionRow?.current_state === 'PHASE_1_COMPLETE';
 
+  // ── INFERRED DIMENSIONS: earned / possible, with NO invented floor ────────
+  //
+  // These carried hardcoded bases (40 / 20 / 35) that no evidence supported, so
+  // an entirely empty workspace rendered "18% grounded in evidence" with
+  // nothing connected and nothing filled in. The per-term weights below are the
+  // author's original relative weighting and are unchanged; only the invented
+  // constant is gone. Scoring earned-over-possible keeps 100 reachable while
+  // making 0 reachable too, which is what an empty workspace actually is.
+  const ratio = (earned: number, possible: number) =>
+    possible <= 0 ? 0 : Math.min(100, Math.round((earned / possible) * 100));
+
   // --- Dimension 1: Product & positioning (public data) ---
-  let productScore = 40;
-  if (productRow?.confirmed_icp)          productScore += 20;
-  if (productRow?.scraped_meta)            productScore += 20;
-  if (productRow?.competitor_set)         productScore += 12;
-  productScore = Math.min(100, productScore);
+  const productScore = ratio(
+    (productRow?.confirmed_icp ? 20 : 0)
+    + (productRow?.scraped_meta ? 20 : 0)
+    + (productRow?.competitor_set ? 12 : 0),
+    52);
 
   // --- Dimension 2: Founder direction (confirmed alignment data) ---
-  let founderScore = 20;
-  if (ctxField('audience_confirmed'))      founderScore += 22;
-  if (ctxField('context_delta'))           founderScore += 20;
-  if (goalRow)                             founderScore += 18;
-  if (understandingReady)                  founderScore += 10;
-  if (directionRow?.acknowledged_at)       founderScore += 10;
-  founderScore = Math.min(100, founderScore);
+  const founderScore = ratio(
+    (ctxField('audience_confirmed') ? 22 : 0)
+    + (ctxField('context_delta') ? 20 : 0)
+    + (goalRow ? 18 : 0)
+    + (understandingReady ? 10 : 0)
+    + (directionRow?.acknowledged_at ? 10 : 0),
+    80);
 
   // --- Dimension 3: Market intelligence (public signals + competitors) ---
-  let marketScore = 35;
-  if (competitorCount > 0)                 marketScore += Math.min(20, competitorCount * 7);
-  if (productRow?.category)               marketScore += 10;
-  if (productRow?.scraped_meta)            marketScore += 9;
-  marketScore = Math.min(100, marketScore);
+  const marketScore = ratio(
+    Math.min(20, competitorCount * 7)
+    + (productRow?.category ? 10 : 0)
+    + (productRow?.scraped_meta ? 9 : 0),
+    39);
 
   // --- Observed dimensions: scored ONLY from canonical connection state + real signals ---
   // Search Console measures acquisition reach (impressions, clicks, position), so it
@@ -427,7 +452,7 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
   const SOURCES: Array<{
     key: string; name: string; logoChar: string;
     description: string; decisionImproved: string;
-    expectedGain: number; accessType: string;
+    accessType: string;
     provider: string;
   }> = [
     {
@@ -436,7 +461,6 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
       logoChar: 'A',
       description: 'Replace estimated acquisition with actual impressions, downloads, conversion, sources, and territory performance.',
       decisionImproved: 'Where to invest before increasing demand',
-      expectedGain: 12,
       accessType: 'Read-only reporting',
       provider: 'app_store_connect',
     },
@@ -446,7 +470,6 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
       logoChar: 'R',
       description: 'Know which installs become paying, retained customers. Trials, churn, retention, and LTV observed instead of estimated.',
       decisionImproved: 'Whether to fix retention before pushing acquisition',
-      expectedGain: 9,
       accessType: 'Read-only reporting',
       provider: 'revenue_cat',
     },
@@ -456,7 +479,6 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
       logoChar: 'G',
       description: 'See where website intent strengthens or disappears before users reach the store.',
       decisionImproved: 'Whether website landing pages are leaking qualified traffic',
-      expectedGain: 6,
       accessType: 'Read-only analytics',
       provider: 'ga4',
     },
@@ -500,7 +522,12 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
         logoChar:         nextSource.logoChar,
         description:      nextSource.description,
         decisionImproved: nextSource.decisionImproved,
-        expectedGain:     `${overallScore}% → ${Math.min(100, overallScore + nextSource.expectedGain)}%`,
+        // MEASUREMENT HONESTY: this rendered `${score}% → ${score + N}%` where N
+        // was a per-source literal (12 / 9 / 6) with nothing behind it — a
+        // promised lift unrelated to the dimension weights that would actually
+        // move. There is no measured basis for forecasting the gain before the
+        // source is connected, so no number is offered.
+        expectedGain:     null,
         accessType:       nextSource.accessType,
         available:        connectionStates[nextSource.provider]?.adapterAvailable ?? false,
         connectionStatus: connectionStates[nextSource.provider]?.status ?? 'NOT_CONNECTED',
@@ -514,9 +541,15 @@ export async function getGrowthBrainCoverage(ctx: WorkspaceContext): Promise<Gro
   const founderDelta  = ctxField('context_delta');
 
   const contextSummary = {
-    positioning:    (icpData?.positioning as string) ?? (scraped?.description as string) ?? 'Understood from App Store listing',
-    audience:       (icpData?.audience as string) ?? (icpData?.target_audience as string) ?? ctxField('audience_confirmed') ?? 'Not yet confirmed',
-    topSignal:      (icpData?.topSignal as string) ?? (scraped?.topSignal as string) ?? 'Demand from public product signals',
+    // OBSERVATION HONESTY: the fallbacks here asserted observations that had
+    // not happened. 'Understood from App Store listing' rendered for a product
+    // with no listing, and 'Demand from public product signals' claimed demand
+    // evidence for a product whose store scrape returned 0 ratings and 0
+    // reviews. Null is the honest value — the UI renders absence; it cannot
+    // render a claim that was never made.
+    positioning:    (icpData?.positioning as string) ?? (scraped?.description as string) ?? null,
+    audience:       (icpData?.audience as string) ?? (icpData?.target_audience as string) ?? ctxField('audience_confirmed') ?? null,
+    topSignal:      (icpData?.topSignal as string) ?? (scraped?.topSignal as string) ?? null,
     // A value the founder typed into the delta editor outranks anything inferred.
     nextInitiative: ctxField('next_initiative') ?? founderDelta ?? (dirData?.headline as string) ?? 'Not set',
     primaryGoal:    ctxField('primary_goal')

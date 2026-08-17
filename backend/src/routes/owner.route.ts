@@ -120,6 +120,38 @@ const UpdateOpportunitySchema = z.object({
  *   no product yet. Callers must render "no data" — never substitute another.
  * @security The workspace is verified server-side; a client cannot select one.
  */
+/**
+ * Campaign ids belonging to ONE product.
+ *
+ * `campaign_metrics` has a founder_id but no product_id, so reading it by
+ * founder returns every business's numbers. Scoping through the product's own
+ * campaigns is the strongest scope the schema allows.
+ *
+ * @returns campaign ids, or a single impossible id when the product has none.
+ *   Verified: PostgREST `.in()` with `[]` matches nothing, so the sentinel is
+ *   belt-and-braces — it makes the intent explicit rather than resting on a
+ *   silent correctness dependency (same convention as intelligenceService).
+ */
+async function campaignIdsForProduct(
+  supabase: ReturnType<typeof getSupabaseAdmin>, productId: string,
+): Promise<string[]> {
+  const { data } = await supabase.from('campaigns').select('id').eq('product_id', productId);
+  const ids = (data ?? []).map(r => String((r as { id: string }).id));
+  return ids.length ? ids : ['00000000-0000-0000-0000-000000000000'];
+}
+
+/**
+ * Mission ids belonging to ONE product. Same reasoning as above:
+ * `mission_logs` carries no product_id, so it is scoped through missions.
+ */
+async function missionIdsForProduct(
+  supabase: ReturnType<typeof getSupabaseAdmin>, productId: string,
+): Promise<string[]> {
+  const { data } = await supabase.from('missions').select('id').eq('product_id', productId);
+  const ids = (data ?? []).map(r => String((r as { id: string }).id));
+  return ids.length ? ids : ['00000000-0000-0000-0000-000000000000'];
+}
+
 async function getActiveProduct(supabase: ReturnType<typeof getSupabaseAdmin>, founderId: string) {
   const { getActiveBusiness } = await import('../services/activeBusinessService');
   const business = await getActiveBusiness(founderId);
@@ -307,29 +339,51 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
           .order('confidence', { ascending: false })
           .limit(3)
           : Promise.resolve({ data: [] }),
-        supabase.from('mission_logs')
+        // Timeline is business-specific: mission activity from the other
+        // company under this brief's header is the same leak in narrative form.
+        // mission_logs carries no product_id, so it is scoped through missions.
+        briefProductId ? supabase.from('mission_logs')
           .select('id, message, level, created_at, mission_id')
-          .eq('founder_id', founderId)
+          .in('mission_id', await missionIdsForProduct(supabase, briefProductId))
           .in('level', ['info', 'warn'])
           .order('created_at', { ascending: false })
-          .limit(8),
-        supabase.from('campaign_metrics')
-          .select('installs, cpi, ctr, roas, week_start')
-          .eq('founder_id', founderId)
+          .limit(8)
+          : Promise.resolve({ data: [] }),
+        // Metrics belong to campaigns, which belong to a product. Reading them
+        // founder-wide put another business's installs/CPI under this header.
+        // Currently zero rows either way — but a read is not correct merely
+        // because today's dataset is empty.
+        briefProductId ? supabase.from('campaign_metrics')
+          .select('installs, cpi, ctr, roas, week_start, campaign_id')
+          .in('campaign_id', await campaignIdsForProduct(supabase, briefProductId))
           .order('week_start', { ascending: false })
-          .limit(10),
-        supabase.from('marketing_memories')
+          .limit(10)
+          : Promise.resolve({ data: [] }),
+        // Scoped to the active product for the same reason as the context,
+        // goal and direction reads above. This one was MEASURED mixing the two
+        // businesses: both carry populated product_id/workspace_id (zero nulls),
+        // so "top 3 by confidence, founder-wide" spanned both companies.
+        briefProductId ? supabase.from('marketing_memories')
           .select('id, title, content, memory_type, confidence')
-          .eq('founder_id', founderId)
+          .eq('product_id', briefProductId)
           .eq('status', 'active')
           .order('confidence', { ascending: false })
-          .limit(3),
+          .limit(3)
+          : Promise.resolve({ data: [] }),
         // Check if Phase 1 onboarding is complete (new onboarding flow)
-        supabase.from('onboarding_sessions')
+        // Scoped to the active product, like every other business-specific read
+        // in this handler. Founder-wide, ANY completed onboarding anywhere made
+        // phase1Done true for EVERY brief — so a second, untouched business
+        // reported hasStrategy=true and rendered a phase1 payload it had never
+        // earned. A completed session always has a product, so product_id is the
+        // correct key; workspace-only rows belong to states that are not
+        // complete and are therefore irrelevant to this check.
+        briefProductId ? supabase.from('onboarding_sessions')
           .select('current_state')
-          .eq('founder_id', founderId)
+          .eq('product_id', briefProductId)
           .in('current_state', ['PHASE_1_COMPLETE', 'DIRECTION_COMPLETE'])
-          .limit(1),
+          .limit(1)
+          : Promise.resolve({ data: [] }),
         // Fetch full strategy direction content (not just existence)
         // Scoped for the same reason as the context and goal below: a brief
         // headed "AllignX" must not carry the strategy generated for LaunchMind.
@@ -396,14 +450,25 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
         await seedOpportunitiesIfEmpty(
           supabase, founderId, product.id, product.name,
           product as { maturity?: string | null; markets?: string[] | null; scraped_meta?: Record<string, unknown> | null });
+        // Same product filter as the initial read at the top of this handler.
+        // Dropping it here re-opened the cross-business leak on the seeding path.
         const seeded = await supabase.from('saved_opportunities')
           .select('*')
-          .eq('founder_id', founderId)
+          .eq('product_id', product.id)
           .in('state', ['active'])
           .order('confidence', { ascending: false })
           .limit(3);
         opportunities.push(...(seeded.data ?? []));
       }
+
+      // Phase 3.3E: persisted Growth Brain decisions, read ONCE and used for
+      // both the model context and the payload, so the two surfaces cannot
+      // disagree about what the owner already settled.
+      const { listRecommendationDecisions } = await import('../services/growthBrainDecisionService');
+      const decidedForPayload = (product && product.workspace_id)
+        ? await listRecommendationDecisions(
+            { workspaceId: product.workspace_id as string, productId: product.id }, 10)
+        : [];
 
       // Generate AI recommendation using Sonnet (needs system prompt for JSON output)
       let recommendation: Record<string, unknown> | null = null;
@@ -420,7 +485,21 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
             query: `What should ${product.name} focus on next? Recent performance, ` +
                    `channel learning, and outstanding decisions.`,
           });
-          const ctxSummary = `${ctx.text}\n\nPending approvals: ${approvals.total}.`;
+          // Phase 3.3E: the brief must not ask the owner to decide something
+          // they already decided in Growth Brain. Persisted decisions are
+          // supplied as STATE — the brief still generates its own
+          // recommendation; it is simply told what is already settled. Owner
+          // decisions are NOT turned into Marketing Memory and carry no
+          // authority here.
+          const decided = decidedForPayload;
+          const decidedLines = decided.length
+            ? `\n\nALREADY DECIDED BY THE OWNER (do not ask them to decide these again):\n` +
+              decided.map(d =>
+                `- "${d.what}" — ${d.decisionStatus.toLowerCase()}` +
+                `${d.executionStatus === 'READY_FOR_ACTION' ? ' (approved, awaiting action — NOT yet done)' : ''}`)
+                .join('\n')
+            : '';
+          const ctxSummary = `${ctx.text}${decidedLines}\n\nPending approvals: ${approvals.total}.`;
           const auditCtx = {
             founderId, productId: product.id,
             promptId: 'morning_brief', action: 'morning_brief',
@@ -475,7 +554,14 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
       // Growth Brain is active when: confirmed_icp set (old intake) OR Phase 1 complete (new onboarding)
       const growthBrainActive = !!product?.confirmed_icp || phase1Done || hasDirection;
       // Confidence: 96 if phase1 complete, 78 if confirmed_icp only, null if neither
-      const growthBrainConfidence = phase1Done ? 96 : (product?.confirmed_icp ? 78 : null);
+      // MEASUREMENT HONESTY: this was `phase1Done ? 96 : 78` — two literals
+      // rendered to the owner as a percentage confidence. Nothing measured
+      // either one. There IS a real coverage figure (GET /intelligence/coverage,
+      // computed from connections and signals); inventing a second, different
+      // number here and calling it confidence is worse than showing none.
+      // Omitted rather than replaced: an absent number is honest, a
+      // freshly-invented one is not.
+      const growthBrainConfidence = null;
 
       reply.send({
         founder:        { name: founderDisplayName ?? 'Founder', plan: founder?.plan ?? 'free' },
@@ -493,6 +579,13 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
                 : Object.values(row.evidence as Record<string, unknown>).map(String),
         })),
         recentTimeline:  timeline.slice(0, 5),
+        // Owner-visible decision state, so the two surfaces agree. Read-only.
+        decidedRecommendations: decidedForPayload.map(d => ({
+          id: d.id, what: d.what,
+          decisionStatus: d.decisionStatus, executionStatus: d.executionStatus,
+          requiresApproval: d.requiresApproval,
+          founderReviewRequired: d.founderReviewRequired,
+        })),
         growthBrain: {
           hasStrategy:  growthBrainActive,
           confidence:   growthBrainConfidence,

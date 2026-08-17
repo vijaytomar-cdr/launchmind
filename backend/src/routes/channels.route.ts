@@ -45,6 +45,7 @@ import {
   requireWorkspaceWrite,
   WorkspaceAccessError,
   WorkspacePermissionError,
+  requireWorkspaceRole,
   type WorkspaceContext,
 } from '../services/workspaceAuthService';
 import {
@@ -813,6 +814,208 @@ export async function channelsRoutes(server: FastifyInstance): Promise<void> {
    * @returns { entries, nextCursor }
    * @security Workspace-scoped. A workspace header is a hint only; membership is verified.
    */
+  /**
+   * GET /intelligence/recommendations — Phase 3.3C.
+   *
+   * 1–3 grounded recommendations for the ACTIVE business, with owner-facing
+   * provenance. Uses the same verified workspace context as /coverage, and the
+   * product that workspace actually owns — never a client-supplied id and never
+   * "the founder's newest product".
+   */
+  server.get(
+    '/intelligence/recommendations',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      await request.jwtVerify();
+      try {
+        const header = request.headers['x-launchmind-workspace-id'];
+        const hint = Array.isArray(header) ? header[0] : header;
+        const founderId = (request.user as { sub: string }).sub;
+        const ctx = await resolveWorkspaceContext(founderId, typeof hint === 'string' && hint ? hint : undefined);
+
+        // The product is derived FROM the verified workspace.
+        const { data: prod } = await getSupabaseAdmin()
+          .from('products').select('id, category, markets')
+          .eq('workspace_id', ctx.workspaceId)
+          .is('archived_at', null)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        const productId = (prod as { id?: string } | null)?.id ?? null;
+
+        // Market intelligence counts as AVAILABLE only when a real benchmark
+        // resolves for this product's own category/market. It is never assumed,
+        // and an absent cohort reports false rather than borrowing another's.
+        let marketIntelligenceAvailable = false;
+        const category = (prod as { category?: string | null } | null)?.category ?? null;
+        if (category) {
+          try {
+            const { getBenchmarks } = await import('../services/intelligenceNetworkService');
+            const markets = ((prod as { markets?: string[] | null } | null)?.markets ?? []);
+            const market = markets[0]?.includes('india') ? 'india' : 'usa';
+            marketIntelligenceAvailable = (await getBenchmarks(category, market)) != null;
+          } catch { marketIntelligenceAvailable = false; }
+        }
+
+        const { generateGrowthBrainRecommendations } = await import('../services/growthBrainRecommendationService');
+        const result = await generateGrowthBrainRecommendations({
+          workspaceId: ctx.workspaceId, founderId, productId, marketIntelligenceAvailable,
+        });
+
+        // Phase 3.3D: persist so each recommendation has SERVER identity the
+        // owner can act on. Upsert by fingerprint, so a refresh reuses the row
+        // and any decision already made on it survives.
+        const { persistRecommendations, listRecommendationDecisions } =
+          await import('../services/growthBrainDecisionService');
+        const persisted = await persistRecommendations(
+          { workspaceId: ctx.workspaceId, founderId, productId }, result.recommendations);
+        const byFingerprint = new Map(persisted.map(p => [`${p.actionType}::${p.what}`, p]));
+
+        // A regenerated snapshot that asks for an already-settled decision must
+        // not come back as a fresh card. It carries the SETTLED state instead,
+        // so the owner sees "Approved" rather than being asked again — the
+        // measured P0. Its own row still exists for audit.
+        const decidedById = new Map(
+          (await listRecommendationDecisions(
+            { workspaceId: ctx.workspaceId, productId }, 50)).map(d => [d.id, d]));
+
+        const withIdentity = result.recommendations.map(r => {
+          const row = byFingerprint.get(`${r.actionType}::${r.what}`);
+          if (!row) return r;
+          const settled = row.supersededByDecisionId
+            ? decidedById.get(row.supersededByDecisionId) ?? null
+            : null;
+          const state = settled ?? row;
+          return {
+            ...r,
+            id: row.id,
+            decisionStatus: state.decisionStatus,
+            executionStatus: state.executionStatus,
+            requiresApproval: row.requiresApproval,
+            requiresFounderReview: row.founderReviewRequired,
+            // Owner-facing marker: this action was already decided, on an
+            // earlier wording of the same recommendation.
+            actionAlreadyDecided: settled !== null,
+            decidedRecommendationId: settled?.id ?? null,
+          };
+        });
+
+        return reply.send({
+          ok: true,
+          data: { ...result, recommendations: withIdentity },
+          workspaceId: ctx.workspaceId,
+        });
+      } catch (err) {
+        if (err instanceof WorkspaceAccessError) {
+          return reply.status(404).send({ ok: false, error: 'Not found', code: err.code });
+        }
+        Sentry.captureException(err, { tags: { route: 'GET /intelligence/recommendations' } });
+        return reply.status(500).send({ ok: false, error: 'Failed to generate recommendations' });
+      }
+    },
+  );
+
+  /**
+   * POST /intelligence/recommendations/:id/decision — Phase 3.3D.
+   *
+   * The owner decides. The body carries ONLY a verb and an optional
+   * acknowledgement/note — never the recommendation's text, action type,
+   * approval requirement, authority or provenance. Everything a reader would
+   * treat as authority is re-read from the row the server wrote.
+   *
+   * @security Business scope comes from the verified workspace context. A
+   *   recommendation belonging to another workspace resolves to 404, which is
+   *   also what a nonexistent id returns — so the response cannot be used to
+   *   discover that another business's recommendation exists.
+   */
+  server.post<{ Params: { id: string } }>(
+    '/intelligence/recommendations/:id/decision',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      await request.jwtVerify();
+      try {
+        const header = request.headers['x-launchmind-workspace-id'];
+        const hint = Array.isArray(header) ? header[0] : header;
+        const founderId = (request.user as { sub: string }).sub;
+        const ctx = await resolveWorkspaceContext(founderId, typeof hint === 'string' && hint ? hint : undefined);
+
+        // AUTHORIZATION. An owner decision is not a generic workspace edit:
+        // it authorises future action on the business. Editors and viewers may
+        // read Growth Brain but may not decide. Enforced HERE, before any
+        // service-role write, using the canonical role utility.
+        requireWorkspaceRole(ctx, 'admin');
+
+        // The product is resolved from the VERIFIED workspace, never taken from
+        // the client. Workspace alone was insufficient — one workspace can hold
+        // several products, so B's recommendation was mutable from A's context.
+        const { data: activeProd } = await getSupabaseAdmin()
+          .from('products').select('id')
+          .eq('workspace_id', ctx.workspaceId)
+          .is('archived_at', null)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        const decisionProductId = (activeProd as { id?: string } | null)?.id ?? null;
+
+        const body = (request.body ?? {}) as Record<string, unknown>;
+        const { DECISION_ACTIONS, decideRecommendation, DecisionError } =
+          await import('../services/growthBrainDecisionService');
+        const action = String(body.action ?? '').toUpperCase();
+        if (!(DECISION_ACTIONS as readonly string[]).includes(action)) {
+          return reply.status(400).send({ ok: false, error: 'Invalid action', code: 'INVALID_ACTION' });
+        }
+
+        try {
+          const updated = await decideRecommendation(
+            { workspaceId: ctx.workspaceId, founderId, productId: decisionProductId },
+            request.params.id,
+            action as (typeof DECISION_ACTIONS)[number],
+            {
+              acknowledgeFounderConflict: body.acknowledgeFounderConflict === true,
+              note: typeof body.note === 'string' ? body.note.slice(0, 500) : undefined,
+            },
+          );
+          return reply.send({ ok: true, data: updated, workspaceId: ctx.workspaceId });
+        } catch (e) {
+          if (e instanceof DecisionError) {
+            return reply.status(e.statusCode).send({ ok: false, error: e.message, code: e.code });
+          }
+          throw e;
+        }
+      } catch (err) {
+        if (err instanceof WorkspaceAccessError) {
+          return reply.status(404).send({ ok: false, error: 'Not found', code: err.code });
+        }
+        if (err instanceof WorkspacePermissionError) {
+          return reply.status(403).send({ ok: false, error: err.message, code: 'INSUFFICIENT_ROLE' });
+        }
+        Sentry.captureException(err, { tags: { route: 'POST /intelligence/recommendations/:id/decision' } });
+        return reply.status(500).send({ ok: false, error: 'Decision could not be saved' });
+      }
+    },
+  );
+
+  /** GET /intelligence/recommendations/decisions — recent decisions, this business only. */
+  server.get(
+    '/intelligence/recommendations/decisions',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      await request.jwtVerify();
+      try {
+        const header = request.headers['x-launchmind-workspace-id'];
+        const hint = Array.isArray(header) ? header[0] : header;
+        const ctx = await resolveWorkspaceContext(
+          (request.user as { sub: string }).sub,
+          typeof hint === 'string' && hint ? hint : undefined);
+        const { listRecommendationDecisions } = await import('../services/growthBrainDecisionService');
+        return reply.send({ ok: true, data: await listRecommendationDecisions(ctx), workspaceId: ctx.workspaceId });
+      } catch (err) {
+        if (err instanceof WorkspaceAccessError) {
+          return reply.status(404).send({ ok: false, error: 'Not found', code: err.code });
+        }
+        Sentry.captureException(err, { tags: { route: 'GET /intelligence/recommendations/decisions' } });
+        return reply.status(500).send({ ok: false, error: 'Failed to load decisions' });
+      }
+    },
+  );
+
   server.get<{ Querystring: { limit?: string; before?: string; productId?: string } }>(
     '/intelligence/learning-log',
     async (

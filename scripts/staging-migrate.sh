@@ -18,7 +18,10 @@ for f in backend/migrations/*.sql; do
   base=$(basename "$f")
   case "$base" in *seed_clientpulse*) skipped=$((skipped+1)); continue;; esac
 
-  out=$(docker exec -i "$DBC" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q < "$f" 2>&1)
+  # Use Supabase's migration owner. Its default privileges keep PostgREST's
+  # service_role usable across local image versions; raw postgres-owned objects
+  # do not receive those defaults on newer images.
+  out=$(docker exec -i "$DBC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -q < "$f" 2>&1)
   if [ $? -eq 0 ]; then
     applied=$((applied+1))
   elif echo "$out" | grep -qiE "already exists|duplicate object|duplicate_object"; then

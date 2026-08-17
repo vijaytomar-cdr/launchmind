@@ -39,6 +39,8 @@
     "eval:acquire-canva-queries": "tsx --env-file=../.env.local scripts/acquireCanvaQueries.ts",
     "cert:canva-local": "tsx --env-file=../.env.local scripts/canvaLocalCertification.ts",
     "eval:acquire-qual": "tsx --env-file=../.env.local scripts/acquireQualQueries.ts",
+    "test:pg": "node scripts/pgCertify.mjs",
+    "test:pg:prelaunch": "node scripts/pgCertify.mjs --prelaunch",
     "eval:qualitative": "tsx --env-file=../.env.local scripts/qualitativeEvaluation.ts"
   },
   "dependencies": {

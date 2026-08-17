@@ -230,15 +230,24 @@ describe('IntelligenceService does not merge A + B founder context', () => {
     // for 'HubSpot'. That read is `head: true, count: exact`, so no name ever
     // appears and a string search passes however badly the query leaks — the
     // mutation check caught exactly that assertion passing against reverted
-    // code. Market intelligence scores 35 + min(20, competitors × 7): one
-    // competitor gives 7, two give 14. The number IS the leak detector.
+    // code. The number IS the leak detector.
+    //
+    // 3.3B removed the invented 35-point floor from this dimension (it made an
+    // empty workspace report "35%" with no evidence). The score is now
+    // earned/possible over the SAME per-term weights:
+    //   min(20, competitors × 7) + category 10 + scraped_meta 9, out of 39.
+    // One competitor  → (7 + 10) / 39 = 44%
+    // Two competitors → (14 + 10) / 39 = 62%
+    // The 18-point gap keeps this a leak detector; only the constants moved.
     const market = (c: Awaited<ReturnType<typeof coverage>>) =>
       c.dimensions.find(d => d.label === 'Market intelligence')!.score;
     const a = market(await coverage(WS_A));
     const b = market(await coverage(WS_B));
-    const base = 35 + 10 /* category */;
-    expect(a).toBe(base + 7);   // one competitor, not two
-    expect(b).toBe(base + 7);
+    const ONE_COMPETITOR = Math.round(((7 + 10) / 39) * 100);   // 44
+    const TWO_COMPETITORS = Math.round(((14 + 10) / 39) * 100); // 62
+    expect(ONE_COMPETITOR).not.toBe(TWO_COMPETITORS);           // still discriminating
+    expect(a).toBe(ONE_COMPETITOR);   // one competitor, not two
+    expect(b).toBe(ONE_COMPETITOR);
   });
 
   it('an empty workspace inherits nothing from the founder\'s other business', async () => {

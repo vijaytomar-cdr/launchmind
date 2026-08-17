@@ -129,9 +129,20 @@ export function formatContextPackageForModel(
         retracted:  '  [RETRACTED — withdrawn as invalid]',
         archived:   '  [SUPERSEDED — legacy state]',
       }[m.status] ?? '';
+      // AUTHORITY, stated explicitly and never derived.
+      //
+      // Governed rows carry a persisted tier; legacy (pre-3.2A) rows carry
+      // NULL and are labelled UNKNOWN_LEGACY. Deliberately NOT inferred from
+      // `source`: a legacy row whose source happens to read like founder
+      // provenance must not acquire founder authority by looking the part.
+      // Source stays on the line below as provenance, where it belongs.
+      const authority = m.authorityTier ?? 'UNKNOWN_LEGACY';
+      const cls = m.memoryClass ? ` · class: ${m.memoryClass}` : '';
+      const ev = m.evidenceIds.length ? ` · evidence: ${m.evidenceIds.length} record(s)` : ' · evidence: none recorded';
       return `${i + 1}. ${sanitizeEvidence(m.title)}${label}${lifecycle}\n` +
              `   observation: ${body}\n` +
-             `   type: ${m.memoryType} · source: ${m.source} · confidence: ${m.confidence}${staleness}`;
+             `   authority: ${authority}${cls}\n` +
+             `   type: ${m.memoryType} · source: ${m.source} · confidence: ${m.confidence}${staleness}${ev}`;
     }).join('\n');
 
     out += `## RELEVANT HISTORICAL LEARNING\n` +
@@ -142,6 +153,14 @@ export function formatContextPackageForModel(
       `Items marked CONTESTED, POSSIBLY OUTDATED, SUPERSEDED or RETRACTED are ` +
       `NOT established truth — weigh them accordingly and prefer ` +
       `founder-confirmed direction above.\n` +
+      `Each item states its AUTHORITY. FOUNDER_ASSERTED and FOUNDER_CONFIRMED ` +
+      `are the owner's own decisions and outrank every other authority. ` +
+      `UNKNOWN_LEGACY means the authority of that item was never established — ` +
+      `treat it as weak, not as founder direction. If a lower-authority item ` +
+      `conflicts with founder-confirmed direction or a founder-authority item, ` +
+      `do NOT present the lower-authority position as an established ` +
+      `recommendation: either follow the founder's, or say plainly that the ` +
+      `evidence conflicts and the decision is the founder's to make.\n` +
       `${EVIDENCE_OPEN}\n${rows}\n${EVIDENCE_CLOSE}\n\n`;
   } else {
     // An honest statement of WHY there is nothing, so the model does not infer

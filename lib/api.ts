@@ -1170,6 +1170,23 @@ export const api = {
     coverage: (token: string, workspaceId?: string) =>
       requestData<GrowthBrainCoverage>('/intelligence/coverage', { token, workspaceId }),
 
+    /** Phase 3.3C — 1–3 grounded recommendations with owner-facing provenance. */
+    recommendations: (token: string, workspaceId?: string) =>
+      requestData<GrowthBrainRecommendations>('/intelligence/recommendations', { token, workspaceId }),
+
+    /**
+     * Phase 3.3D — record an owner decision. The body carries only a verb; the
+     * server re-reads everything it treats as authority from its own row.
+     */
+    decideRecommendation: (
+      id: string,
+      body: { action: 'APPROVE' | 'DISMISS' | 'DEFER'; acknowledgeFounderConflict?: boolean; note?: string },
+      token: string, workspaceId?: string,
+    ) => requestData<{ id: string; decisionStatus: string; executionStatus: string;
+                       founderReviewRequired: boolean; founderReviewAcknowledged: boolean }>(
+      `/intelligence/recommendations/${id}/decision`,
+      { method: 'POST', body: JSON.stringify(body), token, workspaceId }),
+
     /**
      * Full learning history behind "View learning log →".
      * @param before - ISO cursor from the previous page's `nextCursor`
@@ -2692,6 +2709,52 @@ export interface LearningLogEntry {
   affectedMissions:        Array<{ id: string; title: string | null }>;
 }
 
+export type GrowthBrainInfoType = 'OBSERVATION' | 'INFERENCE' | 'RECOMMENDATION';
+export type GrowthBrainEvidenceStrength =
+  'strong evidence' | 'some evidence' | 'limited evidence' | 'insufficient evidence';
+
+export interface GrowthBrainProvenanceItem {
+  kind: 'FOUNDER_DIRECTION' | 'MARKETING_MEMORY' | 'PRODUCT_CONTEXT'
+      | 'ONBOARDING_STRATEGY' | 'CAMPAIGN_PERFORMANCE' | 'COMPETITOR_CONTEXT'
+      | 'MARKET_INTELLIGENCE';
+  label: string;
+  authority?: string | null;
+  memoryClass?: string | null;
+  evidenceCount?: number | null;
+  detail?: string | null;
+}
+
+export interface GrowthBrainRecommendation {
+  type: 'RECOMMENDATION';
+  what: string;
+  whyNow: string;
+  supportedBy: GrowthBrainProvenanceItem[];
+  supporting: Array<{ type: 'OBSERVATION' | 'INFERENCE'; text: string }>;
+  /** Set when this opposes founder-authority direction. Never established guidance. */
+  founderConflict: { withDirection: string } | null;
+  requiresFounderReview: boolean;
+  /** Server-issued identity. Present once persisted (Phase 3.3D). */
+  id?: string;
+  actionType?: string;
+  decisionStatus?: 'RECOMMENDED' | 'APPROVED' | 'DISMISSED' | 'DEFERRED';
+  executionStatus?: 'NOT_STARTED' | 'READY_FOR_ACTION';
+  expectedEffect: string | null;
+  nextStep: string;
+  requiresApproval: boolean;
+  evidenceStrength: GrowthBrainEvidenceStrength;
+  /** Always null: nothing measures a probability, so none is shown. */
+  confidence: null;
+}
+
+export interface GrowthBrainRecommendations {
+  recommendations: GrowthBrainRecommendation[];
+  unavailable: string[];
+  marketIntelligenceAvailable: boolean;
+  reason: string | null;
+  /** Claims the grounding boundary removed. Reasons only — never the text. */
+  withheld: Array<{ reason: string }>;
+}
+
 export interface GrowthBrainCoverage {
   overallScore:  number;
   overallCopy:   string;
@@ -2711,16 +2774,16 @@ export interface GrowthBrainCoverage {
     logoChar:        string;
     description:     string;
     decisionImproved: string;
-    expectedGain:    string;
+    expectedGain:    string | null;
     accessType:      string;
     /** False when no real integration exists yet. */
     available:       boolean;
     connectionStatus: string;
   } | null;
   contextSummary: {
-    positioning:    string;
-    audience:       string;
-    topSignal:      string;
+    positioning:    string | null;
+    audience:       string | null;
+    topSignal:      string | null;
     nextInitiative: string;
     primaryGoal:    string;
     targetWindow:   string;
