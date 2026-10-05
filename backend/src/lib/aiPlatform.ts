@@ -8,7 +8,11 @@
  *   - No service or route may import @anthropic-ai/sdk or aiClient.ts directly.
  *   - Prompt injection defense: sanitizeInput() strips control sequences before interpolation.
  *   - All calls write an immutable row to ai_requests (service_role). auditCtx is REQUIRED.
- *   - auditCtx.founderId is verified to be a UUID before writing; system calls pass null.
+ *   - auditCtx.founderId is verified to be a UUID before writing; a non-UUID actor
+ *     (e.g. 'system') is recorded as actor_type='system' with founder_id NULL.
+ *     THIS LINE PREVIOUSLY DESCRIBED A GUARD THAT DID NOT EXIST IN THE CODE
+ *     (P1-43): 'system' went straight into a UUID column, Postgres returned
+ *     22P02, the catch swallowed it, and no audit row was written at all.
  *   - outputSchema enables output validation: parse failure is logged as status='failed'.
  * @dependencies aiClient, contextEngine, promptRegistry, modelRouter, supabaseAdmin, Sentry, zod
  */
@@ -30,8 +34,21 @@ import { getSupabaseAdmin } from './supabaseAdmin';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface AuditContext {
+  /**
+   * The founder this call was made for, as a UUID.
+   *
+   * Anything that is not a UUID — 'system', a worker label, undefined — is
+   * recorded as a SYSTEM actor with no founder identity. It is never coerced
+   * into a founder, and no synthetic founder is minted to hold it.
+   */
   founderId?: string | null;
   productId?: string | null;
+  /**
+   * Workspace this call was made for, when it was made for one. Omit for a
+   * genuinely global call: NULL records "not workspace-scoped", which is an
+   * honest answer, whereas attaching a nearby workspace is a guess (§9).
+   */
+  workspaceId?: string | null;
   promptId: string;
   action: string;
   /**
@@ -182,6 +199,44 @@ async function callWithRetry(
 
 // ── Audit writer ──────────────────────────────────────────────────────────────
 
+/** RFC 4122 shape. The column is UUID; anything else is not a founder. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Reuses the actor vocabulary the repository already had — the same
+ * 'founder' | 'system' pair used by connection permission history
+ * (migration 083) and by the execution guard, where 'system' is the value
+ * refused before every other gate. Those modules are deliberately NOT named
+ * as identifiers here: the execution-boundary suite greps this file for them,
+ * because a comment is how an import starts.
+ */
+export type AiActorType = 'founder' | 'system';
+
+/**
+ * Splits WHO INITIATED THE CALL from WHOSE AUTHORITY APPLIES.
+ *
+ * A founder id that is not a UUID is not a founder with a formatting problem —
+ * it is a system caller. Recording it as a system actor with NO founder_id is
+ * the only representation that is both auditable and honest; the alternative
+ * considered and rejected was minting a synthetic founder row, which would have
+ * made every authority surface in LaunchMind see a person that does not exist.
+ */
+export function resolveAiActor(founderId?: string | null): {
+  actorType: AiActorType; founderId: string | null;
+} {
+  const id = typeof founderId === 'string' ? founderId.trim() : '';
+  return UUID_RE.test(id)
+    ? { actorType: 'founder', founderId: id }
+    : { actorType: 'system', founderId: null };
+}
+
+/**
+ * Observability for audit writes — P1-43 was invisible for months because the
+ * only signal was a console.error nobody was counting. `failed` rising while
+ * `written` is flat is the exact shape of a silently missing audit trail.
+ */
+export const aiAuditCounters = { written: 0, failed: 0, lastError: null as string | null };
+
 async function writeAuditRecord(params: {
   founderId?: string | null;
   productId?: string | null;
@@ -199,13 +254,17 @@ async function writeAuditRecord(params: {
   error?: string;
   contextSources?: string[];
   contextPackageId?: string | null;
+  workspaceId?: string | null;
 }): Promise<string | null> {
   try {
     const supabase = getSupabaseAdmin();
-    const { data } = await supabase
+    const actor = resolveAiActor(params.founderId);
+    const { data, error } = await supabase
       .from('ai_requests')
       .insert({
-        founder_id:      params.founderId ?? null,
+        actor_type:      actor.actorType,
+        founder_id:      actor.founderId,
+        workspace_id:    params.workspaceId ?? null,
         product_id:      params.productId ?? null,
         prompt_id:       params.promptId,
         prompt_version:  params.promptVersion,
@@ -224,10 +283,37 @@ async function writeAuditRecord(params: {
       })
       .select('id')
       .single();
+    // A failed insert must NEVER be reported as a written audit row. The
+    // previous version read only `data` and returned null on error, which is
+    // indistinguishable from success-with-no-id to every caller.
+    if (error) {
+      aiAuditCounters.failed++;
+      aiAuditCounters.lastError = `${error.code ?? 'unknown'}: ${String(error.message).slice(0, 160)}`;
+      console.error(JSON.stringify({
+        event: 'ai_audit_write_failed', code: error.code ?? null,
+        message: String(error.message).slice(0, 200),
+        promptId: params.promptId, action: params.action,
+        actorType: actor.actorType, model: params.model,
+      }));
+      Sentry.captureMessage('ai_audit_write_failed', {
+        level: 'error',
+        extra: { code: error.code, promptId: params.promptId, actorType: actor.actorType },
+      });
+      return null;
+    }
+    aiAuditCounters.written++;
     return data?.id ?? null;
   } catch (err) {
-    // Audit failure is non-fatal — never block the AI call
-    console.error('[aiPlatform] audit write failed:', err);
+    // Still non-fatal — telemetry must not break a generation the owner is
+    // waiting on — but no longer silent, and never a fabricated success.
+    aiAuditCounters.failed++;
+    aiAuditCounters.lastError = err instanceof Error ? err.message.slice(0, 160) : 'unknown';
+    console.error(JSON.stringify({
+      event: 'ai_audit_write_failed', code: null,
+      message: aiAuditCounters.lastError,
+      promptId: params.promptId, action: params.action, model: params.model,
+    }));
+    Sentry.captureException(err);
     return null;
   }
 }

@@ -10,7 +10,8 @@
  *   `.eq('workspace_id', …)` shows up as cross-tenant data in the result.
  *
  *   Supported: select/insert/update/upsert/delete, eq/neq/in/is/not/lt/gt/gte/lte,
- *   order/limit/range, single/maybeSingle, head+count, and thenable array resolution.
+ *   order/limit/range, contains (jsonb @>), single/maybeSingle, head+count, and
+ *   thenable array resolution.
  *
  * @security Test-only. Never imported by src/.
  */
@@ -20,9 +21,26 @@ import { randomUUID } from 'crypto';
 type Row = Record<string, unknown>;
 
 interface Filter {
-  op: 'eq' | 'neq' | 'in' | 'is' | 'not-is' | 'lt' | 'gt' | 'gte' | 'lte';
+  op: 'eq' | 'neq' | 'in' | 'is' | 'not-is' | 'lt' | 'gt' | 'gte' | 'lte' | 'contains';
   column: string;
   value: unknown;
+}
+
+/**
+ * Postgres `@>` for jsonb: is `expected` contained in `actual`?
+ *
+ * Partial and RECURSIVE, which is the whole point — `storedPlanning` filters on
+ * `{kind:'GROUNDED_PLANNING_WORK'}` and `persistPlanningWork` dedupes on a nested
+ * `{handoff:{opportunityId,concept:{key}}}`. A stub that returned true for any
+ * `.contains()` would make the dedupe test pass with no dedupe at all.
+ */
+function jsonbContains(actual: unknown, expected: unknown): boolean {
+  if (expected === null || typeof expected !== 'object') return actual === expected;
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual) && expected.every(e => actual.some(a => jsonbContains(a, e)));
+  }
+  if (actual === null || typeof actual !== 'object' || Array.isArray(actual)) return false;
+  return Object.entries(expected as Row).every(([k, v]) => jsonbContains((actual as Row)[k], v));
 }
 
 /** Applies one filter to a row. */
@@ -38,6 +56,7 @@ function matches(row: Row, f: Filter): boolean {
     case 'gt':     return (actual as never) > (f.value as never);
     case 'gte':    return (actual as never) >= (f.value as never);
     case 'lte':    return (actual as never) <= (f.value as never);
+    case 'contains': return jsonbContains(actual, f.value);
     default:       return true;
   }
 }
@@ -195,6 +214,8 @@ class QueryBuilder implements PromiseLike<{ data: Row[] | null; error: null; cou
   gt(column: string, value: unknown): this  { this.filters.push({ op: 'gt', column, value }); return this; }
   gte(column: string, value: unknown): this { this.filters.push({ op: 'gte', column, value }); return this; }
   lte(column: string, value: unknown): this { this.filters.push({ op: 'lte', column, value }); return this; }
+  /** jsonb `@>` — partial, recursive containment. */
+  contains(column: string, value: unknown): this { this.filters.push({ op: 'contains', column, value }); return this; }
 
   /** Supports the `.not('col', 'is', null)` form used for accepted_at checks. */
   not(column: string, op: string, value: unknown): this {

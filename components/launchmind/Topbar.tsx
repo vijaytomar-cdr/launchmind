@@ -27,7 +27,13 @@ const PAGE_LABELS: Record<string, string> = {
   '/dashboard/opportunities':               'Owner Command Center',
   '/dashboard/approvals':                   'Owner Command Center',
   '/dashboard/missions':                    'Owner Command Center',
-  '/dashboard/content':                     'Execution Center',
+  // NOT "Execution Center". Content Studio deliberately executes nothing: it
+  // has no publish, launch, schedule or spend control, and the whole governance
+  // model rests on content approval ≠ creative approval ≠ execution approval.
+  // A shell that calls it an execution surface contradicts that on every page
+  // load, and an owner who believes approving copy executed something is the
+  // exact misunderstanding those boundaries exist to prevent.
+  '/dashboard/content':                     'Owner Command Center',
   '/dashboard/campaigns':                   'Execution Center',
   '/dashboard/calendar':                    'Execution Center',
   '/dashboard/experiments':                 'Execution Center',

@@ -11,4 +11,6 @@ set -a
 . "$(dirname "$0")/../.env.staging"
 set +a
 unset PORT
-exec npx next dev -p 3000
+# Managed fixed-port startup. Staging uses a separate build directory so it can
+# never invalidate chunks produced by normal development, even across restarts.
+exec node scripts/launchmind-dev.mjs --mode=real --port=3000 --dist-dir=.next-dev-staging

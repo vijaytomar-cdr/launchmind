@@ -282,11 +282,20 @@ export default function MarketIntelligencePage() {
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', fontFamily: 'DM Mono, monospace' }}>{benchmark.signalCount}</div>
                 </div>
               </div>
-              {benchmark.signalCount < 20 && (
-                <p style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 8, lineHeight: 1.4 }}>
-                  Based on industry estimates — live benchmarks unlock as more apps report data.
-                </p>
-              )}
+              {/*
+                P1-16: this disclosure is UNCONDITIONAL. It used to be gated on
+                `signalCount < 20`, so a category with enough seeded rows lost
+                the label and read as measured market data. The wording comes
+                from the API response, so it cannot be dropped here either.
+              */}
+              <p style={{
+                fontSize: 11, color: 'var(--amber)', marginTop: 8, lineHeight: 1.4,
+                background: 'var(--amber-d)', border: '1px solid var(--amber-b)',
+                borderRadius: 8, padding: '6px 8px',
+              }}>
+                {benchmark.provenanceNote
+                  ?? 'Includes seeded reference data. These figures are not a measurement of your market.'}
+              </p>
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '24px 0' }}>

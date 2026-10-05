@@ -1,0 +1,41 @@
+{
+  "content": {
+    "primaryText": "Still on hold for a callback that may never come? Home projects shouldn't start with phone tag. AllignX connects you with trusted, vetted professionals in your neighborhood \u2014 quickly, safely, and conveniently.",
+    "headline": "Still waiting on that callback?",
+    "description": "Connect with vetted local pros.",
+    "cta": "Learn More",
+    "visualBrief": "Open on a tight shot of a smartphone screen showing a call timer frozen mid-hold \u2014 no contractor name visible, just the elapsed time ticking. Pull back slowly to reveal a homeowner sitting at a kitchen island, expression flat with recognition, not frustration. Cut to a clean, minimal product lock-up: the AllignX wordmark on white with the approved tagline set beneath it. No contractor imagery. No feature UI. Palette: warm neutral interiors, restrained and premium. No on-screen text beyond the lock-up."
+  },
+  "declaredClaims": [
+    {
+      "fieldId": "primary_text",
+      "textSpan": "Still on hold for a callback that may never come?",
+      "category": "SITUATION_FRAMING",
+      "requirement": "Expressed as a reader-directed question describing a situation the reader may recognise; not stated as a measured fact about contractor behaviour."
+    },
+    {
+      "fieldId": "primary_text",
+      "textSpan": "Home projects shouldn't start with phone tag.",
+      "category": "NORMATIVE_FRAMING",
+      "requirement": "An 'ought to' statement used as a permitted framing shape; makes no claim about product capability or outcomes."
+    },
+    {
+      "fieldId": "primary_text",
+      "textSpan": "AllignX connects you with trusted, vetted professionals in your neighborhood \u2014 quickly, safely, and conveniently.",
+      "category": "CAPABILITY",
+      "requirement": "Restates the approved product truth verbatim; qualifiers trusted, vetted, neighborhood are authorised; no feature-set or outcome promise added."
+    },
+    {
+      "fieldId": "headline",
+      "textSpan": "Still waiting on that callback?",
+      "category": "SITUATION_FRAMING",
+      "requirement": "Reader-directed question using a permitted framing shape (b); describes the reader's possible experience without asserting contractor behaviour as measured fact."
+    },
+    {
+      "fieldId": "description",
+      "textSpan": "Connect with vetted local pros.",
+      "category": "CAPABILITY",
+      "requirement": "Uses only the product's supported action verb (connect) and authorised qualifiers (vetted, local/nearby); completes a full action-and-object sentence within 30 characters."
+    }
+  ]
+}

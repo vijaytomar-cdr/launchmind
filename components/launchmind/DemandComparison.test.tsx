@@ -1,0 +1,10 @@
+import React from 'react';
+import {it,expect} from 'vitest';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {DemandComparison} from './DemandComparison';
+const services=Array.from({length:7},(_,i)=>({id:String(i),name:`Service ${i}`}));
+const stage=(n:number,ids:string[],winner:string,values:number[])=>({stage:n,serviceIds:ids,winnerId:winner,window:{start:'2026-06-08',end:'2026-09-05'},fetchedAt:'2026-09-06',signals:ids.map((id,i)=>({serviceId:id,query:`query ${id}`,value:values[i],direction:'STABLE',ownerGeography:{state:'Arizona'},sourceRef:'https://example.com'}))});
+const base={catalog:{confirmed:services},demandTournament:{status:'COMPLETE',finalWinnerId:'6',stages:[stage(1,['0','1','2','3','4'],'2',[10,20,90,30,40]),stage(2,['2','5','6'],'6',[10,15,20])]}} as any;
+it('shows advancement and final outcome without a universal numeric league table',()=>{const html=renderToStaticMarkup(<DemandComparison foundation={base} selectedServiceId="6"/>);const main=html.split('How this comparison worked')[0];expect(main).toContain('Final comparison winner');expect(main).toContain('Won first comparison; compared in final');expect(main).toContain('Not advanced');expect(main).toContain('Recommended');expect(main).not.toContain('>90<');expect(main).not.toContain('>20<');expect(html.match(/Relative interest in this comparison/g)).toHaveLength(2);});
+it('does not expose a partial stage as a winner when the final stage failed',()=>{const html=renderToStaticMarkup(<DemandComparison foundation={{...base,demandTournament:{...base.demandTournament,status:'FAILED',finalWinnerId:null}}}/>);expect(html).not.toContain('Final comparison winner');expect(html).not.toContain('Recommended');expect(html).not.toContain('>90<');expect(html).toContain('Not available');});
+it('distinguishes the demand winner from a recommendation driven by owner priority',()=>{const html=renderToStaticMarkup(<DemandComparison foundation={base} selectedServiceId="0"/>);expect(html).toContain('Demand winner');expect(html).toContain('Recommended');});

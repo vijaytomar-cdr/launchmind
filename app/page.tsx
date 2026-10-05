@@ -16,12 +16,25 @@ import { MeetAICMOModal } from '@/components/launchmind/MeetAICMOModal';
 
 function useReveal() {
   useEffect(() => {
+    // Opt IN to the hidden-then-revealed state only once JS is running. Without
+    // this the page renders at opacity:0 and stays blank until hydration lands.
+    document.documentElement.classList.add('reveal-ready');
+
     const io = new IntersectionObserver(
       (entries) => entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('cr-visible'); }),
       { threshold: 0.1, rootMargin: '0px 0px -60px 0px' },
     );
-    document.querySelectorAll('.cr').forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    // Anything already on screen is revealed immediately rather than waiting for
+    // a scroll event that may never come — the hero is the obvious case.
+    document.querySelectorAll('.cr').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight) el.classList.add('cr-visible');
+      io.observe(el);
+    });
+    return () => {
+      io.disconnect();
+      document.documentElement.classList.remove('reveal-ready');
+    };
   }, []);
 }
 
@@ -69,8 +82,12 @@ export default function LandingPage() {
     }}>
       {/* Reveal styles */}
       <style>{`
-        .cr { opacity: 0; transform: translateY(42px); transition: opacity .9s ease, transform .9s cubic-bezier(.22,.75,.23,1); }
-        .cr-visible { opacity: 1 !important; transform: none !important; }
+        .cr { opacity: 1; transform: none; transition: opacity .9s ease, transform .9s cubic-bezier(.22,.75,.23,1); }
+        .reveal-ready .cr { opacity: 0; transform: translateY(42px); }
+        .reveal-ready .cr-visible, .cr-visible { opacity: 1 !important; transform: none !important; }
+        @media (prefers-reduced-motion: reduce) {
+          .reveal-ready .cr { opacity: 1; transform: none; }
+        }
         @keyframes scrollCue { 0%{transform:scaleY(.2);transform-origin:top} 50%{transform:scaleY(1);transform-origin:top} 100%{transform:scaleY(.2);transform-origin:bottom} }
         @keyframes loadBar { from{width:0} }
         @keyframes brainDash { to{stroke-dashoffset:-100} }

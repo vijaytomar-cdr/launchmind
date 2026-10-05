@@ -70,3 +70,17 @@ export function PageLoading({ message = 'Loading…' }: { message?: string }) {
     </div>
   );
 }
+
+/** Shared in-content loading state for Content Studio index and review routes. */
+export function ContentStudioLoading({ message }: { message: string }) {
+  return (
+    <section role="status" aria-live="polite" style={{ maxWidth: 1040, margin: '0 auto', padding: 'clamp(20px,3vw,32px)' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
+        padding: 24, display: 'flex', alignItems: 'center', gap: 12, color: 'var(--ink2)' }}>
+        <span aria-hidden="true" style={{ width: 18, height: 18, border: '2px solid var(--border)',
+          borderTopColor: 'var(--sage)', borderRadius: '50%', display: 'inline-block', animation: 'lm-spin 0.8s linear infinite' }} />
+        <span style={{ fontSize: 14 }}>{message}</span>
+      </div>
+    </section>
+  );
+}

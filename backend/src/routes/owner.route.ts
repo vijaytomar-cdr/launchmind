@@ -18,6 +18,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import * as Sentry from '@sentry/node';
+import { sanitizeOwnerText, sanitizeOwnerFields } from '../services/ownerTextBoundary';
 import { z } from 'zod';
 
 import { getSupabaseAdmin }     from '../lib/supabaseAdmin';
@@ -472,6 +473,13 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
 
       // Generate AI recommendation using Sonnet (needs system prompt for JSON output)
       let recommendation: Record<string, unknown> | null = null;
+      // Owner-safe market disclosure. Defaults to "not available" so a failure
+      // anywhere below leaves the honest answer rather than a stale one.
+      let marketIntelligence: {
+        available: boolean;
+        observations: Array<{ subject: string; relation: string; claim: string; source: string; observedAt: string | null; freshness: string }>;
+        reason: string | null;
+      } = { available: false, observations: [], reason: null };
       if (product) {
         try {
           // Phase 3.1E: targeted retrieval + persisted provenance, replacing the
@@ -499,6 +507,26 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
                 `${d.executionStatus === 'READY_FOR_ACTION' ? ' (approved, awaiting action — NOT yet done)' : ''}`)
                 .join('\n')
             : '';
+          // Phase 3.4C: the brief and Growth Brain read the SAME resolved market
+          // contract, because both go through buildContextForPrompt ->
+          // ContextPackageV2. There is deliberately no second ingestion or
+          // resolution path here: a Morning-Brief-specific resolver could
+          // disagree with Growth Brain about applicability, freshness or
+          // lifecycle, and the owner would have no way to tell which was right.
+          marketIntelligence = ctx.package
+            ? {
+                available: ctx.package.marketIntelligence.available,
+                observations: ctx.package.marketEvidence.map(m => ({
+                  subject: m.subject,
+                  relation: m.subjectRelation,
+                  claim: m.claim,
+                  source: m.provider === 'app_store' ? 'App Store observation' : 'Play Store observation',
+                  observedAt: m.observedAt,
+                  freshness: m.freshness,
+                })),
+                reason: ctx.package.marketIntelligence.reason,
+              }
+            : marketIntelligence;
           const ctxSummary = `${ctx.text}${decidedLines}\n\nPending approvals: ${approvals.total}.`;
           const auditCtx = {
             founderId, productId: product.id,
@@ -513,7 +541,25 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
             RecommendationSchema,
           );
           // rawRec is already fence-stripped and Zod-validated by aiPlatform
-          recommendation = JSON.parse(rawRec);
+          const rec = JSON.parse(rawRec) as Record<string, unknown>;
+          // P1-20, SAME boundary as Growth Brain — not a second sanitizer.
+          //
+          // This surface became vulnerable in 3.4C: the market-observation
+          // block added to the model context prints handle refs like [mi1], so
+          // the brief model can now see and echo them. Every free-text field
+          // and every evidence line is normalised; anything still carrying a
+          // citation drops the recommendation rather than showing it.
+          const briefText = sanitizeOwnerFields({
+            title: String(rec.title ?? ''), summary: String(rec.summary ?? ''),
+            whyNow: String(rec.whyNow ?? ''), action: String(rec.action ?? ''),
+          });
+          const cleanEvidence = (Array.isArray(rec.evidence) ? rec.evidence : [])
+            .map(e => sanitizeOwnerText(String(e)))
+            .filter(v => !v.rejected && v.text.length > 0)
+            .map(v => v.text);
+          recommendation = briefText.rejected.length > 0
+            ? null
+            : { ...rec, ...briefText.values, evidence: cleanEvidence };
         } catch {
           recommendation = null; // Non-fatal — fallback shown in UI
         }
@@ -532,6 +578,8 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
           return acc;
         }, {}),
       ).sort(([a], [b]) => b.localeCompare(a)); // descending — most recent first
+      const performanceAsOf = weekBuckets.find(([week]) =>
+        Boolean(week) && week !== 'undefined' && week !== 'null')?.[0] ?? null;
 
       let weekOverWeekInstallDelta: number | null = null;
       if (weekBuckets.length >= 2) {
@@ -586,16 +634,22 @@ async function ownerPlugin(server: FastifyInstance): Promise<void> {
           requiresApproval: d.requiresApproval,
           founderReviewRequired: d.founderReviewRequired,
         })),
+        marketIntelligence,
         growthBrain: {
           hasStrategy:  growthBrainActive,
           confidence:   growthBrainConfidence,
           lastUpdated:  null,
         },
         metrics: {
-          weeklyInstalls:          weekInstalls || null,
-          cpi:                     avgCpi ? Number(avgCpi.toFixed(2)) : null,
-          activeCampaigns:         0,
+          weeklyInstalls:          allMetrics.length > 0 ? weekInstalls : null,
+          cpi:                     avgCpi == null ? null : Number(avgCpi.toFixed(2)),
+          // Absence of a campaign query is not evidence of zero campaigns.
+          activeCampaigns:         null,
           weekOverWeekInstallDelta,
+          performanceDataAvailable: allMetrics.length > 0,
+          // campaign_metrics is weekly. Expose the period anchor so the UI
+          // never presents an old reporting week as if it were live telemetry.
+          performanceAsOf,
         },
         memories: (memoriesRes.data ?? []).map(m => ({
           id:         m.id,

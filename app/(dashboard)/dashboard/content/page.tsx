@@ -17,6 +17,11 @@ import type { Product } from '@/lib/api'
 import type { AssetType } from '@/lib/types/content'
 import { ASSET_META, CHANNEL_ORDER } from '@/lib/types/content'
 import { AssetBlock } from '@/components/launchmind/AssetBlock'
+import { CampaignWorkbench } from '@/components/launchmind/CampaignWorkbench'
+import { GroundedPlanningWork } from '@/components/launchmind/GroundedPlanningWork'
+import { StudioHome } from '@/components/launchmind/StudioHome'
+import { ContentStudioLoading } from '@/components/launchmind/LoadingState'
+import { useSearchParams, useRouter } from 'next/navigation'
 import {
   IconSparkles, IconSearch, IconFilter, IconX, IconRefresh,
   IconBookmark, IconGlobe, IconBell, IconFileText, IconChevronDown,
@@ -511,6 +516,23 @@ function StatsPanel({ stats }: { stats: StudioStats | null }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function ContentStudioPage() {
+  // ── Routing, corrected ─────────────────────────────────────────────────────
+  //
+  //   ?campaign=<id>  → the governed workbench for that campaign
+  //   ?tools=legacy   → the legacy 31-type generator, kept but SECONDARY
+  //   (neither)       → the governed Content Studio home
+  //
+  // This used to be backwards: the default was the legacy generator, and the
+  // owner's own governed content lived behind a uuid they could not guess. The
+  // legacy Studio is preserved in full — it is simply no longer what "Content
+  // Studio" means.
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const campaignId = searchParams.get('campaign')
+  const artifactId = searchParams.get('artifact')
+  const planningId = searchParams.get('planning')
+  const legacyTools = searchParams.get('tools') === 'legacy'
+
   const [token, setToken] = useState<string | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [assets, setAssets] = useState<ContentAsset[]>([])
@@ -550,6 +572,7 @@ export default function ContentStudioPage() {
     fetchToken().then(async tok => {
       if (!tok) return
       setToken(tok)
+      if (planningId) { setLoading(false); return }
       const [{ data: ps }, assetsRes, statsRes] = await Promise.all([
         supabase.from('products').select('id, name, platform').order('created_at', { ascending: false }),
         loadAssets(tok, '', '', '', '', false, 0),
@@ -561,7 +584,7 @@ export default function ContentStudioPage() {
       setStats(statsRes)
       setLoading(false)
     })
-  }, [fetchToken, loadAssets, supabase])
+  }, [fetchToken, loadAssets, supabase, planningId])
 
   const applyFilters = useCallback(async () => {
     const tok = await fetchToken()
@@ -626,22 +649,57 @@ export default function ContentStudioPage() {
     setTotal(t => t + 1)
   }, [])
 
-  if (loading) {
+  if (loading) return <ContentStudioLoading message={planningId ? 'Loading your creative…' : 'Loading Content Studio…'} />
+
+  if (campaignId && token) {
     return (
-      <div style={{ padding: '40px', display: 'flex', alignItems: 'center', gap: 10, color: 'var(--ink3)' }}>
-        <IconLoader2 size={16} />
-        <span style={{ fontSize: 14 }}>Loading Content Studio…</span>
+      <div style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
+        <div style={{ marginBottom: 20 }}>
+          <a href="/dashboard/intelligence/content"
+            style={{ fontSize: 12, color: 'var(--sage)', textDecoration: 'none' }}>
+            ← Content Intelligence
+          </a>
+          <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 700,
+            color: 'var(--ink)', margin: '8px 0 4px' }}>
+            Content Studio
+          </h1>
+          <p style={{ fontSize: 13, color: 'var(--ink3)', margin: 0 }}>
+            Work on content LaunchMind has already created: compare variants, inspect
+            versions, and approve a specific content version.
+          </p>
+        </div>
+        <CampaignWorkbench campaignId={campaignId} token={token}
+          initialArtifactId={artifactId}
+          initialView={searchParams.get('view') === 'compare' ? 'compare' : null} />
+      </div>
+    )
+  }
+
+  if (searchParams.get('planning') && token) return <GroundedPlanningWork id={searchParams.get('planning')!} token={token}/>
+
+  // Governed home — what "Content Studio" now means.
+  if (!legacyTools) {
+    return (
+      <div style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
+        <StudioHome />
       </div>
     )
   }
 
   return (
     <div style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
+      {/* Back to the governed home. The legacy generator is a side trip. */}
+      <button type="button" onClick={() => router.push('/dashboard/content')}
+        style={{ background: 'none', border: 'none', padding: 0, marginBottom: 14,
+          cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--sage)',
+          fontWeight: 650 }}>
+        ← Content Studio
+      </button>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
-            Content Studio
+            Other content tools
           </h1>
           <p style={{ fontSize: 13, color: 'var(--ink3)', margin: '4px 0 0' }}>
             31 content types · AI generation, editing, versioning, and publishing

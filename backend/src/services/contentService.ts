@@ -864,7 +864,7 @@ export async function generateImageFromBrief(
   // Fetch product's content_preferences + scraped_meta (for real screenshots)
   const { data: product } = await supabase
     .from('products')
-    .select('content_preferences, scraped_meta')
+    .select('content_preferences, scraped_meta, workspace_id')
     .eq('id', asset.product_id as string)
     .single();
 
@@ -872,9 +872,27 @@ export async function generateImageFromBrief(
   const logoUrl: string | undefined = prefs?.visual?.logoUrl ?? undefined;
   const style: ImageStyle = opts.style ?? (prefs?.visual?.imageStyle as ImageStyle | undefined) ?? 'photorealistic';
 
-  // Real marketing images collected during intake (permanent Storage URLs)
-  const scrapedMeta = product?.scraped_meta as Record<string, unknown> | null;
-  const marketingImages: string[] = (scrapedMeta?.marketingImages as string[] | undefined) ?? [];
+  // ── P1-52 / ADR-071 T11 — assets come from the AUTHORIZATION-AWARE resolver ──
+  //
+  // This previously read `scraped_meta.marketingImages` and used element [0] as
+  // advertising creative. That array is filled by `collectMarketingImages` in
+  // the order screenshots → website hero → **Google image-search results**, so a
+  // product whose store screenshots failed to download could have an arbitrary
+  // web-search image become its advertisement. Downloading an image and putting
+  // it in our bucket is observation, not a licence.
+  //
+  // BEHAVIOUR CHANGE, intended: with no owner-authorised asset this now returns
+  // nothing and generation falls through to the model path. An honest fallback
+  // beats publishing an image nobody has the right to use.
+  const productWorkspaceId = (product as { workspace_id?: string } | null)?.workspace_id ?? null;
+  const { resolveMarketingAssets } = await import('./brand/marketingAssetService');
+  const authorizedAssets = productWorkspaceId
+    ? await resolveMarketingAssets(productWorkspaceId, asset.product_id as string, 'VISUAL_RENDERING')
+       .catch(() => [])
+    : [];
+  const marketingImages: string[] = authorizedAssets
+    .map(a => a.externalUrl ?? a.storagePath ?? '')
+    .filter((u): u is string => u.length > 0);
 
   // Mark as rendering so the frontend can show progress immediately
   await supabase
@@ -882,7 +900,7 @@ export async function generateImageFromBrief(
     .update({ render_started_at: new Date().toISOString() })
     .eq('id', assetId);
 
-  console.log(`[contentService] generateImageFromBrief — asset ${assetId}, type ${assetType}, style ${style}, logo ${logoUrl ? 'yes' : 'none'}`);
+  console.log(`[contentService] generateImageFromBrief — asset ${assetId}, type ${assetType}, style ${style}, logo ${logoUrl ? 'yes' : 'none'}, authorizedAssets ${marketingImages.length}`);
 
   const briefRaw = asset.text_content as string;
   let briefFields: Record<string, string> = {};

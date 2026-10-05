@@ -21,8 +21,30 @@ const INTELLIGENCE_TABS = [
   { href: '/dashboard/intelligence/ai-audit',     label: 'AI Audit' },
 ];
 
+/**
+ * Routes that live under /intelligence for URL reasons but do NOT belong to the
+ * Intelligence section in the owner's head — B6.5 §4.
+ *
+ * Content Intelligence is a CREATE surface. It sat under this layout and
+ * inherited a row of eight tabs — Growth Brain, Memory, Knowledge Graph, Market
+ * Intelligence, Reviews, Ideas Inbox, Timeline, AI Audit — none of which the
+ * owner needs in order to decide what to make. The left navigation already
+ * offers every one of them, so the row was a second navigation contradicting
+ * the first: it implied Content Intelligence was a sibling of AI Audit.
+ *
+ * Hidden HERE rather than by moving the route, because the URL is linked from
+ * the Morning Brief, from Content Studio and from the owner's bookmarks.
+ * Nothing is deleted and no destination page changes; Content Intelligence
+ * consumes those systems' signals and explains only what matters.
+ */
+const HIDE_SUBNAV = ['/dashboard/intelligence/content'];
+
 export default function IntelligenceLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+
+  if (HIDE_SUBNAV.some(p => pathname.startsWith(p))) {
+    return <div className="min-h-screen" style={{ background: 'var(--page)' }}>{children}</div>;
+  }
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--page)' }}>

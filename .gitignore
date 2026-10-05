@@ -30,6 +30,9 @@ playwright-report/
 # Local dev state
 .supabase/
 localstack-data/
+.tmp/
+.next-dev-*/
+.next.runtime-*/
 
 # OS
 .DS_Store
@@ -46,3 +49,6 @@ npm-debug.log*
 
 # Verification builds (see next.config.js distDir) — never dev's .next
 .next-build/
+
+# Generated browser/UX verification output
+/artifacts/

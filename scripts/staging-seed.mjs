@@ -26,6 +26,8 @@
  * Usage: node scripts/staging-seed.mjs
  */
 
+import { assertIsolatedCertificationEnv, assertDatabaseGeneration } from './cert-env-guard.mjs';
+
 const URL     = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321';
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const EMAIL   = process.env.TEST_EMAIL    ?? 'staging@launchmind.test';
@@ -33,12 +35,36 @@ const PASS    = process.env.TEST_PASSWORD ?? 'staging-provider-validation-2026';
 
 const WORKSPACE_NAME = 'LaunchMind Provider Validation';
 
-// ── Guard: never seed a hosted project ──────────────────────────────────────
-if (!/127\.0\.0\.1|localhost/.test(URL)) {
-  console.error(`REFUSED: SUPABASE_URL is not local (${URL}).`);
-  console.error('This script only ever runs against a local staging stack.');
-  process.exit(1);
+// ── Guard: LOCAL_ISOLATED_CERTIFICATION only (docs/environment-contract.md §B) ──
+assertIsolatedCertificationEnv({
+  command: 'staging:seed',
+  urls: { 'Supabase': URL },
+  requireIdentity: 'staging@launchmind.test',
+});
+
+// ── Guard: this must be the BROWSER generation, not the PG one (P1-45) ──────
+const genRes = await fetch(`${URL}/rest/v1/lm_database_generation?select=generation&limit=1`,
+  { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` } }).catch(() => null);
+const genRows = genRes && genRes.ok ? await genRes.json().catch(() => []) : null;
+if (genRows === null) {
+  console.error('REFUSED: could not read the database generation marker.');
+  console.error('Mark the browser database first:  npm run staging:mark');
+  process.exit(3);
 }
+const fixRes = await fetch(
+  `${URL}/rest/v1/founders?email=eq.${encodeURIComponent(EMAIL)}&select=id&limit=1`,
+  { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` } }).catch(() => null);
+const fixRows = fixRes && fixRes.ok ? await fixRes.json().catch(() => []) : [];
+assertDatabaseGeneration({
+  workflow: 'BROWSER_CERT',
+  targetUrl: URL,
+  marker: Array.isArray(genRows) && genRows.length ? genRows[0].generation : null,
+  // Seeding CREATES the fixture, so its absence is expected here and must not
+  // be a refusal — the marker is what decides the generation.
+  browserFixturePresent: true,
+  otherUrl: process.env.PG_CERT_SUPABASE_URL ?? null,
+});
+void fixRows;
 if (!SERVICE) {
   console.error('REFUSED: SUPABASE_SERVICE_ROLE_KEY is not set.');
   process.exit(1);

@@ -45,6 +45,16 @@ const PG_SUITES = [
   'tests/governedRetrievalIntegration.pg.test.ts',
   'tests/lifecycleTierPropagation.pg.test.ts',
   'tests/memoryGovernance.pg.test.ts',
+  // Phase 3.4B. The non-influence suite is listed alongside the matrix on
+  // purpose: "Market Intelligence changed nothing" is a claim that has to be
+  // re-earned on every certification run, not asserted once.
+  'tests/marketIntelligence.pg.test.ts',
+  'tests/marketIntelligenceNonInfluence.pg.test.ts',
+  'tests/marketIntelligenceActive.pg.test.ts',
+  // Phase 3.5B / P1-43. The CHECK constraints in migration 115 are the
+  // structural half of "call provenance is not founder authority", and a
+  // constraint that is never exercised against real Postgres is a comment.
+  'tests/aiRequestActor.pg.test.ts',
 ];
 
 /** Exact, approved pre-launch deferral. Do not replace with a generic filter. */
@@ -62,13 +72,38 @@ function die(msg) {
   process.exit(1);
 }
 
+// ── EXPLICIT PG TARGET (P1-45) ──────────────────────────────────────────────
+//
+// The target is NEVER inferred from SUPABASE_URL, NEXT_PUBLIC_SUPABASE_URL,
+// .env.local or the browser staging configuration. Inference is how one local
+// database came to serve two incompatible lifecycles: whichever stack happened
+// to be running became "the" database.
+//
+// PG_CERT_WORKDIR names the isolated Supabase project directory (default
+// `.pgcert`), and its own `supabase status` supplies the credentials. Pointing
+// this at the browser project is possible and is caught by the generation guard
+// below, not by hoping nobody does it.
+const { fileURLToPath } = await import('url');
+const { dirname, resolve, isAbsolute } = await import('path');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const PG_CERT_WORKDIR = process.env.PG_CERT_WORKDIR
+  ? (isAbsolute(process.env.PG_CERT_WORKDIR)
+      ? process.env.PG_CERT_WORKDIR
+      : resolve(REPO_ROOT, process.env.PG_CERT_WORKDIR))
+  : resolve(REPO_ROOT, '.pgcert');
+
 let env;
 try {
-  env = execFileSync('npx', ['supabase', 'status', '-o', 'env'], {
+  env = execFileSync('npx', ['supabase', 'status', '-o', 'env', '--workdir', PG_CERT_WORKDIR], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
   });
 } catch {
-  die('`supabase status` failed — the local stack does not appear to be running');
+  die(
+    `the isolated PG certification stack is not running (workdir ${PG_CERT_WORKDIR}).\n` +
+    `  Start it with:  npm run pgdb:up\n` +
+    `  This is a SEPARATE local stack from the browser-certification one — see ` +
+    `docs/environment-contract.md.`,
+  );
 }
 
 const read = (k) => (env.match(new RegExp(`^${k}="?([^"\n]+)"?`, 'm')) ?? [])[1] ?? '';
@@ -95,23 +130,49 @@ if (probe.status !== 0 || !/^[23]/.test((probe.stdout ?? '').trim())) {
 // this runner must refuse to start: several integration suites intentionally
 // create retained audit/history rows, so running them here would invalidate the
 // browser safety verifier even when every assertion passes.
+// ── GENERATION GUARD (P1-45) ────────────────────────────────────────────────
+// Two independent signals, read from the database itself: the explicit marker,
+// and whether the canonical browser identity is present. Row counts are NOT
+// used — an empty PG database and a freshly reset browser database look
+// identical, which is exactly the ambiguity the marker removes.
+const rest = async (path) => {
+  const res = await fetch(`${url}/rest/v1/${path}`,
+    { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } });
+  if (!res.ok) return null;
+  return res.json();
+};
+
+let marker = null;
+let browserFixturePresent = true;   // fail toward refusal if a probe cannot run
 try {
-  const fixtureProbe = await fetch(
-    `${url}/rest/v1/founders?email=eq.staging%40launchmind.test&select=id&limit=1`,
-    { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
-  );
-  if (!fixtureProbe.ok) die(`could not verify PG/browser database separation (HTTP ${fixtureProbe.status})`);
-  const fixtureRows = await fixtureProbe.json();
-  if (Array.isArray(fixtureRows) && fixtureRows.length > 0) {
+  const markerRows = await rest('lm_database_generation?select=generation&limit=1');
+  if (markerRows === null) {
     die(
-      'refusing to run PG certification against BROWSER_CERT_DB: the canonical ' +
-      'staging fixture is present. Reset/rebuild the PG database first.',
+      'the PG certification database has no lm_database_generation marker table.\n' +
+      '  Create it with:  npm run pgdb:mark\n' +
+      '  A database nobody has claimed is not a database this command will use.',
     );
   }
+  marker = Array.isArray(markerRows) && markerRows.length ? markerRows[0].generation : null;
+
+  const fixtureRows = await rest('founders?email=eq.staging%40launchmind.test&select=id&limit=1');
+  if (fixtureRows === null) die('could not probe for the browser fixture identity');
+  browserFixturePresent = Array.isArray(fixtureRows) && fixtureRows.length > 0;
 } catch (err) {
-  if (err instanceof Error && err.message.includes('refusing to run PG certification')) throw err;
-  die(`could not verify PG/browser database separation (${err instanceof Error ? err.message : String(err)})`);
+  die(`could not verify database generation (${err instanceof Error ? err.message : String(err)})`);
 }
+
+const { assertDatabaseGeneration, HOSTED_REF } = await import('../../scripts/cert-env-guard.mjs');
+assertDatabaseGeneration({
+  workflow: 'PG_INTEGRATION',
+  targetUrl: url,
+  marker,
+  browserFixturePresent,
+  otherUrl: process.env.BROWSER_CERT_SUPABASE_URL ?? null,
+  hostedRefVars: Object.entries(process.env)
+    .filter(([k, v]) => typeof v === 'string' && v.includes(HOSTED_REF) && !k.startsWith('npm_'))
+    .map(([k]) => k),
+});
 
 const profile = prelaunch ? 'pre-launch' : 'full';
 console.log(`PG integration (${profile}): local Supabase reachable at ${url} — running ${PG_SUITES.length} suite(s)\n`);

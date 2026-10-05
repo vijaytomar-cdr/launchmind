@@ -113,6 +113,28 @@ export function formatContextPackageForModel(
       : null,
   ]));
 
+  // ── 2b. External market observations (Phase 3.4C) ──────────────────────────
+  // INSIDE the untrusted fence and explicitly labelled EXTERNAL. Every line
+  // carries its own observation date and freshness, because the single most
+  // likely misreading is treating a dated public listing as a statement about
+  // the market today. The first-party/external separation is restated here
+  // rather than left implicit: this is the last point before the model sees it.
+  if ((pkg.marketEvidence ?? []).length > 0) {
+    const rows = pkg.marketEvidence.map(m => {
+      const dated = m.observedAt ? `observed ${m.observedAt.slice(0, 10)}` : 'observation date unknown';
+      const store = m.provider === 'app_store' ? 'App Store' : 'Play Store';
+      const who = m.subjectRelation === 'OWN_PRODUCT'
+        ? "this product's OWN public listing" : 'a competitor the founder confirmed';
+      return `  [${m.handleRef}] ${sanitizeEvidence(m.claim)}\n` +
+             `      source: public ${store} listing for ${who} · ${dated} · freshness ${m.freshness}`;
+    });
+    out += `\nEXTERNAL MARKET OBSERVATIONS (public store listings — NOT this business's own performance data):\n` +
+           `${rows.join('\n')}\n` +
+           `  These are observations of what is PUBLISHED about an app. They are not a measurement of\n` +
+           `  this business's results, and may never be restated as this business's own numbers.\n` +
+           `  Only observations marked CURRENT may be described in the present tense.\n`;
+  }
+
   // ── 3. Retrieved history — inside the untrusted fence ──────────────────────
   if (pkg.retrievedMemories.length > 0) {
     const rows = pkg.retrievedMemories.map((m, i) => {

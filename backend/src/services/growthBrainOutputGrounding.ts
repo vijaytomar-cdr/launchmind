@@ -41,6 +41,7 @@ import type { ContextPackageV2 } from '../lib/context/contextPackageV2';
 import {
   extractQuantities, distinctiveSubjectTokens, assertedValence,
 } from './memory/evidenceSupportPolicy';
+import { checkFreshnessLanguage } from './marketIntelligence/contract';
 
 /** Owner-facing evidence categories. Matches the production vocabulary. */
 export const EVIDENCE_KINDS = [
@@ -81,6 +82,10 @@ export interface EvidenceHandle {
   memoryClass?: string | null;
   evidenceCount?: number | null;
   detail?: string | null;
+  /** MARKET_INTELLIGENCE only. Drives the owner-facing language contract. */
+  freshness?: 'CURRENT' | 'AGING' | 'STALE' | 'UNKNOWN_DATE';
+  /** MARKET_INTELLIGENCE only. OWN_PRODUCT evidence is still EXTERNAL. */
+  subjectRelation?: string;
 }
 
 export interface SupportingClaimInput {
@@ -93,7 +98,13 @@ export interface SupportingClaimInput {
 export type DropReason =
   | 'UNSUPPORTED_MEASUREMENT'
   | 'NO_RESOLVABLE_EVIDENCE'
-  | 'CATEGORY_CANNOT_SUPPORT_CLAIM';
+  | 'CATEGORY_CANNOT_SUPPORT_CLAIM'
+  /** ADR-069 §10: a market figure was used to assert an owner's own number. */
+  | 'EXTERNAL_CANNOT_SUPPORT_FIRST_PARTY_CLAIM'
+  /** ADR-069 §5: present-tense market wording on non-CURRENT evidence. */
+  | 'STALE_EVIDENCE_CANNOT_SUPPORT_CURRENT_CLAIM'
+  /** ADR-069 §5: a numeric market claim with no defensible observation date. */
+  | 'UNDATED_EVIDENCE_CANNOT_SUPPORT_NUMERIC_CLAIM';
 
 export interface GroundedClaim {
   type: 'OBSERVATION' | 'INFERENCE';
@@ -155,7 +166,33 @@ export function issueEvidenceHandles(pkg: ContextPackageV2): EvidenceHandle[] {
   if (pkg.authoritative.productName) {
     out.push({
       ref: 'product', kind: 'PRODUCT_CONTEXT', label: 'Your product profile',
-      text: [pkg.authoritative.productName, pkg.authoritative.category].filter(Boolean).join(' · '),
+      // THE DESCRIPTION BELONGS HERE, and its absence was a measured defect.
+      //
+      // This handle used to carry NAME and CATEGORY only. The product's own
+      // description — the sentence that says what it actually does — reached the
+      // generator through `application.description` but never reached grounding.
+      // So AllignX copy reading "connect with vetted local professionals
+      // quickly, safely and conveniently", which is very nearly the product's
+      // own published description, was judged UNSUPPORTED: `substantiates()`
+      // looked for "vetted" and "professionals" in "AllignX · Productivity" and
+      // correctly found nothing. Governance was working; the evidence was
+      // incomplete. Every Meta ad for this product was stuck at
+      // REWRITE_REQUIRED as a direct result.
+      //
+      // This WIDENS NOTHING. PRODUCT_CONTEXT was already an admissible kind for
+      // CAPABILITY, PRICING, GEOGRAPHIC_AVAILABILITY and OTHER_FACTUAL_CLAIM,
+      // and remains inadmissible for FIRST_PARTY_PERFORMANCE, QUANTIFIED_
+      // PERFORMANCE, COMPARATIVE, SUPERLATIVE, EXCLUSIVITY, CUSTOMER_COUNT,
+      // SOCIAL_PROOF and OUTCOME_PROMISE. A product description still cannot
+      // substantiate "3 days faster" or "the best in your city", and the figure
+      // rule still refuses any number the description does not itself carry.
+      // What changes is only that a product may now be described as it
+      // describes itself.
+      text: [
+        pkg.authoritative.productName,
+        pkg.authoritative.category,
+        pkg.authoritative.description,
+      ].filter(Boolean).join(' · '),
       detail: null,
     });
   }
@@ -166,6 +203,23 @@ export function issueEvidenceHandles(pkg: ContextPackageV2): EvidenceHandle[] {
       text: f.competitors.map(c => c.name).join(', '), detail: null,
     });
   }
+  // Phase 3.4C. The package already resolved applicability, lifecycle and
+  // freshness, so anything present here is eligible by construction — this
+  // function does not re-decide it, and equally cannot bypass it. In OFF and
+  // SHADOW the array is empty, so no handle is issued and no branch is needed.
+  for (const m of pkg.marketEvidence ?? []) {
+    out.push({
+      ref: m.handleRef, kind: 'MARKET_INTELLIGENCE', label: m.label,
+      text: m.claim,
+      authority: m.authorityTier,
+      detail: m.observedAt
+        ? `${m.provider === 'app_store' ? 'App Store' : 'Play Store'} listing, observed ${m.observedAt.slice(0, 10)}`
+        : `${m.provider === 'app_store' ? 'App Store' : 'Play Store'} listing, observation date unknown`,
+      freshness: m.freshness,
+      subjectRelation: m.subjectRelation,
+    });
+  }
+
   if (pkg.operational.recentMetrics.length) {
     out.push({
       ref: 'perf', kind: 'CAMPAIGN_PERFORMANCE', label: 'Your campaign performance',
@@ -212,6 +266,36 @@ export function isMeasuredHistoricalClaim(text: string): boolean {
   return HISTORICAL_WORDS.some(w => t.includes(w));
 }
 
+/**
+ * Does this claim state a QUANTITY at all?
+ *
+ * MEASURED DEFECT (Phase 3.4C, cases H and L): the first-party guard and the
+ * freshness-numeric rule both hung off `isMeasuredHistoricalClaim`, which
+ * requires a PAST-TENSE marker. "Your conversion increased 31%" qualified;
+ * "Your rating is 4.70" did not — so a competitor's public rating, restated in
+ * the present tense as the owner's own, passed through the qualitative branch
+ * with the competitor's listing attached as its evidence.
+ *
+ * The gap was invisible before Market Intelligence because campaign metrics are
+ * naturally stated in the past tense while store listings are naturally stated
+ * in the present. Both checks are now driven by what the sentence CONTAINS
+ * rather than by which branch it happened to fall into.
+ */
+export function hasQuantity(text: string): boolean {
+  return extractQuantities(text ?? '').some(q => !q.startsWith('num:') || /\d/.test(q));
+}
+
+/**
+ * Does this claim assert something about the OWNER'S OWN business?
+ *
+ * Possessive framing is the signal: "your conversion rate", "our CAC",
+ * "we converted". A market statement reads differently on purpose — "the
+ * category median is 3.2%" makes no claim about this business at all.
+ */
+export function assertsFirstParty(text: string): boolean {
+  return /\b(your|yours|our|ours|we|us)\b/i.test(text ?? '');
+}
+
 /** Do the claim's own quantities appear in the cited evidence? */
 function quantitiesBackedBy(claim: string, refs: EvidenceHandle[]): boolean {
   const required = extractQuantities(claim);
@@ -243,6 +327,18 @@ export function groundClaims(
       .filter((h): h is EvidenceHandle => h !== undefined);
 
     const measured = isMeasuredHistoricalClaim(c.text);
+    const numeric = hasQuantity(c.text);
+
+    // 1a. FIRST-PARTY vs EXTERNAL (ADR-069 §10), applied to ANY quantified
+    //     claim, past OR present tense. A market figure is about the market; it
+    //     can never substantiate "YOUR rating is 4.70". Fires only when every
+    //     resolved handle is external, so a claim backed by real first-party
+    //     data is untouched and a comparison citing BOTH passes.
+    if (numeric && assertsFirstParty(c.text)
+        && resolved.length > 0 && resolved.every(h => h.kind === 'MARKET_INTELLIGENCE')) {
+      out.dropped.push({ text: c.text, reason: 'EXTERNAL_CANNOT_SUPPORT_FIRST_PARTY_CLAIM' });
+      continue;
+    }
 
     // 2. MEASURED claims must find their own figures in evidence that is
     //    capable of carrying them. Dropped, never downgraded: labelling an
@@ -257,6 +353,8 @@ export function groundClaims(
         out.dropped.push({ text: c.text, reason: 'UNSUPPORTED_MEASUREMENT' });
         continue;
       }
+      const lang = freshnessLanguageVerdict(c.text, capable, numeric);
+      if (lang) { out.dropped.push({ text: c.text, reason: lang }); continue; }
       out.claims.push({ type: c.type, text: c.text, refs: capable });
       continue;
     }
@@ -272,9 +370,46 @@ export function groundClaims(
       }
       continue;
     }
+    // 4. QUALITATIVE with evidence. Present-tense market framing still needs
+    //    CURRENT evidence — a real 2019 observation rendered as "the market
+    //    currently..." is a false statement about today, and nothing about it
+    //    being qualitative makes that acceptable.
+    const qualLang = freshnessLanguageVerdict(c.text, resolved, numeric);
+    if (qualLang) { out.dropped.push({ text: c.text, reason: qualLang }); continue; }
+
     out.claims.push({ type: c.type, text: c.text, refs: resolved });
   }
   return out;
+}
+
+/**
+ * Applies the ADR-069 freshness LANGUAGE contract to one claim.
+ *
+ * Scoped to MARKET_INTELLIGENCE handles only: first-party and founder evidence
+ * have their own semantics and are not dated observations of an outside world.
+ *
+ * The freshness used is the STRONGEST among the market handles cited, because a
+ * claim resting on one CURRENT and one STALE observation is entitled to the
+ * better of the two — but a claim resting only on STALE evidence is not.
+ *
+ * @returns a drop reason, or null when the wording is permitted
+ */
+function freshnessLanguageVerdict(
+  text: string, refs: EvidenceHandle[], isNumeric: boolean,
+): DropReason | null {
+  const market = refs.filter(h => h.kind === 'MARKET_INTELLIGENCE');
+  if (market.length === 0) return null;
+
+  const RANK: Record<string, number> = { CURRENT: 0, AGING: 1, STALE: 2, UNKNOWN_DATE: 3 };
+  const best = market
+    .map(h => h.freshness ?? 'UNKNOWN_DATE')
+    .sort((a, b) => RANK[a] - RANK[b])[0];
+
+  const verdict = checkFreshnessLanguage(text, best, isNumeric);
+  if (verdict.ok) return null;
+  return verdict.reason === 'PRESENT_TENSE_ON_NON_CURRENT_EVIDENCE'
+    ? 'STALE_EVIDENCE_CANNOT_SUPPORT_CURRENT_CLAIM'
+    : 'UNDATED_EVIDENCE_CANNOT_SUPPORT_NUMERIC_CLAIM';
 }
 
 /**

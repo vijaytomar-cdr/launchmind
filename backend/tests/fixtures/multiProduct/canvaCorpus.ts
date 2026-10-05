@@ -22,13 +22,27 @@
  *     those are labelled SEARCH_EXTRACTED_PRIMARY rather than presented as directly
  *     fetched. en.wikipedia.org/wiki/Canva WAS directly fetched.
  *
- *   AUTHORITY CEILING — MEASURED, NOT ASPIRATIONAL:
- *     `authorityForCandidate()` has no branch that returns VERIFIED_EXTERNAL; the
- *     tier is marked "RESERVED — no producer exists today". Public-source
- *     provenance therefore falls to `default:` → DERIVED_INFERENCE. Every event
- *     below records that as its expected ceiling. This is recorded as the engine's
- *     real behaviour, not as the behaviour we wished for, and it is SAFE: public
- *     reporting can never outrank a founder statement or a first-party measurement.
+ *   AUTHORITY CEILING — RE-FROZEN 2026-08-16 (Phase 3.4B §14):
+ *     The paragraph that stood here said `authorityForCandidate()` had no branch
+ *     returning VERIFIED_EXTERNAL and that public-source provenance fell to
+ *     `default:` → DERIVED_INFERENCE. That STOPPED BEING TRUE when migration 107
+ *     and the matching `authorityPolicy` cases landed: `public_source_official`
+ *     now returns VERIFIED_EXTERNAL, and `publicSourceAuthority.test.ts` asserts
+ *     it. The fixture's frozen expectation had drifted BELOW the canonical
+ *     policy, so every official-source event was being checked against a ceiling
+ *     the engine no longer produces.
+ *
+ *     The corpus is re-frozen against canonical policy, NOT the other way round:
+ *       OFFICIAL_CANVA | OFFICIAL_DISTRIBUTION -> VERIFIED_EXTERNAL
+ *       REPUTABLE_SECONDARY | MARKET_COMMENTARY -> DERIVED_INFERENCE
+ *     No production authority semantics were changed to suit this file. The
+ *     superseded hash is recorded below rather than deleted.
+ *
+ *     The safety property is unchanged and is the reason this is a correction
+ *     rather than a weakening: VERIFIED_EXTERNAL still ranks BELOW
+ *     OBSERVED_FIRST_PARTY and below both founder tiers, and `mayAutoOverride`
+ *     requires strictly stronger authority — so public reporting still cannot
+ *     outrank a founder statement or a first-party measurement.
  *
  * @security Public information only. No founder data, no credentials, no private
  *   metrics. Nothing here may be written into a real owner's workspace.
@@ -92,7 +106,7 @@ export interface CanvaEvent {
   expected: {
     memoryClass: 'FACT' | 'LEARNING' | 'DECISION' | 'DIRECTIVE';
     /** Measured ceiling for public-source provenance — see file header. */
-    authorityCeiling: 'DERIVED_INFERENCE';
+    authorityCeiling: 'VERIFIED_EXTERNAL' | 'DERIVED_INFERENCE';
     scope: Record<string, string>;
     /** Gate A verdict this event should receive. */
     gateA: 'ELIGIBLE' | 'INELIGIBLE' | 'EVIDENCE_ONLY';
@@ -181,6 +195,21 @@ const NP_SEATS = src(
 // That was a corpus encoding defect, not an engine defect — recorded in the
 // report with both hashes rather than silently rewritten.
 const GLOBAL = { geography: 'global' };
+
+/**
+ * Mirrors `authorityPolicy.authorityForCandidate` for public-source kinds.
+ *
+ * OFFICIAL_* maps to `public_source_official` -> VERIFIED_EXTERNAL.
+ * Everything else maps to `public_source_reputable` -> DERIVED_INFERENCE.
+ * `publicSourceAuthority.test.ts` is the assertion that these stay in step.
+ */
+export function ceilingFor(
+  cls: SourceAuthorityClass,
+): 'VERIFIED_EXTERNAL' | 'DERIVED_INFERENCE' {
+  return cls === 'OFFICIAL_CANVA' || cls === 'OFFICIAL_DISTRIBUTION'
+    ? 'VERIFIED_EXTERNAL' : 'DERIVED_INFERENCE';
+}
+
 const ev = (
   id: string, era: CanvaEra, eventDate: string, category: ValidationCategory,
   claim: string, source: CanvaEvent['source'],
@@ -190,7 +219,9 @@ const ev = (
   id, era, eventDate, validFrom: eventDate, validTo, category, claim, source,
   expected: {
     memoryClass: expected.memoryClass ?? 'FACT',
-    authorityCeiling: 'DERIVED_INFERENCE',
+    // Derived from the publisher standing rather than hardcoded, so this file
+    // cannot drift away from canonical policy a second time.
+    authorityCeiling: ceilingFor(source.authorityClass),
     scope: expected.scope ?? GLOBAL,
     gateA: expected.gateA ?? 'ELIGIBLE',
     ...(expected.gateAReason ? { gateAReason: expected.gateAReason } : {}),
@@ -450,6 +481,15 @@ export function corpusHash(events: CanvaEvent[] = CANVA_CORPUS): string {
  */
 export const CANVA_CORPUS_HASH_V1_INVALID_SCOPE =
   'e54889fd212c420ff8dcca2eac91efac5cb6740ab9e82d8582407d10e3cbbaca';
+
+/**
+ * v2 hash, recorded for audit. That freeze asserted DERIVED_INFERENCE as the
+ * ceiling for EVERY event, including official first-party sources, which had
+ * drifted below canonical policy once migration 107 landed. Superseded by the
+ * 2026-08-16 re-freeze described in the file header; recorded, not deleted.
+ */
+export const CANVA_CORPUS_HASH_V2_STALE_AUTHORITY_CEILING =
+  '1abd376ffe7911b628bcbeb35987b8169a4268843afb89fcfd4029a7812735da';
 
 export const CANVA_CORPUS_HASH = corpusHash();
 

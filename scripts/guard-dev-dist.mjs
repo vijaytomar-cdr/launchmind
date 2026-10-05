@@ -24,17 +24,23 @@
  */
 
 import { existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIST = join(process.cwd(), '.next');
-const MARKER = join(DIST, 'BUILD_ID');
-
-if (existsSync(MARKER)) {
-  rmSync(DIST, { recursive: true, force: true });
+export function removeProductionBuildArtifacts(dist = join(process.cwd(), process.env.NEXT_DIST_DIR ?? '.next')) {
+  const marker = join(dist, 'BUILD_ID');
+  if (!existsSync(marker)) return false;
+  rmSync(dist, { recursive: true, force: true });
   console.log(
-    '[guard-dev-dist] Removed .next — it held a PRODUCTION build (BUILD_ID present).\n' +
+    `[guard-dev-dist] Removed ${dist} — it held a PRODUCTION build (BUILD_ID present).\n` +
     '                 A dev server started on those artifacts serves 404s for every\n' +
     '                 CSS chunk and renders the app unstyled.\n' +
     '                 For verification builds use: NEXT_DIST_DIR=.next-build npx next build',
   );
+  return true;
+}
+
+const isEntry = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isEntry) {
+  removeProductionBuildArtifacts();
 }

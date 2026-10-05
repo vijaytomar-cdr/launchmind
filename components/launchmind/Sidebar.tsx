@@ -1,7 +1,7 @@
 /**
  * @file Sidebar.tsx
  * @description Dashboard sidebar — matches LaunchMind_Production_UX_July18_2026(15) spec exactly.
- *   Navigation sections: COMMAND · EXECUTION · INTELLIGENCE · SYSTEM
+ *   Navigation sections: COMMAND · CREATE · EXECUTION · INTELLIGENCE · SYSTEM
  *   Background: dark forest-green gradient linear-gradient(180deg,var(--nav),#10201c)
  *   Uses @tabler/icons-react v3 (Icon prefix, not Tb).
  * @security Logout calls supabase.auth.signOut() client-side; cookie cleared by Supabase.
@@ -30,8 +30,7 @@ import {
   IconDatabase,
   IconNetwork,
   IconBolt,
-  IconRocket,
-} from '@tabler/icons-react';
+  IconRocket, IconSparkles,} from '@tabler/icons-react';
 
 type NavItem = {
   href: string;
@@ -56,9 +55,20 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    // CREATE, not EXECUTION. Content Studio publishes, launches, schedules and
+    // spends nothing — the governance model rests on content approval ≠ creative
+    // approval ≠ execution approval, and filing it under EXECUTION contradicted
+    // that in the navigation itself. Pairing it with Content Intelligence also
+    // matches the actual journey: decide what to say, then work on it.
+    section: 'CREATE',
+    items: [
+      { href: '/dashboard/intelligence/content', label: 'Content Intelligence', icon: IconSparkles },
+      { href: '/dashboard/content',     label: 'Content Studio', icon: IconPalette },
+    ],
+  },
+  {
     section: 'EXECUTION',
     items: [
-      { href: '/dashboard/content',     label: 'Content Studio', icon: IconPalette },
       { href: '/dashboard/campaigns',   label: 'Campaigns',      icon: IconSpeakerphone },
       { href: '/dashboard/calendar',    label: 'Calendar',       icon: IconCalendar },
       { href: '/dashboard/experiments', label: 'Experiments',    icon: IconFlask },

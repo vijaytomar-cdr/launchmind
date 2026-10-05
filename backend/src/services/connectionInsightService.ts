@@ -48,11 +48,24 @@ interface SignalRow {
 }
 
 /**
- * Apple's published median product-page conversion sits around 3–5% across
- * categories. 3.5% is used as the comparison point and is reported as the benchmark
- * in the evidence so the owner can see what the claim is measured against.
+ * A HEURISTIC REFERENCE POINT — not observed market data. (P1-15, ADR-069 §1.)
+ *
+ * MEASURED DEFECT: this constant was presented to owners as "the typical X% for
+ * the store" and appeared in `connection_insights.evidence` labelled
+ * "Store benchmark", carrying the same first-party provenance as the numbers
+ * Apple actually reported. It is neither: it is a round number chosen from a
+ * recollected 3–5% range, with no source record, no observation date and no
+ * citation. It is exactly the shape ADR-069 exists to govern.
+ *
+ * It is NOT deleted, because comparing against something is more useful to an
+ * owner than comparing against nothing, and deleting it would lose a real
+ * insight. It is RELABELLED so it can never again read as observed market
+ * evidence, and provenance for it is not fabricated. When a governed
+ * STORE_LISTING benchmark exists (3.4C), this is replaced by a sourced figure.
  */
-const APP_STORE_CONVERSION_BENCHMARK = 0.035;
+const APP_STORE_CONVERSION_REFERENCE = 0.035;
+/** Owner-facing wording. Never the word "benchmark" on its own. */
+const CONVERSION_REFERENCE_LABEL = 'General reference point (not measured market data)';
 
 /** Below this many page views the sample is too small to draw a conclusion from. */
 const MIN_PAGE_VIEWS_FOR_CONVERSION_CLAIM = 200;
@@ -112,17 +125,20 @@ export function deriveAppStoreInsights(signals: SignalRow[]): DerivedInsight[] {
 
     if (rate !== null && pageViews !== null && downloads !== null &&
         pageViews >= MIN_PAGE_VIEWS_FOR_CONVERSION_CLAIM) {
-      const delta = rate - APP_STORE_CONVERSION_BENCHMARK;
+      const delta = rate - APP_STORE_CONVERSION_REFERENCE;
       const below = delta < 0;
-      const relative = Math.abs(delta) / APP_STORE_CONVERSION_BENCHMARK;
+      const relative = Math.abs(delta) / APP_STORE_CONVERSION_REFERENCE;
 
       // Only claim a difference when it is material (>15% relative).
       if (relative > 0.15) {
         out.push({
           insightKey: 'app_store.conversion_vs_benchmark',
+          // The OBSERVED number is Apple's and is stated as such. The comparison
+          // point is stated as a general reference, so the sentence cannot be
+          // read as "the market was measured at 3.5%".
           headline: below
-            ? `Your App Store product page converts at ${pct(rate)} — below the typical ${pct(APP_STORE_CONVERSION_BENCHMARK)} for the store.`
-            : `Your App Store product page converts at ${pct(rate)} — above the typical ${pct(APP_STORE_CONVERSION_BENCHMARK)} for the store.`,
+            ? `Your App Store product page converts at ${pct(rate)} — below a general ${pct(APP_STORE_CONVERSION_REFERENCE)} reference point (not measured market data).`
+            : `Your App Store product page converts at ${pct(rate)} — above a general ${pct(APP_STORE_CONVERSION_REFERENCE)} reference point (not measured market data).`,
           detail: below
             ? `Apple reported ${pageViews.toLocaleString()} product-page views and ${downloads.toLocaleString()} downloads in this period. People are reaching your page but not installing, so the constraint is the page itself rather than demand.`
             : `Apple reported ${pageViews.toLocaleString()} product-page views and ${downloads.toLocaleString()} downloads in this period. The page is converting well, so additional reach is more likely to pay off than further page changes.`,
@@ -133,12 +149,13 @@ export function deriveAppStoreInsights(signals: SignalRow[]): DerivedInsight[] {
             { label: 'Product page views', value: pageViews },
             { label: 'Downloads', value: downloads },
             { label: 'Observed conversion', value: pct(rate) },
-            { label: 'Store benchmark', value: pct(APP_STORE_CONVERSION_BENCHMARK) },
-            { label: 'Difference', value: `${delta >= 0 ? '+' : ''}${pct(delta)}` },
+            { label: CONVERSION_REFERENCE_LABEL, value: pct(APP_STORE_CONVERSION_REFERENCE) },
+            { label: 'Difference vs reference point', value: `${delta >= 0 ? '+' : ''}${pct(delta)}` },
           ],
           sourceSignalIds: [conversionSignal.id],
           confidence: confidenceFromSample(pageViews),
-          method: 'downloads ÷ product page views, compared with a 3.5% App Store median',
+          method: 'downloads ÷ product page views, compared with an UNSOURCED 3.5% reference point — ' +
+                  'the conversion figure is measured by Apple; the comparison point is not measured and has no source record',
         });
       }
     }

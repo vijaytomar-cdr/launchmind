@@ -125,6 +125,65 @@ function TypeTag({ type }: { type: 'OBSERVATION' | 'INFERENCE' | 'RECOMMENDATION
   );
 }
 
+/**
+ * RECENTLY DECIDED — read-only history of settled owner decisions.
+ *
+ * Deliberately NOT another recommendation queue: no decision controls, no
+ * generation, muted styling so it reads as history rather than as a fresh
+ * priority. It exists so a decision the owner already made — and the current
+ * standing of the evidence behind it — remain visible after the live
+ * recommendation set has moved on.
+ */
+function RecentlyDecided({ items }: { items: GrowthBrainRecommendation[] }) {
+  if (!items || items.length === 0) return null;
+  const label: Record<string, string> = {
+    APPROVED: 'Approved', DISMISSED: 'Dismissed', DEFERRED: 'Saved for later',
+  };
+  return (
+    <section data-testid="recently-decided" style={{ marginBottom: 24 }}>
+      <h2 style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink3)', margin: '0 0 10px',
+        textTransform: 'uppercase', letterSpacing: '.08em' }}>Recently decided</h2>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {items.map((r, i) => (
+          <article key={r.id ?? i} style={{ ...CARD, padding: 14, background: 'var(--raised)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ background: 'var(--surface)', border: '1px solid var(--border2)',
+                color: 'var(--ink2)', borderRadius: 999, padding: '2px 8px', fontSize: 10,
+                fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase' }}>
+                {label[r.decisionStatus ?? ''] ?? r.decisionStatus}
+              </span>
+              {r.decidedAt ? (
+                <span style={{ fontSize: 11, color: 'var(--ink3)' }}>{String(r.decidedAt).slice(0, 10)}</span>
+              ) : null}
+              {r.executionStatus === 'READY_FOR_ACTION' ? (
+                <span style={{ fontSize: 11, color: 'var(--ink3)' }}>· awaiting action</span>
+              ) : null}
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--ink)', margin: '0 0 8px', fontWeight: 600 }}>{r.what}</p>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
+              {(r.supportedBy ?? []).map((p, k) => (
+                <li key={k} style={{ fontSize: 11, color: 'var(--ink2)', lineHeight: 1.5 }}>
+                  {p.kind === 'MARKET_INTELLIGENCE' && (
+                    <span style={{ display: 'inline-block', marginRight: 6, padding: '1px 6px',
+                      borderRadius: 999, fontSize: 9, fontWeight: 700, background: 'var(--blue2)',
+                      color: 'var(--blue)', border: '1px solid rgba(36,104,204,0.22)' }}>Market signal</span>
+                  )}
+                  <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{p.label}</span>
+                  {p.detail ? <span style={{ color: 'var(--ink3)' }}> — {p.detail}</span> : null}
+                  {p.currentLifecycleNotice ? (
+                    <span style={{ display: 'block', marginTop: 2, fontSize: 11, fontWeight: 650,
+                      color: 'var(--amber)' }}>⚠ {p.currentLifecycleNotice}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DecisionControls({ rec }: { rec: GrowthBrainRecommendation }) {
   const [status, setStatus] = useState(rec.decisionStatus ?? 'RECOMMENDED');
   const [exec, setExec]     = useState(rec.executionStatus ?? 'NOT_STARTED');
@@ -270,8 +329,35 @@ function TopPriorities({ data, loading }: { data: GrowthBrainRecommendations | n
               <ul style={{ listStyle: 'none', padding: '8px 0 0', margin: 0, display: 'grid', gap: 6 }}>
                 {r.supportedBy.map((p, k) => (
                   <li key={k} style={{ fontSize: 12, color: 'var(--ink2)', lineHeight: 1.5 }}>
+                    {/*
+                      Phase 3.4C: external market evidence is marked so the owner
+                      can tell at a glance what is an observation of the outside
+                      world and what is their own data. The label and detail
+                      already carry the store and the observation date; nothing
+                      internal (record ids, handles, independence keys, policy
+                      versions, authority internals) is rendered.
+                    */}
+                    {p.kind === 'MARKET_INTELLIGENCE' && (
+                      <span style={{
+                        display: 'inline-block', marginRight: 6, padding: '1px 6px',
+                        borderRadius: 999, fontSize: 10, fontWeight: 700,
+                        background: 'var(--blue2)', color: 'var(--blue)',
+                        border: '1px solid rgba(36,104,204,0.22)',
+                      }}>Market signal</span>
+                    )}
                     <span style={{ color: 'var(--ink)', fontWeight: 650 }}>{p.label}</span>
                     {p.detail ? <span style={{ color: 'var(--ink3)' }}> — {p.detail}</span> : null}
+                    {/*
+                      Phase 3.4C case G: the source's CURRENT standing, next to
+                      the historical fact. The recommendation itself is not
+                      rewritten — it still says what it said at the time.
+                    */}
+                    {p.currentLifecycleNotice ? (
+                      <span style={{
+                        display: 'block', marginTop: 3, fontSize: 11, fontWeight: 650,
+                        color: 'var(--amber)',
+                      }}>⚠ {p.currentLifecycleNotice}</span>
+                    ) : null}
                     {typeof p.evidenceCount === 'number' && p.evidenceCount > 0 && (
                       <span style={{ color: 'var(--ink3)' }}> · {p.evidenceCount} supporting record(s)</span>
                     )}
@@ -315,6 +401,8 @@ export default function GrowthBrainPage() {
   const [coverage, setCoverage] = useState<GrowthBrainCoverage | null>(null);
   const [recs, setRecs] = useState<GrowthBrainRecommendations | null>(null);
   const [recsLoading, setRecsLoading] = useState(true);
+  /** Settled decisions. Read-only; never merged into the live set. */
+  const [history, setHistory] = useState<GrowthBrainRecommendation[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [token,    setToken]    = useState('');
   const [productId, setProductId] = useState<string | null>(null);
@@ -360,6 +448,11 @@ export default function GrowthBrainPage() {
       api.intelligence.recommendations(session.access_token)
         .then(r => { setRecs(r); setRecsLoading(false); })
         .catch(() => setRecsLoading(false));
+      // Non-fatal: history is supplementary, so a failure here must not take
+      // the live recommendations down with it.
+      api.intelligence.recommendationHistory(session.access_token)
+        .then(h => setHistory(Array.isArray(h) ? h : []))
+        .catch(() => setHistory([]));
     });
   }, []);
 
@@ -433,6 +526,9 @@ export default function GrowthBrainPage() {
 
       {/* ── TOP PRIORITIES (Phase 3.3C) ─────────────────────────────────── */}
       <TopPriorities data={recs} loading={recsLoading} />
+
+      {/* ── RECENTLY DECIDED (Phase 3.4C) ───────────────────────────────── */}
+      <RecentlyDecided items={history} />
 
       {/* Page head */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>

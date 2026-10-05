@@ -1,0 +1,25 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import Fastify from 'fastify';
+import {studioRoutes} from '../src/routes/studio.route';
+import {discoverCatalog} from '../src/services/content/serviceCatalog';
+const state=vi.hoisted(()=>({product:null as any,writes:0,error:false,conflict:false,filters:[] as any[]}));
+vi.mock('../src/lib/aiPlatform',()=>({callSonnet:vi.fn(),callHaiku:vi.fn()}));
+vi.mock('../src/services/workspaceAuthService',()=>({resolveWorkspaceContext:async()=>({workspaceId:'w'})}));
+vi.mock('../src/lib/supabaseAdmin',()=>({getSupabaseAdmin:()=>({from:()=>{
+ let patch:any;const filters:any[]=[];
+ const result=()=>{state.filters=filters;if(patch){state.writes++;if(state.error)return {data:null,error:{code:'XX000'}};if(state.conflict)return {data:[],error:null};state.product={...state.product,...patch};return {data:[{id:state.product.id}],error:null};}return {data:state.product,error:null};};
+ const q:any={select:()=>q,eq:(k:any,v:any)=>{filters.push([k,v]);return q;},is:(k:any,v:any)=>{filters.push([k,v]);return q;},single:async()=>result(),update:(p:any)=>{patch=p;return q;},then:(resolve:any)=>Promise.resolve(result()).then(resolve)};return q;
+}})}));
+const id='18cd318b-77fb-4ccb-b26f-b51cadc0a6b0';let app:ReturnType<typeof Fastify>;
+beforeEach(async()=>{state.product={id,confirmed_icp:null,scraped_meta:{catalogDiscovery:{entries:discoverCatalog('<section><h2>Services</h2><h3>Plumbing</h3><h3>Electrical</h3></section>','https://example.com',id,'2026-09-06')}}};state.writes=0;state.error=false;state.conflict=false;app=Fastify();app.decorateRequest('jwtVerify',async function(this:any){this.user={sub:'owner'};});await app.register(studioRoutes);});
+afterEach(async()=>{await app.close();});
+const payload=(areas:string[]=[])=>({productId:id,expectedVersion:0,catalog:{entries:[{name:'Plumbing',kind:'SERVICE',serviceArea:areas.length?{city:areas.join(' '),state:'Arizona',country:'US'}:null}]}});
+const send=(body:any)=>app.inject({method:'POST',url:'/studio/governed/catalog/confirm',payload:body});
+it('rejects one-character area with its exact field path before any write',async()=>{const r=await send(payload(['P']));expect(r.statusCode).toBe(400);expect(r.json().fields['entries.0.serviceArea.city']).toContain('2');expect(state.writes).toBe(0);});
+it('saves valid owner areas with identity, version, actor, discovery and revision history',async()=>{const r=await send(payload(['Phoenix metro']));expect(r.statusCode).toBe(200);const first=state.product.confirmed_icp.serviceCatalog;expect(first.confirmedBy).toBe('owner');expect(first.confirmedAt).toBeTruthy();expect(first.version).toBe(1);expect(first.entries[0].discoveryProvenance.source).toBe('https://example.com');expect(state.filters).toContainEqual(['workspace_id','w']);expect(state.filters).toContainEqual(['id',id]);expect(state.filters).toContainEqual(['confirmed_icp',null]);
+ const next=payload(['Phoenix','Glendale']);next.expectedVersion=1;expect((await send(next)).statusCode).toBe(200);expect(state.product.confirmed_icp.serviceCatalog.version).toBe(2);expect(state.product.confirmed_icp.serviceCatalogHistory).toEqual([first]);});
+it('accepts explicitly unknown geography',async()=>{expect((await send(payload())).statusCode).toBe(200);expect(state.product.confirmed_icp.serviceCatalog.entries[0].fulfillmentGeographies).toEqual([]);});
+it('requires a current version and at least one selection',async()=>{const body:any=payload();delete body.expectedVersion;expect((await send(body)).statusCode).toBe(400);expect((await send({...payload(),catalog:{entries:[]}})).statusCode).toBe(400);expect(state.writes).toBe(0);});
+it('rejects stale version before attempting persistence',async()=>{expect((await send({...payload(),expectedVersion:1})).statusCode).toBe(409);expect(state.writes).toBe(0);});
+it('separates concurrent context change from database failures',async()=>{state.conflict=true;expect((await send(payload())).json().code).toBe('CATALOG_CONTEXT_CHANGED');state.conflict=false;state.error=true;const r=await send(payload());expect(r.statusCode).toBe(500);expect(r.json().code).toBe('CATALOG_SAVE_FAILED');});
+it('rejects the old comma-split geography payload before persistence',async()=>{const r=await send({productId:id,expectedVersion:0,catalog:{entries:[{name:'Plumbing',kind:'SERVICE',fulfillmentGeographies:['so focusing on Phoenix now']}]}});expect(r.statusCode).toBe(400);expect(r.json().fields.serviceArea).toContain('structured');expect(state.writes).toBe(0);});

@@ -85,6 +85,16 @@ export default defineConfig({
       },
     },
     {
+      // DEVELOPMENT SMOKE — not certification. Gated by tests/e2e-dev/
+      // dev-smoke-guard.mjs, which is deliberately NOT browser-cert-guard.mjs:
+      // this project runs against the real development account by design, and
+      // the certification guard exists to forbid exactly that.
+      name: 'dev-smoke',
+      testDir: './tests/e2e-dev',
+      testMatch: /(b5-development-smoke|owner-content-audit|owner-studio-audit|studio-discoverability|studio-switch|owner-inputs|owner-ux-cleanup|owner-ux-polish|owner-ux-micro|nav-grouping|owner-content-correction|owner-creative-intelligence|owner-density|morning-brief-ai-cmo|morning-brief-demo|harness-control|owner-baseline|brief-degradation|ux2-creative-review)\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
       // Active-business isolation certification against the REAL two-business
       // account. Needs TEST_EMAIL / TEST_PASSWORD; skips itself otherwise.
       name: 'cert',

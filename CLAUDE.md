@@ -854,7 +854,7 @@ Env:
   backend/src/server.ts loads .env.local (updated from .env.dev).
   .env.local has all 35 keys including CREATOMATE_API_KEY, ELEVENLABS_API_KEY,
     GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CUSTOM_SEARCH_ENGINE_ID, STABILITY_AI_KEY,
-    REPLICATE_API_TOKEN.
+    REPLICATE_API_KEY.
 
 Frontend — Weeks 9–20: COMPLETE
   All 12 dashboard screens implemented from launchmind-ux-slate-sage.html reference.
@@ -1451,7 +1451,7 @@ Milestone 12 — Production Hardening & Enterprise Readiness: COMPLETE (2026-07-
     ✅ Approval gate §1.5 and spend cap §1.6 server-enforced and tested
     ✅ 65 ADRs documenting all architecture decisions
     ⚠️ BLOCKING: Push migrations 035–061 to hosted Supabase before production traffic
-    ⚠️ Set ELEVENLABS_API_KEY + CREATOMATE_API_KEY + REPLICATE_API_TOKEN on Oracle VM
+    ⚠️ Set ELEVENLABS_API_KEY + CREATOMATE_API_KEY + REPLICATE_API_KEY on Oracle VM
     ⚠️ Create migration 062_production_indexes.sql (covering indexes for hot paths)
     ⚠️ Enable pgBouncer in Supabase + promote Upstash to paid plan before 100+ founders
     ⚠️ Publish privacy notice + designate India Grievance Officer (DPDP compliance)

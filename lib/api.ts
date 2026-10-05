@@ -25,6 +25,7 @@ export class ApiError extends Error {
      * a copy edit silently changed which recovery screen an owner saw.
      */
     public code?: string,
+    public fields?: Record<string,string>,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -59,7 +60,7 @@ async function request<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
-    throw new ApiError(response.status, body.error ?? response.statusText, body.code);
+    throw new ApiError(response.status, body.error ?? response.statusText, body.code, body.fields);
   }
 
   return response.json() as Promise<T>;
@@ -76,6 +77,262 @@ async function requestData<T>(
   const envelope = await request<{ ok: boolean; data: T; error?: string; code?: string }>(path, options);
   if (!envelope.ok) throw new ApiError(0, envelope.error ?? 'Request failed', envelope.code);
   return envelope.data;
+}
+
+/**
+ * What LaunchMind understood from an owner-directed request.
+ *
+ * `cannotProve` is the honest half: an owner may ask for a claim LaunchMind
+ * cannot substantiate, and this says so before anything is created.
+ */
+export interface OwnerDirectedInterpretation {
+  request: string;
+  objective: string;
+  audience: string;
+  message: string;
+  productRole: string;
+  whyThisFits: string[];
+  recommends: Array<{ channel: string; label: string; why: string }>;
+  stillNeeds: string[];
+  cannotProve: string[];
+  degraded: boolean;
+  /** Server-issued. Echoed back on apply and revalidated there. */
+  candidate: Record<string, unknown>;
+}
+
+/** One governed artifact, summarised for the Content Studio home. */
+export interface StudioHomeItem {
+  artifactId: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  channel: string;
+  variantLabel: string | null;
+  approved: boolean;
+  brandVersion: number | null;
+  /** Owner-safe sentence when something needs them. Null when nothing does. */
+  reason: string | null;
+  updatedAt: string;
+}
+
+/** Everything LaunchMind has created for one application. */
+export interface StudioHome {
+  planningWork?: Array<{id:string;service:string;concept:string;recommended:boolean;state:string;campaignId?:string}>;
+  product: { id: string; name: string } | null;
+  campaigns: Array<{
+    id: string; name: string; why: string; audience: string;
+    channels: string[]; artifactCount: number; needsAttentionCount: number;
+    approvedCount: number; readiness: string; createdAt: string;
+  }>;
+  needsAttention: StudioHomeItem[];
+  /** Current artifacts LaunchMind can repair without an owner decision. */
+  launchMindCanRepair: StudioHomeItem[];
+  readyForReview: StudioHomeItem[];
+  /** §16 — renders genuinely in flight. Usually empty, and that is correct. */
+  inProgress: Array<{ renderJobId: string; what: string; concept: string | null;
+    artifactId: string | null; startedAt: string }>;
+  approved: StudioHomeItem[];
+  /** Superseded package attempts; retained read-only and out of decision queues. */
+  earlierArtifacts: StudioHomeItem[];
+  recentCreative: Array<{
+    kind: string; imageUrl: string | null; artifactId: string | null;
+    contentVersion: number | null; brandVersion: number | null; createdAt: string;
+    /** False when the render had no approved product imagery to work from. */
+    usedProductImagery: boolean;
+  }>;
+  counts: { campaigns: number; artifacts: number; currentArtifacts: number;
+    earlierArtifacts: number; creative: number };
+}
+
+/** One image LaunchMind observed of the owner's product. */
+export interface OwnerProductAsset {
+  assetId: string;
+  kind: string;
+  sourceLabel: string;
+  previewUrl: string | null;
+  allowed: boolean;
+  canAllow: boolean;
+  blockedReason: string | null;
+  needsSafetyConfirmation: boolean;
+}
+
+/** One brand field, with where LaunchMind's belief came from. */
+export interface OwnerBrandField {
+  fieldKey: string;
+  label: string;
+  value: string | null;
+  confirmed: boolean;
+  provenanceLabel: string | null;
+  sourceLabel: string | null;
+  observed: boolean;
+}
+
+/** Where content should send people. Derived from own-product context only. */
+export interface DestinationOption {
+  id: string; label: string; url: string | null; detail: string; recommended: boolean;
+}
+
+/** A presenter the owner may choose. Generated — never a real person. */
+export interface ProviderPresenter {
+  providerAvatarId: string;
+  displayName: string;
+  previewUrl: string | null;
+}
+
+/** A stock voice the owner may choose. Never a cloned one. */
+export interface ProviderVoiceChoice {
+  providerVoiceId: string;
+  displayName: string;
+  language: string | null;
+  previewUrl: string | null;
+}
+
+export type VideoMode = 'PRODUCT_MOTION' | 'AVATAR_SPOKESPERSON' | 'VOICEOVER_CREATIVE';
+
+/**
+ * One rendered visual, as the owner sees it.
+ *
+ * Carries no provider id, model reference, prompt, seed or policy version —
+ * those are provider mechanics, not provenance, and the server never sends them.
+ */
+export interface CreativeRender {
+  renderJobId: string;
+  status: 'QUEUED' | 'RENDERING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+  creativeKind: string;
+  conceptLabel: string | null;
+  variantLabel: string | null;
+  contentVersionNumber: number;
+  brandKitVersion: number;
+  imageUrl: string | null;
+  widthPx: number | null;
+  heightPx: number | null;
+  createdAt: string;
+  provenance: string[];
+  notes: string[];
+  failureMessage: string | null;
+  approved: boolean;
+  approvedAt: string | null;
+  isCurrent: boolean;
+  approvedButSuperseded: boolean;
+  brandMovedOn: boolean;
+  qualityOutcome: 'READY_FOR_OWNER_REVIEW' | 'NEEDS_CREATIVE_REVISION' |
+    'ASSET_PROBLEM' | 'CONCEPT_DID_NOT_SURVIVE_RENDER' | 'NOT_ASSESSED';
+  qualitySummary: string | null;
+}
+
+/** One governed artifact, as the owner sees it. No enums, handles or prompts. */
+export interface WorkbenchArtifact {
+  id: string;
+  strategyId: string | null;
+  briefId: string | null;
+  productId: string | null;
+  channel: string;
+  variantLabel: string | null;
+  variantGroupId: string | null;
+  status: string;
+  content: Record<string, unknown>;
+  currentVersion: number;
+  approvedVersion: number | null;
+  brandVersion: number | null;
+  createdAt: string | null;
+  factualSafety: string;
+  brandFit: string;
+  needsAttention: string[];
+  whyCreated: string[];
+  proof: string[];
+  confirmationGaps: string[];
+  versions: Array<{ number: number; origin: string; brandVersion: number | null; createdAt: string | null }>;
+}
+
+export interface CampaignWorkbenchView {
+  campaign: { id: string; name: string; thesis: string; audience: string; productId: string };
+  artifacts: WorkbenchArtifact[];
+  package: Array<{ channel: string; quantity: number; state: string;
+    reason: string; blockedReason: string | null;
+    variants: Array<{ label: string; intent: string }> }>;
+}
+
+/** Owner-safe Content Intelligence projection. No internal governance terms. */
+export interface SignalFoundationView {
+  demandTournament?:import('@/backend/src/services/marketIntelligence/demandTournament').DemandTournament;
+  demandReadiness?:{configured:boolean;mode:string;confirmedCount:number;eligibleCount:number;geography:string|null;needsClearerArea:boolean;comparisonSupported:boolean;maxComparedServices:number;ready:boolean};
+  catalog:{version:number;confirmed:Array<{serviceArea?:import('@/backend/src/services/content/serviceGeography').ServiceArea|null;geographyStatus?:string;id:string;name:string;kind?:'PRODUCT'|'SERVICE'|'CATEGORY';status:string;source:string;fulfillmentGeographies:string[]}>;discovered:Array<{id:string;name:string;kind?:'PRODUCT'|'SERVICE'|'CATEGORY';status:string;source:string;fulfillmentGeographies:string[]}>;requiresCatalog:boolean;positioningGeographies:string[];geographyLimitation:string};
+  connections:Array<{provider:string;status:string;scope:string;lastSyncedAt:string|null}>;
+  ownedSignals:Array<{ref:string;provider:string;type:string;scope:string;freshness:string;applicability:string}>;
+  demandUnavailable:string;creativeLearning:string;readErrors:string[];
+}
+export interface GroundedContentRecommendation {
+  alternatives?:Array<NonNullable<GroundedContentRecommendation['selected']>>;
+  state?:'NEEDS_OWNER_INPUT'|'PLANNING_READY'|'INSUFFICIENT_EVIDENCE';reason?:string;requiredConfirmation?:string[];confidence?:string;foundation?:SignalFoundationView;
+  selected: { id: string; serviceId:string; productService: string; audience: string; geography: string; channel: string; timing: string;
+    problem: string; score: number; confidenceExplanation: string; whyNow: string[]; growthThesis: string;
+    evidence: Array<{ref:string;kind:string;label:string;detail:string|null;freshness:string|null}>;
+    learning: {workspace:string[];patterns:string[];limitation:string};
+    concepts: Array<{key:string;pattern:string;name:string;direction:string;opportunityId:string}>;
+    unavailable:string[]; dimensions:Array<{name:string;points:number|null;basis:string;reason:string}>;
+    brief: Record<string, unknown>;
+  } | null;
+  scoreExplanation:string;catalogLimitation:string;
+}
+export interface ContentIntelligenceView {
+  planningWork?:Array<{id:string;conceptKey:string;opportunityId:string;selectedAt:string}>;
+  groundedRecommendation?: GroundedContentRecommendation;
+  state: 'HAS_OPPORTUNITY' | 'NO_OPPORTUNITY' | 'NEEDS_CONTEXT' | 'NO_PRODUCT';
+  product: { id: string; name: string; category: string | null } | null;
+  opportunity: {
+    id: string; title: string; origin: string;
+    whyNow: string; whyNowKind: string; who: string; message: string;
+    objective: string; isShareabilityPlay: boolean;
+    /** Measured: this application has no governed content yet. */
+    isFirstStory: boolean;
+  } | null;
+  campaign: {
+    id: string; name: string; thesis: string; audience: string;
+    coreProblem: string | null; messageAngle: string; productRole: string | null;
+    primaryBenefit: string | null; objections: string[]; ctaIntent: string | null;
+    proofAvailable: string[]; proofUnavailable: string[];
+    package: Array<{ channel: string; quantity: number; state: string;
+      reason: string; blockedReason: string | null;
+      variants: Array<{ label: string; intent: string }>;
+      /** §7 — the action that would unblock this row. Null when it is ready. */
+      ownerAction: { label: string; detail: string;
+        target: 'DESTINATION' | 'BRAND' | 'MEDIA' | 'VIDEO_APPROACH' | 'PROOF' | 'NONE' } | null }>;
+    brandDirection: string;
+    strategyId: string | null;
+    briefIds: Record<string, string>;
+  } | null;
+  brand: { fields: Array<{ name: string; value: string | null; confirmed: boolean; note: string }>;
+           missing: string[] } | null;
+  needsFromYou: string[];
+  whyThis: string[];
+  /**
+   * §14 — what this recommendation has ALREADY produced.
+   *
+   * Null before anything exists. Once it does, the page must stop offering to
+   * create as though nothing happened.
+   */
+  created: {
+    total: number; ready: number; needsAttention: number; launchMindRepairing: number;
+    earlierCount: number;
+    concepts: Array<{ artifactId: string; name: string; status: 'READY' | 'NEEDS_ATTENTION' | 'REFINING';
+      attentionReason: string | null; updatedAt: string | null }>;
+    campaignId: string | null;
+  } | null;
+  /** Shorthand of the creative direction. Empty when none was applied. */
+  creativePatterns: string[];
+  /**
+   * §20 — the compact creative direction.
+   *
+   * Three words, one sentence, and what LaunchMind will NOT take from the
+   * category. Deliberately carries no pattern keys, source URLs, publishers or
+   * confidence bands: an owner cannot act on those and showing the sources
+   * turns a structural recommendation into a competitor gallery.
+   */
+  creativeDirection: {
+    recommends: string[];
+    why: string | null;
+    limitation: string | null;
+    notImitated: string[];
+  };
 }
 
 export const api = {
@@ -869,6 +1126,240 @@ export const api = {
       request<{ success: boolean }>(`/owner/notifications/${id}/read`, { method: 'PATCH', body: '{}', token }),
   },
 
+  /**
+   * Content Intelligence — the AI CMO decision surface (B5).
+   *
+   * `requestData` strips the ok() envelope. Everything here is an OWNER-SAFE
+   * projection: the server never sends evidence handles, authority tiers,
+   * policy versions or prompts, so the browser has nothing sensitive to leak.
+   */
+  contentIntelligence: {
+    planConcept: (body:{productId:string;opportunityId:string;conceptKey:string},token:string)=>request<{id:string;route:string;state:string}>('/studio/governed/planning',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:JSON.stringify(body)}),
+    preparePlanning: (id:string,token:string)=>request<{canGenerate:boolean;planningWorkId:string}>(`/studio/governed/planning/${id}/production-contract`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({})}),
+    generatePlanning: (id:string,token:string)=>request<{generation:{status:string;reason?:string};route?:string}>(`/studio/governed/planning/${id}/generate`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({})}),
+    planningWork: (id:string,token:string)=>request<{id:string;state:string;generation?:{status:string;reason?:string;assetId?:string;versionNumber?:number};content?:{content:Record<string,any>;versionNumber:number;status:string};visual?:{renderJobId:string;imageUrl:string;qualityOutcome:string;approved:boolean}|null;history?:Array<{version_number:number;change_type:string;change_summary?:string;created_at:string;current:boolean;approved:boolean;visual:boolean}>;handoff:Record<string,any>;decision:{recommendedConceptKey:string;ownerSelectedConceptKey:string;overridden:boolean;recommendationBasis:string[]};campaignId?:string|null;feasibility?:{state:'CURRENT'|'CANNOT_REFRESH';selected:{key:string;family:string;state:'READY'|'LIMITED'|'BLOCKED';ownerSummary:string;missing:string[]}|null;alternative:{key:string;family:string;state:string;ownerSummary:string}|null;shouldChangeDirection:boolean;alternativeName:string|null;ownerAction?:string;refreshed?:boolean}|null}>(`/studio/governed/planning/${id}`,{headers:{Authorization:`Bearer ${token}`}}),
+    saveServiceKnowledge: (body:{productId:string;serviceId:string;knowledge?:Record<string,string>;confirmHypothesisIds?:string[]},token:string)=>request<{saved:number}>('/studio/governed/service-knowledge',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:JSON.stringify(body)}),
+    editPlanning: (id:string,content:Record<string,unknown>,token:string)=>request<{assetId:string;versionNumber:number;artifact?:unknown;ownerState?:string;message?:string}>(`/studio/governed/planning/${id}/edit`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({content})}),
+    approvePlanning: (assetId:string,versionNumber:number,token:string,renderJobId?:string)=>request<{approvedVersion:number;artifact:unknown}>(`/studio/governed/artifact/${assetId}/approve`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({versionNumber,...(renderJobId?{renderJobId}:{})})}),
+    /**
+     * Regenerate or owner-edit ONE artifact through the governed route.
+     *
+     * Same endpoint for both: passing `editedContent` makes it an owner edit.
+     * There is no shortcut path — every route through here re-runs generation
+     * or re-governs the owner's text, then appends an immutable version.
+     */
+    reviseArtifact: (body: {
+      productId: string; campaignId: string; strategyId: string; briefId: string;
+      channel: 'GOOGLE_RSA' | 'META_AD' | 'LANDING_PAGE' | 'LINKEDIN_POST' | 'SHORT_FORM_VIDEO_SCRIPT';
+      assetId: string;
+      variantLabel?: string;
+      editedContent?: Record<string, unknown>;
+    }, token: string) =>
+      request<{ assetId: string; versionNumber: number | null; artifact?: unknown; ownerState?: 'READY_FOR_OWNER_REVIEW' | 'LAUNCHMIND_CAN_REPAIR' | 'NEEDS_OWNER_INPUT'; message?: string; copyRepairs?: number; visual?: { renderJobId?: string; imageUrl?: string } }>(
+        '/studio/governed/artifact',
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }),
+
+    /**
+     * Create the content LaunchMind recommends.
+     *
+     * The client sends INTENT plus server-issued lineage ids. Scope, brand,
+     * evidence and authorised assets are all derived server-side; blocked items
+     * are skipped with a reason rather than failing the whole package.
+     */
+    createRecommended: (body: {
+      productId: string; campaignId: string; strategyId: string;
+      briefIds: Record<string, string>; planOnly?: boolean;
+    }, token: string) =>
+      request<{
+        package: { campaignName: string; thesis: string; readyCount: number; blockedCount: number;
+          items: Array<{ channel: string; label: string; status: string; why: string;
+            blockedReason: string | null; count: number; variants: string[] }>;
+          reviewFirst: string | null; notes: string[] };
+        generated: Array<{ channel: string; variant: string | null; assetId: string | null;
+          version: number | null; status: string; needsAttention: string[] }>;
+        skipped: Array<{ channel: string; state: string; reason: string }>;
+        whyCreated: string[];
+      }>('/studio/governed/package',
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }),
+
+    /**
+     * Approve ONE immutable version.
+     *
+     * Content only. Grants no publish, launch, schedule, send or spend — the
+     * governed lane cannot record any of those.
+     */
+    approveVersion: (assetId: string, versionNumber: number, token: string, note?: string) =>
+      request<{ approvedVersion: number; artifact: unknown }>(
+        `/studio/governed/artifact/${assetId}/approve`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ versionNumber, ...(note ? { note } : {}) }) }),
+
+    /**
+     * Adjust an existing campaign's direction.
+     *
+     * `preview` writes nothing and returns what would change. `apply` appends a
+     * new strategy and brief set; content that already exists is untouched.
+     * Owner direction steers the message — it never becomes proof.
+     */
+    adjustDirection: (campaignId: string, body: {
+      productId: string;
+      mode: 'preview' | 'apply';
+      direction: {
+        audience?: string | null; messageEmphasis?: string | null; tone?: string | null;
+        ctaIntent?: string | null; channels?: string[] | null; note?: string | null;
+      };
+    }, token: string) =>
+      request<{
+        current?: { audience: string; message: string; ctaIntent: string | null;
+          channels: string[]; tone: string | null };
+        preview?: { changes: Array<{ field: string; before: string; after: string }>;
+          willRebuild: string[]; willNotChange: string[]; cannotProve: string[] };
+        applied?: Array<{ field: string; before: string; after: string }>;
+        strategyId?: string; briefIds?: Record<string, string>;
+        channels?: string[]; lineage?: string;
+      }>(`/studio/governed/campaign/${campaignId}/direction`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }),
+
+    /**
+     * Owner-directed content — "create something else".
+     *
+     * `interpret` returns what LaunchMind understood and writes nothing, so the
+     * owner reviews the interpretation before anything is created. `apply`
+     * commits it as opportunity → campaign → strategy → briefs.
+     */
+    ownerDirected: (body: {
+      productId: string; mode: 'interpret' | 'apply'; request: string;
+      candidate?: Record<string, unknown>;
+    }, token: string) =>
+      request<{
+        interpretation?: OwnerDirectedInterpretation;
+        opportunityId?: string; campaignId?: string; strategyId?: string;
+        briefIds?: Record<string, string>; channels?: string[];
+      }>('/studio/governed/owner-directed',
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }),
+
+    /**
+     * Create a visual for one governed artifact.
+     *
+     * Rendering is not publishing: this produces an image and a render record,
+     * and changes no campaign, schedule or spend. A failure returns an
+     * owner-safe sentence and leaves the content byte-identical.
+     */
+    generateVisual: (assetId: string, token: string, body?: {
+      qualityTier?: 'DRAFT' | 'PRODUCTION'; conceptLabel?: string; refinement?: string;
+      /** Composite your real screenshot and logo instead of letting a model draw them. */
+      useProductImages?: boolean;
+    }) =>
+      request<{ ownerState?: 'READY_FOR_OWNER_REVIEW' | 'LAUNCHMIND_CAN_REPAIR' | 'NEEDS_OWNER_INPUT'; message?: string; renderJobId: string; imageUrl: string | null; width: number | null;
+        height: number | null; provenance: string[]; notes: string[] }>(
+        `/studio/governed/artifact/${assetId}/visual`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body ?? {}) }),
+
+    /** Every render for one artifact, newest first. */
+    visuals: (assetId: string, token: string) =>
+      request<{ renders: CreativeRender[]; canRender: boolean }>(
+        `/studio/governed/artifact/${assetId}/visual`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+
+    /**
+     * Approve ONE rendered visual.
+     *
+     * Approves the picture only. It does not approve the copy, does not
+     * transfer to a later render, and authorises no publishing or spend.
+     */
+    approveVisual: (renderJobId: string, token: string, note?: string) =>
+      request<{ approvedRenderJobId: string; contentVersionNumber: number; grants: string }>(
+        `/studio/governed/visual/${renderJobId}/approve`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify(note ? { note } : {}) }),
+
+    /**
+     * Everything LaunchMind has created for the active application.
+     *
+     * The Content Studio home. No campaign id required — an owner cannot guess
+     * a uuid, so requiring one was never a navigation path.
+     */
+    studioHome: (token: string, productId?: string) =>
+      request<StudioHome>(
+        `/studio/governed/studio${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+
+    /** Product imagery LaunchMind has observed, and what may be done with it. */
+    productAssets: (token: string, productId?: string) =>
+      request<{ product: { id: string; name: string } | null; assets: OwnerProductAsset[];
+        newlyFound: number; note: string | null; renderableCount: number;
+        readinessNote: string | null; sourceRowCount: number }>(
+        `/studio/governed/product-assets${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+
+    /** Allow ONE observed image to be used in marketing. Publishes nothing. */
+    allowProductAsset: (assetId: string, token: string, confirmedNoPersonalData?: boolean) =>
+      request<{ allowed: boolean; grants: string }>(
+        `/studio/governed/product-assets/${assetId}/allow`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify(confirmedNoPersonalData ? { confirmedNoPersonalData: true } : {}) }),
+
+    /** What LaunchMind believes about the brand, and where each belief came from. */
+    brand: (token: string, productId?: string) =>
+      request<{ product: { id: string; name: string; category: string | null } | null;
+        brandVersion: number; fields: OwnerBrandField[]; confirmedCount: number }>(
+        `/studio/governed/brand${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+
+    /** Confirm ONE brand field. Never a whole kit at once. */
+    confirmBrandField: (body: { productId: string; fieldKey: string; value: string }, token: string) =>
+      request<{ confirmed: string; grants: string }>('/studio/governed/brand/confirm',
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }),
+
+    /** Destination options, derived from the owner's own site and listing. */
+    destinations: (token: string, productId?: string) =>
+      request<{ product: { id: string; name: string } | null;
+        options: DestinationOption[]; confirmed: string | null }>(
+        `/studio/governed/destination${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+
+    /** Presenters the owner may choose from. Never auto-selected. */
+    presenters: (token: string) =>
+      request<{ presenters: ProviderPresenter[]; available: boolean;
+        disclosure?: string; note?: string }>('/studio/governed/presenters',
+        { headers: { Authorization: `Bearer ${token}` } }),
+
+    /** Stock voices the owner may choose from. Cloned voices are never offered. */
+    voices: (token: string) =>
+      request<{ voices: ProviderVoiceChoice[]; available: boolean; note?: string }>(
+        '/studio/governed/voices', { headers: { Authorization: `Bearer ${token}` } }),
+
+    /**
+     * Create a short-form video for one governed script artifact.
+     *
+     * The presenter and voice are the owner's explicit choices. LaunchMind never
+     * picks a person. Rendering publishes nothing.
+     */
+    generateVideo: (assetId: string, token: string, body: {
+      mode: VideoMode;
+      avatar?: { providerAvatarId: string; displayName: string; previewUrl?: string | null };
+      voice?: { providerVoiceId: string; displayName: string; language?: string | null };
+    }) =>
+      request<{ renderJobId: string; videoUrl: string | null; durationMs: number | null;
+        provenance: string[]; notes: string[] }>(
+        `/studio/governed/artifact/${assetId}/video`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body) }),
+
+    /** Owner-safe workbench read model for ONE campaign (B5). */
+    campaign: (campaignId: string, token: string) =>
+      request<CampaignWorkbenchView>(`/studio/governed/campaign/${campaignId}`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+    confirmCatalog: (productId:string, entries:Array<{name:string;kind:'PRODUCT'|'SERVICE'|'CATEGORY';serviceArea:import('@/backend/src/services/content/serviceGeography').OwnerServiceAreaInput|null}>,token:string,expectedVersion:number) =>
+      request<{confirmed:number}>('/studio/governed/catalog/confirm',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:JSON.stringify({productId,expectedVersion,catalog:{entries}})}),
+    get: (token: string, productId?: string) =>
+      request<ContentIntelligenceView>(
+        `/studio/governed/intelligence${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+  },
+
   studio: {
     generate: (body: {
       productId: string;
@@ -1178,6 +1669,16 @@ export const api = {
      * Phase 3.3D — record an owner decision. The body carries only a verb; the
      * server re-reads everything it treats as authority from its own row.
      */
+    /**
+     * Phase 3.4C — settled owner decisions for the ACTIVE product.
+     *
+     * Read-only history from the immutable snapshot, with the source's CURRENT
+     * lifecycle resolved server-side. Not a second recommendation queue.
+     */
+    recommendationHistory: (token: string, workspaceId?: string) =>
+      requestData<GrowthBrainRecommendation[]>(
+        '/intelligence/recommendations/decisions', { token, workspaceId }),
+
     decideRecommendation: (
       id: string,
       body: { action: 'APPROVE' | 'DISMISS' | 'DEFER'; acknowledgeFounderConflict?: boolean; note?: string },
@@ -1980,7 +2481,14 @@ export interface BriefResponse {
   opportunities: Opportunity[];
   recentTimeline: TimelineEvent[];
   growthBrain: { hasStrategy: boolean; confidence: number | null; lastUpdated: string | null };
-  metrics: { weeklyInstalls: number | null; cpi: number | null; activeCampaigns: number; weekOverWeekInstallDelta: number | null };
+  metrics: { weeklyInstalls: number | null; cpi: number | null; activeCampaigns: number | null;
+    weekOverWeekInstallDelta: number | null; performanceDataAvailable: boolean;
+    performanceAsOf: string | null };
+  marketIntelligence?: {
+    available: boolean;
+    observations: Array<{ subject: string; relation: string; claim: string; source: string; observedAt: string | null; freshness: string }>;
+    reason: string | null;
+  };
   memories: Array<{ id: string; title: string; body: string | null; memoryType: string; confidence: number }>;
   phase1: {
     direction: {
@@ -2265,6 +2773,13 @@ export interface BenchmarkResult {
   topChannel:            string | null;
   signalCount:           number;
   period:                string;
+  /**
+   * P1-16. Optional only because a cached/older backend may omit it; the UI
+   * shows the disclosure regardless, so a missing field cannot silently remove
+   * it.
+   */
+  dataProvenance?:       'MAY_INCLUDE_SEEDED_REFERENCE_DATA';
+  provenanceNote?:       string;
 }
 
 export interface TrendSummary {
@@ -2722,6 +3237,11 @@ export interface GrowthBrainProvenanceItem {
   memoryClass?: string | null;
   evidenceCount?: number | null;
   detail?: string | null;
+  /**
+   * Phase 3.4C case G. Owner-safe note about the source's CURRENT standing,
+   * resolved at read time. Absent when the source is still active.
+   */
+  currentLifecycleNotice?: string | null;
 }
 
 export interface GrowthBrainRecommendation {
@@ -2738,6 +3258,8 @@ export interface GrowthBrainRecommendation {
   actionType?: string;
   decisionStatus?: 'RECOMMENDED' | 'APPROVED' | 'DISMISSED' | 'DEFERRED';
   executionStatus?: 'NOT_STARTED' | 'READY_FOR_ACTION';
+  /** Phase 3.4C — set on settled history rows. */
+  decidedAt?: string | null;
   expectedEffect: string | null;
   nextStep: string;
   requiresApproval: boolean;

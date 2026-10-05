@@ -71,6 +71,17 @@
   --violet:  #6956d9;
   --violet2: #efedff;
 
+  /* ── Product semantics — meaning, never decoration ─────────── */
+  --semantic-observed: var(--sage);
+  --semantic-observed-bg: var(--sage-d);
+  --semantic-intelligence: var(--ai);
+  --semantic-intelligence-bg: var(--ai-d);
+  --semantic-attention: var(--amber);
+  --semantic-attention-bg: var(--amber-d);
+  --semantic-attention-border: var(--amber-b);
+  --semantic-context: var(--ink3);
+  --semantic-context-bg: var(--raised);
+
   /* ── Radius ──────────────────────────────── */
   --r:      10px;
   --r1:     10px;   /* spec alias */
@@ -210,6 +221,8 @@
   border: 0;
 }
 
+@keyframes lm-spin { to { transform: rotate(360deg); } }
+
 .lm-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -231,6 +244,29 @@
   overflow: auto;
   outline: none;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+/*
+ * Visible focus, EVERYWHERE — not only inside dialogs.
+ *
+ * Found by the B5 development accessibility smoke: the ring below existed only
+ * under .lm-dialog-panel and on the business switcher, so tabbing through an
+ * ordinary page left a keyboard user with no idea where they were. :focus-visible
+ * keeps mouse users from seeing a ring they did not ask for.
+ */
+:is(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  /*
+   * !important is deliberate and is the only thing that works here. The sidebar
+   * and mobile nav items carry inline `all: unset`, which resets outline to its
+   * initial value at INLINE specificity — a normal stylesheet rule loses to it,
+   * so every navigation item had no visible focus at all. An author !important
+   * declaration outranks a non-important inline style, which is exactly the
+   * cascade level a ring that must never be removed belongs at.
+   *
+   * outline only — no border-radius, so this cannot alter any component's shape.
+   */
+  outline: 2px solid var(--sage) !important;
+  outline-offset: 2px !important;
 }
 
 /* Visible focus state is mandatory (spec §21) — never remove the ring. */
@@ -265,6 +301,16 @@
   /* Bottom actions go full width and stack. */
   .lm-dialog-actions { flex-direction: column; align-items: stretch; }
   .lm-dialog-actions > * { width: 100%; }
+}
+
+/* Studio review rows become a decision stack on phones. Keeping the desktop
+   min-widths in one flex row clipped the action label even though the page had
+   no formal horizontal overflow. */
+@media (max-width: 640px) {
+  .lm-studio-artifact-row { display: grid !important; grid-template-columns: 1fr !important; gap: 5px !important; }
+  .lm-studio-artifact-channel,
+  .lm-studio-artifact-copy { min-width: 0 !important; }
+  .lm-studio-artifact-action { justify-self: start; color: var(--sage) !important; }
 }
 
 /* Permission copy has a floor, regardless of viewport (spec §22). */

@@ -44,11 +44,42 @@ import {
 // ── Contract ─────────────────────────────────────────────────────────────────
 
 /** Current, authoritative state. Deterministic — never retrieved by similarity. */
+/**
+ * The strongest available description of what a product actually does.
+ *
+ * Order is deliberate and was chosen by looking at real data: a site's own meta
+ * description is written to explain the product, while an App Store listing
+ * blurb is written to describe the store page ("Download X. See screenshots,
+ * ratings and reviews…") and says nothing about the software.
+ *
+ * Exported so a narrow, later revalidation (checking a STORED artifact against
+ * CURRENT capability rules) reads the same authoritative source this package
+ * builds `authoritative.description` from, rather than a second copy of the
+ * same precedence rule that could silently drift from this one.
+ *
+ * @security Reads only what was observed at intake. Nothing here infers a
+ *   capability the product may not have.
+ */
+export function pickProductDescription(scraped: unknown): string | null {
+  const sm = (scraped ?? {}) as { description?: unknown; websiteMeta?: { description?: unknown } };
+  const site = sm.websiteMeta?.description;
+  if (typeof site === 'string' && site.trim().length > 20) return site.trim();
+  const store = sm.description;
+  if (typeof store !== 'string' || store.trim().length === 0) return null;
+  // A listing blurb is worse than nothing: it makes copy about the store page.
+  if (/^\s*download\b/i.test(store) || /see screenshots, ratings and reviews/i.test(store)) {
+    return null;
+  }
+  return store.trim();
+}
+
 export interface AuthoritativeContext {
   workspaceId: string;
   productId: string | null;
   productName: string | null;
   category: string | null;
+  /** What the application does, as observed at intake. Never owner-asserted fact. */
+  description: string | null;
   markets: string[];
   plan: string;
   tokenBalance: number | null;
@@ -72,6 +103,49 @@ export interface OperationalContext {
   activeCampaigns: Array<{ id: string; channel: string; market: string; status: string }>;
   recentMetrics: Array<{ channel: string; installs: number; cpi: number | null; weekStart: string }>;
   knowledgeNodes: Array<{ type: string; label: string; confidence: number }>;
+}
+
+/**
+ * Resolved external market evidence — Phase 3.4C, ADR-069.
+ *
+ * ONLY items that earned APPLICABLE + eligible for THIS product on THIS request.
+ * Non-applicable source rows are not carried at all: an item in this array is
+ * already a decision, not raw data the model is asked to filter.
+ *
+ * No database ids. `handleRef` is the per-request server-issued reference the
+ * model may cite, and it means nothing outside this package.
+ */
+export interface MarketEvidenceItem {
+  handleRef: string;
+  /** Owner-safe label. Never an internal id. */
+  label: string;
+  subject: string;
+  subjectRelation: 'OWN_PRODUCT' | 'CONFIRMED_COMPETITOR' | 'CATEGORY_CONTEXT' | 'UNRELATED';
+  observationType: string;
+  claim: string;
+  structuredValue: number | null;
+  unit: string | null;
+  provider: string;
+  observedAt: string | null;
+  publishedAt: string | null;
+  freshness: 'CURRENT' | 'AGING' | 'STALE' | 'UNKNOWN_DATE';
+  lifecycle: string;
+  authorityTier: string;
+  /** Needed by conflict/corroboration logic. Never rendered to the owner. */
+  independenceKey: string;
+  /** Set only when a cross-store link was deterministically proven. */
+  entityGroupKey: string | null;
+}
+
+/** How the market-intelligence arm behaved, so an empty array is explicable. */
+export interface MarketIntelligenceMetadata {
+  mode: 'OFF' | 'SHADOW' | 'ACTIVE';
+  subjectsInScope: number;
+  resolved: number;
+  eligible: number;
+  /** True only when at least one item is genuinely usable for THIS generation. */
+  available: boolean;
+  reason: string | null;
 }
 
 /** How retrieval went, persisted so a thin package can be explained later. */
@@ -102,6 +176,13 @@ export interface ContextPackageV2 {
   /** Full provenance retained — id, version, hash, arms, ranks (§3). */
   retrievedMemories: RetrievedMemory[];
   operational: OperationalContext;
+  /**
+   * Phase 3.4C. Empty in OFF/SHADOW, and empty in ACTIVE whenever nothing
+   * resolved as usable. `marketIntelligence.available` is the per-generation
+   * answer; the array length alone is not a substitute for it.
+   */
+  marketEvidence: MarketEvidenceItem[];
+  marketIntelligence: MarketIntelligenceMetadata;
 
   retrieval: RetrievalMetadata;
   budget: { total: number; used: number; memoryBudget: number; memoryUsed: number };
@@ -118,6 +199,98 @@ export interface BuildOptions {
   traceId?: string;
   /** Diagnostic builds skip persistence. */
   persist?: boolean;
+}
+
+interface MarketArm { items: MarketEvidenceItem[]; meta: MarketIntelligenceMetadata }
+
+/**
+ * Resolves external market evidence for ONE product.
+ *
+ * The pipeline is: which entities does this product own or confirm → what
+ * global evidence exists about exactly those → is each one applicable, ACTIVE
+ * and fresh enough HERE. Only survivors are carried, so the model is never
+ * handed evidence and asked to decide whether it applies.
+ *
+ * In OFF and SHADOW this returns nothing, by mode, before any read.
+ *
+ * @security The subject set is derived from the product's own rows, never from
+ *   a caller argument, so a wrong-entity or cross-workspace read has no input
+ *   to come through.
+ */
+async function buildMarketArm(
+  productId: string | null, workspaceId: string,
+): Promise<MarketArm> {
+  const [{ resolveMarketIntelligenceMode }, { resolveProductSubjects }, svc] = await Promise.all([
+    import('../../services/marketIntelligence/contract'),
+    import('../../services/marketIntelligence/subjectResolver'),
+    import('../../services/marketIntelligence/marketIntelligenceService'),
+  ]);
+
+  const mode = resolveMarketIntelligenceMode();
+  const off = (reason: string | null, extra: Partial<MarketIntelligenceMetadata> = {}): MarketArm => ({
+    items: [],
+    meta: { mode, subjectsInScope: 0, resolved: 0, eligible: 0, available: false, reason, ...extra },
+  });
+
+  if (mode !== 'ACTIVE') return off(null);
+  if (!productId) return off('No product in scope.');
+
+  const subjects = await resolveProductSubjects(productId);
+  if (subjects.allSubjectKeys.length === 0) {
+    return off('No store listing is known for this product or its confirmed competitors.');
+  }
+
+  const db = getSupabaseAdmin();
+  const { data: prod } = await db.from('products')
+    .select('category, markets').eq('id', productId).maybeSingle();
+  const row = (prod as { category?: string | null; markets?: string[] | null } | null) ?? null;
+
+  const resolved = await svc.resolveForProduct({
+    workspaceId, productId,
+    product: {
+      confirmedCompetitorSubjectKeys: subjects.confirmedCompetitorSubjectKeys,
+      ownSubjectKey: subjects.ownSubjectKey,
+      dims: { category: row?.category ?? null, geography: (row?.markets ?? [])[0] ?? null },
+    },
+    subjectKeys: subjects.allSubjectKeys,
+  });
+
+  const eligible = resolved.items.filter(i => i.verdict.evidenceHandleEligible);
+  const items: MarketEvidenceItem[] = eligible.map((i, n) => ({
+    handleRef: `mi${n + 1}`,
+    label: `${subjects.labels[i.record.subjectKey] ?? i.record.subjectLabel ?? 'A public listing'}` +
+           ` — ${i.record.sourceProvider === 'app_store' ? 'App Store' : 'Play Store'} observation`,
+    subject: subjects.labels[i.record.subjectKey] ?? i.record.subjectLabel ?? i.record.subjectKey,
+    subjectRelation: i.verdict.subjectRelation,
+    observationType: i.record.observationType,
+    claim: i.record.claimText,
+    structuredValue: i.record.structuredValue,
+    unit: i.record.unit,
+    provider: i.record.sourceProvider,
+    observedAt: i.record.observedAt,
+    publishedAt: i.record.publishedAt,
+    freshness: i.verdict.freshnessAtResolution,
+    lifecycle: i.record.lifecycleState,
+    authorityTier: i.record.authorityTier,
+    independenceKey: i.record.independenceKey,
+    entityGroupKey: i.record.entityGroupKey,
+  }));
+
+  return {
+    items,
+    meta: {
+      mode,
+      subjectsInScope: subjects.allSubjectKeys.length,
+      resolved: resolved.items.length,
+      eligible: items.length,
+      // The per-generation answer. Not "the table has rows", not "ACTIVE".
+      available: items.length > 0,
+      reason: items.length > 0 ? null
+        : resolved.items.length > 0
+          ? 'Market observations exist for this product, but none is currently applicable and fresh enough to use.'
+          : 'No market observations have been collected for this product yet.',
+    },
+  };
 }
 
 // ── Build ────────────────────────────────────────────────────────────────────
@@ -144,7 +317,7 @@ export async function buildContextPackageV2(opts: BuildOptions): Promise<Context
   ] = await Promise.all([
     db.from('founders').select('plan, token_balance').eq('id', opts.founderId).maybeSingle(),
     productId
-      ? db.from('products').select('id, name, category, markets, confirmed_icp').eq('id', productId).maybeSingle()
+      ? db.from('products').select('id, name, category, markets, confirmed_icp, scraped_meta').eq('id', productId).maybeSingle()
       : Promise.resolve({ data: null }),
     // Merged across rows WITHIN ONE BUSINESS: the delta editor writes a
     // session-less row while onboarding writes a session row, and taking only
@@ -212,7 +385,19 @@ export async function buildContextPackageV2(opts: BuildOptions): Promise<Context
     workspaceId: opts.workspaceId,
     productId,
     productName: (productRow?.name as string) ?? null,
-    category: (productRow?.category as string) ?? null,
+    // Falls back to the store's own category when the product row has none.
+    // INFERRED, never owner-confirmed: an App Store category is the shelf the
+    // store put it on, not a positioning decision the owner made.
+    category: (productRow?.category as string)
+      ?? ((productRow?.scraped_meta as { category?: unknown } | null)?.category as string | undefined)
+      ?? null,
+    // PRECEDENCE MATTERS HERE. products.scraped_meta.description is the App
+    // Store LISTING blurb — "Download X. See screenshots, ratings and
+    // reviews…" — which describes the store page, not the product. The real
+    // description is the site's own meta description, captured at intake one
+    // level down. Reading the listing blurb first is why generated content had
+    // nothing concrete to say about what the application does.
+    description: pickProductDescription(productRow?.scraped_meta),
     markets: (productRow?.markets as string[]) ?? [],
     plan: founderRow?.plan ?? 'free',
     tokenBalance: founderRow?.token_balance ?? null,
@@ -264,6 +449,19 @@ export async function buildContextPackageV2(opts: BuildOptions): Promise<Context
 
   const memoryUsed = memories.reduce((a, m) => a + estimateTokens(`${m.title} ${m.claim ?? ''}`), 0);
 
+  // ── Market intelligence (Phase 3.4C, ADR-069) ──────────────────────────────
+  // Sequential rather than in the batch above ON PURPOSE: subject resolution
+  // depends on the product row, and issuing a read for "all subjects" before
+  // knowing which subjects this product owns is how a cross-business read gets
+  // written. Non-fatal like every other optional source.
+  const market = await buildMarketArm(productId, opts.workspaceId).catch(
+    (err): MarketArm => {
+      Sentry.captureException(err, { tags: { service: 'contextPackageV2', arm: 'market' } });
+      return { items: [], meta: {
+        mode: 'OFF', subjectsInScope: 0, resolved: 0, eligible: 0,
+        available: false, reason: 'Market intelligence could not be read.' } };
+    });
+
   const pkg: ContextPackageV2 = {
     id: null,
     workspaceId: opts.workspaceId,
@@ -276,6 +474,8 @@ export async function buildContextPackageV2(opts: BuildOptions): Promise<Context
     founderContext,
     retrievedMemories: memories,
     operational,
+    marketEvidence: market.items,
+    marketIntelligence: market.meta,
     retrieval: {
       mode: retrieval?.mode ?? 'FAILED',
       degraded: retrieval?.degraded ?? true,

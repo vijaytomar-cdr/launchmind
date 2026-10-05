@@ -471,16 +471,28 @@ describe('insight derivation from real signals', () => {
     const labels = insights[0].evidence.map(e => e.label);
     expect(labels).toContain('Product page views');
     expect(labels).toContain('Downloads');
-    expect(labels).toContain('Store benchmark');
+    // P1-15: the comparison point is labelled as an UNSOURCED reference, not as
+    // a measured "Store benchmark". These assertions froze the dishonest wording,
+    // so they are updated to the corrected contract AND to forbid the old one —
+    // otherwise the fix could be reverted without any test noticing.
+    expect(labels).toContain('General reference point (not measured market data)');
+    expect(labels).not.toContain('Store benchmark');
     expect(insights[0].sourceSignalIds).toEqual(['s-conversion']);
     expect(insights[0].method).toMatch(/downloads ÷ product page views/);
+    expect(insights[0].method).toMatch(/UNSOURCED/);
+    // The OBSERVED figure is still Apple's and is still stated plainly.
+    expect(insights[0].headline).toMatch(/not measured market data/);
   });
 
   it('recognises above-benchmark conversion and changes the recommendation', () => {
     const insights = deriveAppStoreInsights([
       sig('conversion', { value: 0.06, product_page_views: 3000, downloads: 180 }),
     ]);
-    expect(insights[0].headline).toMatch(/above the typical/);
+    expect(insights[0].headline).toMatch(/above a general/);
+    expect(insights[0].headline).toMatch(/not measured market data/);
+    // "the typical X% for the store" asserted a market measurement that has no
+    // source record behind it. It must not come back.
+    expect(insights[0].headline).not.toMatch(/the typical/);
     expect(insights[0].recommendedFocus).toMatch(/[Rr]each/);
   });
 

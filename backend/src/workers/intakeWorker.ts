@@ -126,7 +126,13 @@ export function startIntakeWorker(): void {
 
         await job.updateProgress({ status: 'building_icp', pct: 90 });
 
-        // Attach permanent storage URLs to scraped_meta so contentService can use real images
+        // Attach permanent storage URLs to scraped_meta as OBSERVATION ONLY.
+        //
+        // These are downloaded from store listings, website markup and (when a
+        // key is configured) Google image search. contentService NO LONGER
+        // reads this array: since ADR-071 §18 / migration 116, creative use goes
+        // through resolveMarketingAssets(), which returns only owner-authorised
+        // assets. Storing an image here grants nothing, and that is the point.
         const scrapedWithImages = marketingImages.length > 0
           ? { ...scraped, marketingImages }
           : scraped;

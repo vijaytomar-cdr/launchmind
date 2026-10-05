@@ -842,23 +842,18 @@ export async function channelsRoutes(server: FastifyInstance): Promise<void> {
           .maybeSingle();
         const productId = (prod as { id?: string } | null)?.id ?? null;
 
-        // Market intelligence counts as AVAILABLE only when a real benchmark
-        // resolves for this product's own category/market. It is never assumed,
-        // and an absent cohort reports false rather than borrowing another's.
-        let marketIntelligenceAvailable = false;
-        const category = (prod as { category?: string | null } | null)?.category ?? null;
-        if (category) {
-          try {
-            const { getBenchmarks } = await import('../services/intelligenceNetworkService');
-            const markets = ((prod as { markets?: string[] | null } | null)?.markets ?? []);
-            const market = markets[0]?.includes('india') ? 'india' : 'usa';
-            marketIntelligenceAvailable = (await getBenchmarks(category, market)) != null;
-          } catch { marketIntelligenceAvailable = false; }
-        }
-
+        // Phase 3.4C: availability is NOT computed here any more.
+        //
+        // It used to come from `getBenchmarks()`, which reads `playbook_signals`
+        // — 56 SEEDED SYNTHETIC rows with no source, no dates and no subject
+        // entity. That path could report "market intelligence available" for a
+        // product about which nothing external had ever been observed. The
+        // per-generation verdict now lives where the evidence is actually
+        // resolved (ContextPackageV2), so synthetic playbook data has no route
+        // to the flag at all.
         const { generateGrowthBrainRecommendations } = await import('../services/growthBrainRecommendationService');
         const result = await generateGrowthBrainRecommendations({
-          workspaceId: ctx.workspaceId, founderId, productId, marketIntelligenceAvailable,
+          workspaceId: ctx.workspaceId, founderId, productId,
         });
 
         // Phase 3.3D: persist so each recommendation has SERVER identity the
@@ -899,9 +894,17 @@ export async function channelsRoutes(server: FastifyInstance): Promise<void> {
           };
         });
 
+        // Phase 3.4C case G. The frozen snapshot says what LaunchMind used and
+        // when; this adds what has happened to that source SINCE. Display-only:
+        // `supportedBy` is an input to the fingerprint, so nothing is persisted
+        // and recommendation identity is untouched.
+        const { annotateHistoricalProvenance } =
+          await import('../services/marketIntelligence/historicalProvenance');
+        const disclosed = await annotateHistoricalProvenance(productId, withIdentity);
+
         return reply.send({
           ok: true,
-          data: { ...result, recommendations: withIdentity },
+          data: { ...result, recommendations: disclosed },
           workspaceId: ctx.workspaceId,
         });
       } catch (err) {
@@ -1004,8 +1007,15 @@ export async function channelsRoutes(server: FastifyInstance): Promise<void> {
         const ctx = await resolveWorkspaceContext(
           (request.user as { sub: string }).sub,
           typeof hint === 'string' && hint ? hint : undefined);
-        const { listRecommendationDecisions } = await import('../services/growthBrainDecisionService');
-        return reply.send({ ok: true, data: await listRecommendationDecisions(ctx), workspaceId: ctx.workspaceId });
+        // ONE composition, shared with the regression test. The route used to
+        // assemble product scope + churn dedup + lifecycle overlay inline while
+        // the test re-implemented it, so removing the overlay HERE would not
+        // have failed anything.
+        const { listSettledHistory } =
+          await import('../services/marketIntelligence/historicalProvenance');
+        const disclosed = await listSettledHistory(ctx.workspaceId);
+
+        return reply.send({ ok: true, data: disclosed, workspaceId: ctx.workspaceId });
       } catch (err) {
         if (err instanceof WorkspaceAccessError) {
           return reply.status(404).send({ ok: false, error: 'Not found', code: err.code });

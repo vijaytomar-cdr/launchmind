@@ -1,0 +1,1 @@
+self.__NEXT_FONT_MANIFEST="{\"pages\":{},\"app\":{\"/Users/vtomar/opt/launchMind/app/layout\":[\"static/media/d7df244fe7b07b95-s.p.woff2\",\"static/media/0e96d314a90a6138-s.p.woff2\",\"static/media/b7ea2ab4a8ad1f81-s.p.woff2\",\"static/media/e4af272ccee01ff0-s.p.woff2\",\"static/media/8a1d8947e5852e30-s.p.woff2\"]},\"appUsingSizeAdjust\":true,\"pagesUsingSizeAdjust\":false}"

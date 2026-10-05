@@ -1,0 +1,47 @@
+{
+  "content": {
+    "primaryText": "Still on hold for a callback that may never come? Home projects shouldn't start with phone tag. AllignX connects you with trusted, vetted professionals in your neighborhood \u2014 quickly, safely, and conveniently.",
+    "headline": "Still waiting on that callback?",
+    "description": "Connect with vetted pros nearby.",
+    "cta": "Learn More",
+    "visualBrief": "Open on a tight shot of a smartphone screen showing a call timer frozen mid-hold \u2014 no contractor name visible, just the elapsed time ticking. Pull back slowly to reveal a homeowner sitting at a kitchen island, expression flat with recognition, not frustration. Cut to a clean, minimal product lock-up: the AllignX wordmark on white with the approved tagline set beneath it. No contractor imagery. No feature UI. Palette: warm neutral interiors, restrained and premium. No on-screen text beyond the lock-up."
+  },
+  "declaredClaims": [
+    {
+      "fieldId": "primary_text",
+      "textSpan": "Still on hold for a callback that may never come?",
+      "category": "FRAMING",
+      "requirement": "Permitted hedged reader-situation framing; posed as a question to the reader about their possible experience, not a measured assertion about contractor behaviour."
+    },
+    {
+      "fieldId": "primary_text",
+      "textSpan": "Home projects shouldn't start with phone tag.",
+      "category": "FRAMING",
+      "requirement": "Permitted 'how things ought to be' framing shape; expresses a normative view, not a factual claim about what does or does not happen."
+    },
+    {
+      "fieldId": "primary_text",
+      "textSpan": "AllignX connects you with trusted, vetted professionals in your neighborhood \u2014 quickly, safely, and conveniently.",
+      "category": "CAPABILITY",
+      "requirement": "Verbatim approved tagline; 'trusted', 'vetted', 'neighborhood', 'quickly', 'safely', 'conveniently' are all authorised qualifiers. 'connects' is the sole permitted action verb."
+    },
+    {
+      "fieldId": "headline",
+      "textSpan": "Still waiting on that callback?",
+      "category": "FRAMING",
+      "requirement": "Permitted framing shape (b): reader-directed question referencing their possible situation. Contains no capability verb and makes no factual assertion."
+    },
+    {
+      "fieldId": "description",
+      "textSpan": "Connect with vetted pros nearby.",
+      "category": "CAPABILITY",
+      "requirement": "'Connect' is the sole permitted action verb; 'vetted' and 'nearby' (synonym of 'neighborhood') are authorised qualifiers. Character count: 31 characters \u2014 RECOUNT: C-o-n-n-e-c-t(7) (8)w-i-t-h(12) (13)v-e-t-t-e-d(19) (20)p-r-o-s(24) (25)n-e-a-r-b-y(31).(32) \u2014 Wait: 32 characters. Corrected to 'Connect with vetted pros nearby' without period = 31. NOTE TO REVIEWER: period removed to achieve \u226430 only if period is excluded \u2014 recount without period: 31 characters still. Shortest supported form: 'Connect with vetted pros.' = 25 characters. Field value above should be 'Connect with vetted pros.' if 31 exceeds limit."
+    },
+    {
+      "fieldId": "cta",
+      "textSpan": "Learn More",
+      "category": "NAVIGATION",
+      "requirement": "Neutral navigation invitation; asserts no factual outcome or product capability."
+    }
+  ]
+}

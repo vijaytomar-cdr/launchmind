@@ -33,6 +33,7 @@ import {
   type EvidenceHandle,
 } from './growthBrainOutputGrounding';
 import { z } from 'zod';
+import { sanitizeOwnerText, sanitizeOwnerFields } from './ownerTextBoundary';
 
 /** What kind of statement this is. Never inferred from wording. */
 export const INFO_TYPES = ['OBSERVATION', 'INFERENCE', 'RECOMMENDATION'] as const;
@@ -596,15 +597,18 @@ export interface RecommendationRequest {
 export async function generateGrowthBrainRecommendations(
   req: RecommendationRequest,
 ): Promise<GrowthBrainRecommendations> {
-  // §10 HONESTY: availability means CONSUMABLE, not merely resolvable. A
-  // benchmark that exists in intelligence_network but never enters the context
-  // package cannot support any recommendation, so reporting it as available
-  // would be a dishonest flag. No MARKET_INTELLIGENCE handle is issued today,
-  // so this is false regardless of what the caller resolved. The caller's value
-  // is retained as the upstream signal for when the subsystem lands (P1-5).
-  const benchmarkResolvable = req.marketIntelligenceAvailable === true;
-  const marketIntel = false as boolean;
-  void benchmarkResolvable;
+  // §10 HONESTY, unchanged in intent and now computed rather than hardcoded.
+  //
+  // Availability means CONSUMABLE for THIS product on THIS generation. It is
+  // decided AFTER the package is built, from what actually resolved as
+  // applicable, ACTIVE, fresh enough and handle-eligible — never from "the mode
+  // is ACTIVE", "a provider is configured" or "the table has rows".
+  //
+  // The caller's `marketIntelligenceAvailable` hint is DELIBERATELY IGNORED. It
+  // was computed from `getBenchmarks()`, i.e. from seeded synthetic
+  // `playbook_signals`, and honouring it would let synthetic playbook data
+  // announce itself as verified market intelligence (frozen case X/Y).
+  void req.marketIntelligenceAvailable;
 
   const pkg = await buildContextPackageV2({
     workspaceId: req.workspaceId,
@@ -619,6 +623,10 @@ export async function generateGrowthBrainRecommendations(
   // The ONLY evidence the model may cite. Issued per request from this
   // package, so a handle for another business cannot resolve.
   const handles = issueEvidenceHandles(pkg);
+  // The package's own per-generation verdict. `marketEvidence` is non-empty
+  // only when at least one item survived applicability, lifecycle and freshness
+  // for this product, so this cannot be true on an empty or unusable set.
+  const marketIntel = pkg.marketIntelligence.available === true && pkg.marketEvidence.length > 0;
   const evidenceStrength = deriveEvidenceStrength(pkg);
   const unavailable = deriveUnavailable(pkg, marketIntel);
 
@@ -669,6 +677,17 @@ export async function generateGrowthBrainRecommendations(
     const grounded = groundClaims(r.supporting, handles);
     withheld.push(...grounded.dropped.map(d => ({ reason: d.reason })));
 
+    // P1-20. The owner-text boundary, applied AFTER grounding and BEFORE the
+    // recommendation is assembled. Grounding validates WHICH handles a claim
+    // cites; it never looked at the prose, so inline citation markers reached
+    // the owner verbatim. Structured refs are untouched here — only the text.
+    const cleanedClaims: typeof grounded.claims = [];
+    for (const c of grounded.claims) {
+      const v = sanitizeOwnerText(c.text);
+      if (v.rejected) { withheld.push({ reason: 'INTERNAL_CITATION_IN_OWNER_TEXT' }); continue; }
+      cleanedClaims.push({ ...c, text: v.text });
+    }
+
     // Recommendation-level refs are the union of what actually resolved, plus
     // anything the recommendation itself cited and that resolved. Nothing else
     // is ever attached, so unrelated real evidence cannot appear as support.
@@ -686,7 +705,24 @@ export async function generateGrowthBrainRecommendations(
       continue;
     }
 
-    const conflict = detectFounderConflict(`${r.what} ${r.whyNow}`, handles);
+    const owner = sanitizeOwnerFields({
+      what: r.what, whyNow: r.whyNow, nextStep: r.nextStep,
+      expectedEffect: r.expectedEffect ?? '',
+    });
+    // `what`, `whyNow` and `nextStep` ARE the recommendation. If a citation
+    // survives in any of them the card cannot be shown at all.
+    if (owner.rejected.some(f => f !== 'expectedEffect')) {
+      withheld.push({ reason: 'INTERNAL_CITATION_IN_OWNER_TEXT' });
+      continue;
+    }
+    // expectedEffect is optional, so it is dropped rather than taking the whole
+    // recommendation down with it.
+    const expectedEffect = owner.rejected.includes('expectedEffect')
+      ? null : (owner.values.expectedEffect || null);
+
+    // Conflict detection runs on the CLEANED text, so removing a marker can
+    // never change whether a founder conflict is found.
+    const conflict = detectFounderConflict(`${owner.values.what} ${owner.values.whyNow}`, handles);
 
     recommendations.push({
       type: 'RECOMMENDATION',
@@ -695,8 +731,8 @@ export async function generateGrowthBrainRecommendations(
       ownerActionIntent: resolveOwnerActionIntent(r.actionType, r.ownerActionIntent),
       actionTarget: resolveActionTarget(
         resolveOwnerActionIntent(r.actionType, r.ownerActionIntent), r.actionTarget),
-      what: r.what,
-      whyNow: r.whyNow,
+      what: owner.values.what,
+      whyNow: owner.values.whyNow,
       supportedBy: [...cited.values()].map(h => ({
         kind: h.kind as ProvenanceItem['kind'],
         label: h.label,
@@ -705,13 +741,13 @@ export async function generateGrowthBrainRecommendations(
         evidenceCount: h.evidenceCount ?? null,
         detail: h.detail ?? (h.authority ? authorityLabel(h.authority === 'UNKNOWN_LEGACY' ? null : h.authority) : null),
       })),
-      supporting: grounded.claims.map(c => ({ type: c.type, text: c.text })),
+      supporting: cleanedClaims.map(c => ({ type: c.type, text: c.text })),
       founderConflict: conflict ? { withDirection: conflict.label } : null,
       // A conflicting recommendation is surfaced for the founder to settle,
       // never returned as established guidance.
       requiresFounderReview: conflict !== null,
-      expectedEffect: r.expectedEffect,
-      nextStep: r.nextStep,
+      expectedEffect,
+      nextStep: owner.values.nextStep,
       requiresApproval: REQUIRES_APPROVAL[r.actionType] || conflict !== null,
       evidenceStrength,
       confidence: null,

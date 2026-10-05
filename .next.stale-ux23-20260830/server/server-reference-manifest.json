@@ -1,0 +1,14 @@
+{
+  "node": {
+    "9ca7b9702888325216aa037e3131be2ac95571f0": {
+      "workers": {
+        "app/(auth)/login/page": "(action-browser)/./node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2Fvtomar%2Fopt%2FlaunchMind%2Fapp%2F(auth)%2Flogin%2Factions.ts%22%2C%5B%22signInAction%22%5D%5D%5D&__client_imported__=true!"
+      },
+      "layer": {
+        "app/(auth)/login/page": "action-browser"
+      }
+    }
+  },
+  "edge": {},
+  "encryptionKey": "1xWvh6LMZF/Ji/76nVwlaK+itK/SbMPXgpmDBAGWHFM="
+}

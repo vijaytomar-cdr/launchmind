@@ -10,6 +10,7 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { api, ApiError } from '@/lib/api';
 import { trackOnboarding } from '@/lib/analytics';
@@ -17,6 +18,7 @@ import { trackOnboarding } from '@/lib/analytics';
 const STAR_COUNT = 5;
 
 export function FeedbackWidget() {
+  const pathname = usePathname();
   const supabase = createClient();
 
   const [open, setOpen] = useState(false);
@@ -71,6 +73,13 @@ export function FeedbackWidget() {
   }
 
   const displayRating = hovered || rating;
+
+  // These owner decision/workbench surfaces already have focused interactions.
+  // Keep product feedback elsewhere without floating over their primary work.
+  const suppressHere = pathname === '/dashboard/brief'
+    || pathname === '/dashboard/intelligence/content'
+    || pathname === '/dashboard/content';
+  if (suppressHere) return null;
 
   return (
     <>

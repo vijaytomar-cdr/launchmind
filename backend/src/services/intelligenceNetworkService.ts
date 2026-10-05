@@ -36,7 +36,28 @@ export interface BenchmarkResult {
   topChannel: string | null;
   signalCount: number;
   period: string;
+  /**
+   * P1-16. Disclosure travels with the DATA, not with the UI.
+   *
+   * MEASURED DEFECT: the only synthetic disclosure lived in the market page and
+   * was gated on `signalCount < 20` — i.e. on COHORT SIZE, not on whether the
+   * data was real. A category that accumulated seeded rows past 20 lost the
+   * label and read as measured market data.
+   *
+   * `playbook_signals` carries no provenance column, so LaunchMind genuinely
+   * CANNOT separate the 52 seeded reference rows from rows written by
+   * briefService after a real campaign. Saying so is the honest answer; the
+   * disclosure is therefore UNCONDITIONAL until a provenance marker exists.
+   * Placing it on the response means a UI change cannot drop it.
+   */
+  dataProvenance: 'MAY_INCLUDE_SEEDED_REFERENCE_DATA';
+  provenanceNote: string;
 }
+
+/** The one wording. Kept next to the field so the two cannot drift apart. */
+export const BENCHMARK_PROVENANCE_NOTE =
+  'Includes seeded reference data. These figures are not a measurement of your ' +
+  'market and LaunchMind cannot currently separate seeded rows from reported ones.';
 
 export interface TrendSummary {
   category: string;
@@ -144,6 +165,8 @@ export async function getBenchmarks(
       topChannel,
       signalCount: rows.length,
       period: 'all_time',
+      dataProvenance: 'MAY_INCLUDE_SEEDED_REFERENCE_DATA',
+      provenanceNote: BENCHMARK_PROVENANCE_NOTE,
     };
   } catch (err) {
     Sentry.captureException(err, { tags: { service: 'intelligenceNetwork', fn: 'getBenchmarks' } });

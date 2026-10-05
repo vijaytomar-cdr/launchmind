@@ -19,16 +19,18 @@
  *   --full also removes the founder, workspace and product (then re-seed).
  */
 
+import { assertIsolatedCertificationEnv } from './cert-env-guard.mjs';
+
 const URL     = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321';
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const EMAIL   = process.env.TEST_EMAIL ?? 'staging@launchmind.test';
 const FULL    = process.argv.includes('--full');
 
-if (!/127\.0\.0\.1|localhost/.test(URL)) {
-  console.error(`REFUSED: SUPABASE_URL is not local (${URL}).`);
-  console.error('staging-reset issues DELETEs and only ever runs against a local stack.');
-  process.exit(1);
-}
+// ── Guard: LOCAL_ISOLATED_CERTIFICATION only (docs/environment-contract.md §B) ──
+assertIsolatedCertificationEnv({
+  command: 'staging:reset',
+  urls: { 'Supabase': URL },
+});
 if (!SERVICE) { console.error('REFUSED: SUPABASE_SERVICE_ROLE_KEY is not set.'); process.exit(1); }
 
 const H = { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, 'Content-Type': 'application/json' };
